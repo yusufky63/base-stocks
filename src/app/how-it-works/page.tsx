@@ -56,6 +56,8 @@ export default function HowItWorksPage() {
     <div className="flex flex-col gap-8">
       <section className="hero-fx border border-line rounded-[8px] ticks bg-canvas overflow-hidden">
         <Dither className="fx-layer" pixelSize={5} opacity={0.22} speed={0.25} mouseRadius={120} />
+        {/* Readability scrim, same as the home hero: solid canvas under the copy, dots fading in to the right. */}
+        <div aria-hidden className="fx-layer pointer-events-none absolute inset-0 bg-gradient-to-r from-canvas from-25% via-canvas/70 via-65% to-transparent" />
         <div className="fx-content p-6 md:p-12">
           <div className="eyebrow mb-3">How it works</div>
           <h1 className="display text-[40px] md:text-[64px] leading-[0.92] max-w-[16ch]">
@@ -69,6 +71,7 @@ export default function HowItWorksPage() {
             </LinkButton>
             <LinkButton href="/build">Build a portfolio</LinkButton>
             <LinkButton href="#faq">Questions &amp; answers</LinkButton>
+            <LinkButton href="/docs">Technical docs</LinkButton>
           </div>
         </div>
       </section>
