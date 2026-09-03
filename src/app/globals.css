@@ -554,12 +554,11 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-/* Footer wordmark: ink letters with a brand-blue B, each letter lighting up under the pointer. */
+/* Footer wordmark: quiet gray letters, each one lighting brand blue under the pointer. */
 .footer-wordmark tspan {
-  fill: var(--text);
+  fill: var(--surface-muted);
   transition: fill 0.25s ease;
 }
-.footer-wordmark tspan:first-child,
 .footer-wordmark tspan:hover {
   fill: var(--primary);
 }
