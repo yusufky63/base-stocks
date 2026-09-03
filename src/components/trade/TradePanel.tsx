@@ -132,7 +132,6 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
             { value: "limit", label: "Limit", title: restricted ? "Not available in your region" : "Your own price, filled gaslessly by CoW Protocol", disabled: restricted },
           ]}
         />
-        <SlippageControl />
       </div>
 
       <div className="p-4 flex flex-col gap-4">
@@ -236,6 +235,10 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           </p>
         )}
         <div className="border-t border-line pt-3 min-h-[92px]" aria-live="polite">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Live quote</span>
+            <SlippageControl />
+          </div>
           {sellAmount === 0n && <p className="text-[13px] text-ink-muted">Enter an amount to see a live quote.</p>}
           {sellAmount > 0n && giftMode && !recipient && <p className="text-[13px] text-ink-muted">Add a recipient to get a quote.</p>}
           {sellAmount > 0n && priceState.status === "loading" && !s && <p className="text-[13px] text-ink-muted">Finding the best price…</p>}
