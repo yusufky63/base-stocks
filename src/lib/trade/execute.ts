@@ -4,7 +4,7 @@ import { base } from "viem/chains";
 import { apiGet, apiPost, ApiError, type ExecutableQuoteDTO, type TxStatusResponse } from "@/lib/client-api";
 import type { TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY } from "@/lib/errors";
-import { withAttribution } from "@/lib/attribution";
+import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { publicEnv } from "@/config/env";
 import { newId } from "@/lib/execution/portfolio-execution";
@@ -126,7 +126,7 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
           { to: q.sellToken, data: withAttribution(approveData) },
           { to: q.transaction.to, data: withAttribution(q.transaction.data), value: BigInt(q.transaction.value) },
         ],
-        ...(paymaster ? { capabilities: { paymasterService: { url: publicEnv.paymasterUrl } } } : {}),
+        capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
       });
       hooks.onState?.("SUBMITTED");
       hooks.onSubmitted?.(undefined, recordId);

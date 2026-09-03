@@ -204,7 +204,7 @@ async function runChecks(): Promise<ServiceCheck[]> {
   });
 
   const app: ServiceCheck[] = [
-    { id: "builder-code", group: "Identity", name: "Base Builder Code attribution", status: isAttributionEnabled() ? "ok" : "off", latencyMs: null, detail: isAttributionEnabled() ? "ERC-8021 suffix appended to every call" : "NEXT_PUBLIC_BASE_BUILDER_CODE not set", url: "https://docs.base.org/specifications/builder-codes/overview" },
+    { id: "builder-code", group: "Identity", name: "Base Builder Code attribution", status: isAttributionEnabled() ? "ok" : "off", latencyMs: null, detail: isAttributionEnabled() ? "ERC-8021 suffix appended to every call" : "No Builder Code configured (NEXT_PUBLIC_BASE_BUILDER_CODE)", url: "https://docs.base.org/specifications/builder-codes/overview" },
   ];
 
   return [...checks, ...newsChecks, ...app];

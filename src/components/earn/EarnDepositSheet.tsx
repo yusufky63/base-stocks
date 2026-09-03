@@ -6,7 +6,7 @@ import { erc20Abi, formatUnits, type Address, type Hash, type Hex } from "viem";
 import { base } from "viem/chains";
 import type { EarnOpportunity } from "@/domain/earn";
 import { apiPost, ApiError } from "@/lib/client-api";
-import { withAttribution } from "@/lib/attribution";
+import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { waitForConfirmation } from "@/lib/trade/execute";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { parseAmountSafe } from "@/lib/b20/math";
@@ -110,7 +110,7 @@ export function EarnDepositSheet({ open, onClose, opportunity, action, available
       setState("wallet");
       let hash: Hash | undefined;
       if (calls.length > 1 && atomic) {
-        const { id } = await walletClient.sendCalls({ account: address, chain: base, forceAtomic: true, calls: calls.map((c) => ({ to: c.to, data: withAttribution(c.data), value: BigInt(c.value) })) });
+        const { id } = await walletClient.sendCalls({ account: address, chain: base, forceAtomic: true, calls: calls.map((c) => ({ to: c.to, data: withAttribution(c.data), value: BigInt(c.value) })), capabilities: { ...attributionCapabilities() } });
         setState("submitted");
         const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
         if (result.status === "failure") throw new Error("Batched transaction failed");

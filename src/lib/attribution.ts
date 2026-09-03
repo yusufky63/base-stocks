@@ -35,3 +35,14 @@ export function withAttribution(data: Hex): Hex {
 export function isAttributionEnabled(): boolean {
   return getBuilderDataSuffix() !== null;
 }
+
+/**
+ * EIP-5792 batches: smart wallets (Base Account) wrap the calls in a UserOperation, and indexers
+ * read the suffix at the end of that outer callData. The `dataSuffix` capability asks the wallet
+ * to append it there; `optional: true` keeps wallets without the capability working.
+ * Spread into `sendCalls({ capabilities })` next to paymasterService.
+ */
+export function attributionCapabilities(): { dataSuffix: { value: Hex; optional: true } } | Record<string, never> {
+  const suffix = getBuilderDataSuffix();
+  return suffix ? { dataSuffix: { value: suffix, optional: true } } : {};
+}
