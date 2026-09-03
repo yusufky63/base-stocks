@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { ChevronDown, Wallet } from "lucide-react";
 import type { Address } from "viem";
@@ -23,6 +23,15 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
   const [open, setOpen] = useState(false);
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const { disconnect } = useDisconnect();
+
+  // A wallet extension can answer eth_accounts with an empty list (locked, or a second extension
+  // owning window.ethereum) while Wagmi still reports "connected". AppKit then looks up the
+  // identity of address "undefined" (400 from rpc.walletconnect.org) and the header shows a ghost
+  // session. Drop that connection so the user sees "Connect wallet" and picks the right one.
+  useEffect(() => {
+    if (status === "connected" && !address) disconnect();
+  }, [status, address, disconnect]);
 
   const openWallet = () => {
     const kit = hasReown ? getAppKit() : null;
