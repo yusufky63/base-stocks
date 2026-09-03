@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, ShieldCheck, Timer, Zap } from "lucide-react";
 import {
   B20_FACTORY_ADDRESS,
   B20_ACTIVATION_REGISTRY_ADDRESS,
@@ -14,6 +15,8 @@ import {
 import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow/index";
 import { GPV2_SETTLEMENT, GPV2_VAULT_RELAYER } from "@/providers/trading/cow/adapter";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
+import { Dither } from "@/components/fx/Dither";
+import { IntegrationMark } from "@/components/common/IntegrationMark";
 import { LinkButton } from "@/components/ui/primitives";
 
 export const metadata: Metadata = {
@@ -23,6 +26,54 @@ export const metadata: Metadata = {
 
 /* ------------------------------------------------------------------ data */
 
+const NAV = [
+  ["architecture", "Architecture"],
+  ["b20", "B20 standard"],
+  ["prices", "Price model"],
+  ["trading", "Trading"],
+  ["limit-orders", "Limit orders"],
+  ["earn", "Liquidity math"],
+  ["gifts", "Gift escrow"],
+  ["privacy", "Data & privacy"],
+  ["contracts", "Contracts"],
+] as const;
+
+const TRADE_MARKS = [
+  { name: "OKX DEX", mark: "okx-dex", color: "#000000" },
+  { name: "KyberSwap", mark: "kyberswap", color: "#31cb9e" },
+  { name: "Velora", mark: "velora", color: "#1a56db" },
+  { name: "Uniswap", mark: "uniswap", color: "#ff007a" },
+  { name: "Aerodrome", mark: "aerodrome", color: "#2563eb" },
+];
+const EARN_MARKS = [
+  { name: "Morpho", mark: "morpho", color: "#2470ff" },
+  { name: "Aave", mark: "aave", color: "#b6509e" },
+  { name: "Compound", mark: "compound-v3", color: "#00d395" },
+];
+
+const COW_SPEC: Array<[string, string]> = [
+  ["Order type", "EIP-712 signed intent, settled by solvers — no gas on placement"],
+  ["Domain", "“Gnosis Protocol” v2 on GPv2Settlement"],
+  ["Only spender", "GPv2 VaultRelayer — nothing else is ever approved"],
+  ["feeAmount", "Always \"0\" — the solver's fee comes out of surplus"],
+  ["validTo", "Capped at 3 hours by the live API (verified)"],
+  ["appData", "Full JSON document; its keccak-256 hash goes in the order"],
+  ["Signing", "eip712 for EOAs, eip1271 for smart wallets — picked by checking deployed code"],
+  ["Fills", "Partially fillable; remaining size stays open until validTo"],
+  ["Cancel", "Signed off-chain (free) or on-chain via invalidateOrder"],
+];
+
+const GIFT_SPEC: Array<[string, string]> = [
+  ["Contract", "Ownerless — no admin, no upgrade path, verified source"],
+  ["Claim link secret", "Lives only in the URL fragment; never reaches any server"],
+  ["Stored onchain", "keccak256(claim key) — the secret itself is never onchain either"],
+  ["Claim auth", "EIP-712 Claim(giftId, recipient) signature from the secret key"],
+  ["Who pays claim gas", "Anyone — claims are permissionless, so a sponsor can cover brand-new wallets"],
+  ["Reclaim", "The sender, at any time before claim"],
+  ["Expiry", "Chosen per gift, at most 90 days"],
+  ["Reentrancy", "Checks-effects-interactions plus a mutex guard"],
+];
+
 const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "B20 factory", address: B20_FACTORY_ADDRESS, note: "Deploys Coinbase Tokenized Stock (B20) tokens" },
   { label: "Activation registry", address: B20_ACTIVATION_REGISTRY_ADDRESS, note: "B20 activation state" },
@@ -30,7 +81,7 @@ const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "Stock OracleRegistry", address: STOCK_ORACLE_REGISTRY_ADDRESS, note: "getOracleParams(token) → (multiplier, paused)" },
   { label: "Coinbase B20 creator", address: COINBASE_B20_CREATORS[0]!, note: "Only tokens created by this EOA are trusted in discovery" },
   { label: "USDC", address: USDC_ADDRESS, note: "Quote and settlement currency, 6 decimals" },
-  { label: "BStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified on Basescan; holds gifts until claim or reclaim" },
+  { label: "BStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds gifts until claim or reclaim" },
   { label: "CoW GPv2Settlement", address: GPV2_SETTLEMENT, note: "EIP-712 domain “Gnosis Protocol” v2; settles limit orders" },
   { label: "CoW VaultRelayer", address: GPV2_VAULT_RELAYER, note: "The only spender approved for CoW orders" },
   ...LP_MANAGER_INFO.map((m) => ({ label: `${m.label} position manager`, address: m.npm, note: `Mint / collect / withdraw; factory ${m.factory.slice(0, 10)}…` })),
@@ -38,135 +89,225 @@ const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "Multicall3", address: MULTICALL3_ADDRESS, note: "Batched reads everywhere" },
 ];
 
-const SECTIONS: Array<{ id: string; title: string; paras: string[]; bullets?: string[] }> = [
-  {
-    id: "architecture",
-    title: "Architecture",
-    paras: [
-      "BStocks is a client-first Next.js app on Base mainnet. The server only aggregates public data (prices, pools, news, discovery) and stores social state; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by the user's own wallet — BStocks never custodies funds.",
-    ],
-    bullets: [
-      "Reads batch through Multicall3 and fall back across RPCs: a dedicated RPC first, then Coinbase Developer Platform, then four public endpoints.",
-      "Confirmations subscribe to Flashblocks (~200 ms preconfirmations) with mainnet.base.org as backstop.",
-      "On Base Account, multi-step actions (approve + swap, approve + mint) go out as one atomic EIP-5792 sendCalls batch, sponsored by a paymaster when available, with ERC-8021 builder attribution appended to calldata.",
-    ],
-  },
-  {
-    id: "b20",
-    title: "The B20 token standard",
-    paras: [
-      "Coinbase Tokenized Stocks are B20 tokens: ERC-20 with 8 decimals plus a WAD-scaled multiplier that encodes corporate actions (splits, dividends). Wallet balances are raw units; share-equivalents are scaled = raw × multiplier / 1e18, read via scaledBalanceOf. BStocks always displays share-equivalents.",
-      "The OracleRegistry exposes getOracleParams(token) → (multiplier, paused); the pause flag freezes the reference feed during corporate actions and is surfaced in the UI. Scheduled multiplier changes are announced onchain ahead of time and shown on the stock page.",
-      "Token discovery only trusts B20s deployed by Coinbase's creator address — dozens of copycat tickers exist from other deployers and are ignored. New listings are picked up by a background scan roughly every 30 minutes.",
-    ],
-  },
-  {
-    id: "prices",
-    title: "Price model",
-    paras: [
-      "Two prices exist for every stock and both are shown. The display price is the live market: DexScreener first, GeckoTerminal as fallback. The reference price is the Chainlink feed (8 decimals, total-return, 24/5 market hours) and is marked stale after one hour without an update — shown, never hidden.",
-      "Per-share figures divide the token price by the multiplier, so positions read correctly through splits and dividends. Price-impact calculations prefer a fresh Chainlink reference as the fair-value basis.",
-    ],
-  },
-  {
-    id: "trading",
-    title: "Trading and routing",
-    paras: [
-      "Market orders are quoted in parallel across OKX DEX (API v6), KyberSwap, Velora, Uniswap and Aerodrome; the route with the best net output (output minus estimated network fee) wins. Failed providers are listed with reasons rather than silently dropped.",
-      "The review sheet re-fetches a firm quote before signing, and the whole bundle (approval + swap) is checked with an eth_simulateV1 simulation before the wallet opens. Approvals are exact-amount to the specific router being used, never unlimited.",
-    ],
-  },
-  {
-    id: "limit-orders",
-    title: "Limit orders on CoW Protocol",
-    paras: [
-      "Limit orders are EIP-712 orders against GPv2Settlement (domain “Gnosis Protocol” v2). Facts verified against the live API: feeAmount must be \"0\" (fees are taken from surplus), validTo is capped at 3 hours, native ETH cannot be the sell token, and appData is a full JSON document whose keccak-256 hash goes into the order.",
-      "Smart wallets sign via ERC-1271 (chosen automatically by checking deployed code); orders are partially fillable; cancellation is off-chain signed or on-chain via invalidateOrder. The only spender ever approved is the CoW VaultRelayer.",
-    ],
-  },
-  {
-    id: "earn",
-    title: "Earn and concentrated liquidity",
-    paras: [
-      "USDC deposits route to Morpho vaults, Aave and Compound directly in-app (exact approval, simulated, signed by the wallet). Liquidity provision covers Uniswap v3 and Aerodrome Slipstream.",
-      "LP positions are managed fully in-app: mint from a USD-per-share range (the range converts to ticks via price = 1.0001^tick, aligned to the pool's tick spacing; one token amount derives the other from the current sqrt price), collect fees, and withdraw 25–100%. Every bundle simulates first, minimums sit 1% under the shown amounts, deadlines are 10 minutes.",
-    ],
-  },
-  {
-    id: "gifts",
-    title: "Gift escrow",
-    paras: [
-      "Gifts lock tokens in an ownerless, verified escrow contract. A gift is addressed either to a wallet or to a claim link: the link carries a secret only in the URL fragment (never sent to any server); the contract stores keccak256(secret) and releases on an EIP-712 Claim signature, so a sponsor can pay the claim gas and brand-new wallets can receive.",
-      "Senders can reclaim at any time; unclaimed gifts expire after at most 90 days. The contract follows checks-effects-interactions with a reentrancy guard and has no owner or admin functions.",
-    ],
-  },
-  {
-    id: "infra",
-    title: "Data, limits and privacy",
-    paras: [
-      "Supabase stores the social layer (baskets, profiles, gift metadata, AI usage) with row-level security. API routes are rate-limited durably (per-IP hashed windows survive serverless cold starts). AI features run on small models with per-wallet quotas surfaced in the UI before they run out.",
-      "No analytics wallets, no custodial keys, no secrets in the client bundle. The only privileged surface is an admin API guarded by a server-side token.",
-    ],
-  },
-];
+/* ------------------------------------------------------------------ atoms */
+
+function SectionHead({ n, id, title, sub }: { n: number; id: string; title: string; sub?: string }) {
+  return (
+    <div id={id} className="scroll-mt-24 flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex items-baseline gap-3">
+        <span className="display num text-[28px] md:text-[34px] text-primary leading-none">{String(n).padStart(2, "0")}</span>
+        <h2 className="display-medium text-[22px] md:text-[26px]">{title}</h2>
+      </div>
+      {sub && <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">{sub}</span>}
+    </div>
+  );
+}
+
+function Cell({ icon: Icon, title, children }: { icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>; title: string; children: React.ReactNode }) {
+  return (
+    <article className="rail p-4 md:p-5 flex flex-col gap-2">
+      <Icon size={18} strokeWidth={1.75} className="text-primary" />
+      <div className="font-medium">{title}</div>
+      <p className="text-[13px] text-ink-secondary leading-relaxed">{children}</p>
+    </article>
+  );
+}
+
+function Formula({ label, lines }: { label: string; lines: string[] }) {
+  return (
+    <article className="rail p-4 md:p-5 flex flex-col justify-center gap-2 bg-surface-muted/40">
+      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</div>
+      {lines.map((l) => (
+        <div key={l} className="font-mono num text-[13px] lg:text-[15px] text-ink">
+          {l}
+        </div>
+      ))}
+    </article>
+  );
+}
+
+function SpecRows({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <div className="border border-line rounded-[8px] bg-canvas overflow-hidden">
+      {rows.map(([k, v]) => (
+        <div key={k} className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-4 px-4 py-2.5 border-b border-line last:border-b-0">
+          <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted pt-0.5">{k}</div>
+          <div className="text-[13px] text-ink">{v}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Marks({ items }: { items: Array<{ name: string; mark: string | null; color: string }> }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {items.map((i) => (
+        <span key={i.name} className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-secondary">
+          <IntegrationMark name={i.name} mark={i.mark} color={i.color} size={18} /> {i.name}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ page */
 
 export default function DocsPage() {
   return (
-    <div className="flex flex-col gap-8">
-      <section className="border border-line rounded-[8px] ticks bg-canvas p-6 md:p-10">
-        <div className="eyebrow mb-3">Technical documentation</div>
-        <h1 className="display text-[36px] md:text-[56px] leading-[0.94] max-w-[18ch]">Everything under the hood, verified onchain.</h1>
-        <p className="mt-4 max-w-[62ch] text-ink-secondary text-[14px] md:text-[15px]">
-          This page is for developers and the curious: standards, math, order flow and the exact contracts BStocks talks to. For the plain-language version, read{" "}
-          <Link href="/how-it-works" className="text-primary font-medium">
-            How it works
-          </Link>
-          .
-        </p>
-        <nav className="mt-5 flex flex-wrap gap-x-4 gap-y-1 text-[13px] font-medium">
-          {[...SECTIONS.map((s) => ({ id: s.id, title: s.title })), { id: "contracts", title: "Contract addresses" }].map((s) => (
-            <a key={s.id} href={`#${s.id}`} className="text-ink-secondary hover:text-primary">
-              {s.title}
-            </a>
-          ))}
-        </nav>
+    <div className="flex flex-col gap-10">
+      <section className="hero-fx border border-line rounded-[8px] ticks bg-canvas overflow-hidden">
+        <Dither className="fx-layer" pixelSize={5} opacity={0.22} speed={0.25} mouseRadius={120} />
+        <div aria-hidden className="fx-layer pointer-events-none absolute inset-0 bg-gradient-to-r from-canvas from-25% via-canvas/70 via-65% to-transparent" />
+        <div className="fx-content p-6 md:p-12">
+          <div className="eyebrow mb-3">Technical documentation</div>
+          <h1 className="display text-[38px] md:text-[60px] leading-[0.94] max-w-[16ch]">
+            Under the hood, <span className="text-primary">verified onchain</span>.
+          </h1>
+          <p className="mt-5 max-w-[56ch] text-ink-secondary text-[14px] md:text-[16px]">
+            Standards, math, order flow and the exact contracts this app is built against. For the plain-language version, read{" "}
+            <Link href="/how-it-works" className="text-primary font-medium">
+              How it works
+            </Link>
+            .
+          </p>
+          <nav className="mt-6 flex flex-wrap gap-1.5">
+            {NAV.map(([id, title], i) => (
+              <a key={id} href={`#${id}`} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-canvas/70 text-[12px] font-medium text-ink-secondary hover:border-primary hover:text-primary transition-fast">
+                <span className="font-mono num text-[10px] text-ink-muted">{String(i + 1).padStart(2, "0")}</span> {title}
+              </a>
+            ))}
+          </nav>
+        </div>
       </section>
 
-      {SECTIONS.map((s, i) => (
-        <section key={s.id} id={s.id} className="scroll-mt-24 flex flex-col gap-3">
-          <div className="eyebrow">
-            {String(i + 1).padStart(2, "0")} — {s.title}
-          </div>
-          <div className="border border-line rounded-[8px] bg-canvas p-5 md:p-6 flex flex-col gap-3 max-w-[840px]">
-            {s.paras.map((p) => (
-              <p key={p.slice(0, 32)} className="text-[14px] text-ink leading-relaxed">
-                {p}
-              </p>
-            ))}
-            {s.bullets && (
-              <ul className="list-disc pl-5 text-[13px] text-ink-secondary flex flex-col gap-1.5">
-                {s.bullets.map((b) => (
-                  <li key={b.slice(0, 32)}>{b}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-      ))}
+      <section className="flex flex-col gap-4">
+        <SectionHead n={1} id="architecture" title="Architecture" sub="client-first · non-custodial" />
+        <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
+          <Cell icon={KeyRound} title="Your keys sign everything">
+            The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BStocks never custodies funds.
+          </Cell>
+          <Cell icon={Network} title="Reads that survive outages">
+            All reads batch through Multicall3 and fall back across RPCs — a dedicated endpoint first, then Coinbase Developer Platform, then four public RPCs. Confirmations stream from Flashblocks (~200 ms) with mainnet.base.org as backstop.
+          </Cell>
+          <Cell icon={Zap} title="One signature, many calls">
+            On Base Account, approve + swap or approve + mint go out as a single atomic EIP-5792 batch, gas-sponsored when the paymaster allows, with ERC-8021 builder attribution on every call.
+          </Cell>
+        </div>
+      </section>
 
-      <section id="contracts" className="scroll-mt-24 flex flex-col gap-3">
-        <div className="eyebrow">{String(SECTIONS.length + 1).padStart(2, "0")} — Contract addresses (Base mainnet)</div>
+      <section className="flex flex-col gap-4">
+        <SectionHead n={2} id="b20" title="The B20 token standard" sub="Coinbase Tokenized Stocks" />
+        <div className="module-grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr] ticks">
+          <Formula label="Share equivalents" lines={["scaled = raw × mult / 1e18", "8 decimals · WAD multiplier"]} />
+          <Cell icon={Blocks} title="Corporate actions, onchain">
+            Splits and dividends update the token&apos;s multiplier; scheduled changes are announced onchain ahead of time and shown on the stock page. The OracleRegistry&apos;s pause flag freezes the reference feed during the action — surfaced, never hidden.
+          </Cell>
+          <Cell icon={ShieldCheck} title="Discovery trusts one creator">
+            Dozens of copycat “NVDAc” tokens exist. Discovery only accepts B20s deployed by Coinbase&apos;s creator address and picks up new listings with a background scan roughly every 30 minutes.
+          </Cell>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={3} id="prices" title="Price model" sub="two prices, both shown" />
+        <div className="module-grid grid-cols-1 md:grid-cols-2 ticks">
+          <article className="rail p-4 md:p-5 flex flex-col gap-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Display price · live market</div>
+            <div className="flex items-center gap-2 text-[14px] font-medium">
+              DexScreener <span className="text-ink-muted">→</span> GeckoTerminal
+            </div>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down.</p>
+          </article>
+          <article className="rail p-4 md:p-5 flex flex-col gap-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>
+            <div className="flex items-center gap-2 text-[14px] font-medium">
+              8 decimals · total-return · 24/5
+            </div>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">Marked stale after one hour without an update. Price-impact math prefers a fresh reference as its fair-value basis.</p>
+          </article>
+        </div>
+        <Formula label="Per-share figures" lines={["per share = token price ÷ multiplier"]} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={4} id="trading" title="Trading and routing" sub="best net output wins" />
+        <div className="border border-line rounded-[8px] bg-canvas px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <Marks items={TRADE_MARKS} />
+          <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted">quoted in parallel</span>
+        </div>
+        <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
+          <Cell icon={GitBranch} title="Net wins, failures listed">
+            Every provider quotes at once; the route with the best net output (output minus estimated network fee) wins. Providers that fail are listed with their reasons instead of silently dropped.
+          </Cell>
+          <Cell icon={Timer} title="Firm quote before signing">
+            The review sheet re-fetches a binding quote right before you sign, so the numbers you approve are the numbers that execute.
+          </Cell>
+          <Cell icon={ShieldCheck} title="Simulated, exact approvals">
+            The whole bundle runs through an eth_simulateV1 check before the wallet opens. Approvals are exact-amount to the specific router in use — never unlimited, never to an address from the quote payload.
+          </Cell>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={5} id="limit-orders" title="Limit orders on CoW Protocol" sub="facts verified against the live API" />
+        <SpecRows rows={COW_SPEC} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={6} id="earn" title="Earn and liquidity math" sub="in-app, simulated first" />
+        <div className="module-grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr] ticks">
+          <Formula label="Concentrated liquidity" lines={["price(tick) = 1.0001^tick", "USD per share ⇄ tick, spacing-aligned"]} />
+          <article className="rail p-4 md:p-5 flex flex-col gap-2">
+            <Coins size={18} strokeWidth={1.75} className="text-primary" />
+            <div className="font-medium">USDC yield venues</div>
+            <Marks items={EARN_MARKS} />
+            <p className="text-[13px] text-ink-secondary leading-relaxed">Deposits and withdrawals run in-app: exact approval to the venue, simulated, signed by your wallet.</p>
+          </article>
+          <Cell icon={Boxes} title="LP positions, end to end">
+            Mint from a USD-per-share range (one token amount derives the other from the current √price), collect fees — singly or all at once — and withdraw 25–100%. Minimums sit 1% under the shown amounts; deadlines are 10 minutes.
+          </Cell>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={7} id="gifts" title="Gift escrow" sub={`${GIFT_ESCROW_ADDRESS.slice(0, 10)}…`} />
+        <SpecRows rows={GIFT_SPEC} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={8} id="privacy" title="Data, limits and privacy" />
+        <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
+          <Cell icon={Database} title="Supabase for the social layer">
+            Baskets, profiles, gift metadata and AI usage live behind row-level security. Positions and balances are always read from the chain, never mirrored.
+          </Cell>
+          <Cell icon={Timer} title="Durable rate limits">
+            API routes limit per hashed IP in fixed windows that survive serverless cold starts. AI features run on small models with per-wallet quotas surfaced before they run out.
+          </Cell>
+          <Cell icon={EyeOff} title="Nothing to leak">
+            No analytics wallets, no custodial keys, no secrets in the client bundle. The only privileged surface is an admin API behind a server-side token.
+          </Cell>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={9} id="contracts" title="Contract addresses" sub="Base mainnet" />
         <div className="border border-line rounded-[8px] bg-canvas overflow-x-auto">
           <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-line bg-surface-muted/40">
+                <th className="px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted font-medium">Contract</th>
+                <th className="px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted font-medium">Address · role</th>
+              </tr>
+            </thead>
             <tbody>
               {CONTRACTS.map((c) => (
-                <tr key={c.address + c.label} className="border-b border-line last:border-b-0">
+                <tr key={c.address + c.label} className="border-b border-line last:border-b-0 hover:bg-surface transition-fast">
                   <td className="px-4 py-2.5 font-medium whitespace-nowrap align-top">{c.label}</td>
                   <td className="px-4 py-2.5 align-top">
-                    <a href={`${BASE_EXPLORER_URL}/address/${c.address}`} target="_blank" rel="noreferrer noopener" className="font-mono text-[12px] text-primary break-all">
+                    <a href={`${BASE_EXPLORER_URL}/address/${c.address}`} target="_blank" rel="noreferrer noopener" className="group inline-flex items-center gap-1 font-mono text-[12px] text-primary break-all">
                       {c.address}
+                      <ArrowUpRight size={12} strokeWidth={1.75} className="opacity-0 group-hover:opacity-100 transition-fast shrink-0" />
                     </a>
                     <span className="block text-[12px] text-ink-muted">{c.note}</span>
                   </td>
@@ -175,7 +316,7 @@ export default function DocsPage() {
             </tbody>
           </table>
         </div>
-        <p className="text-[12px] text-ink-muted max-w-[70ch]">B20 stock tokens themselves all start with 0xb2… and are listed with their addresses on each stock page. Addresses here are the ones this app is built against; always verify on Basescan before interacting directly.</p>
+        <p className="text-[12px] text-ink-muted max-w-[70ch]">B20 stock tokens themselves all start with 0xb2… and are listed with their address on each stock page. Always verify on Basescan before interacting with a contract directly.</p>
       </section>
 
       <section className="border border-line rounded-[8px] ticks bg-canvas p-5 md:p-6 flex flex-wrap items-center justify-between gap-3">
