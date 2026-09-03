@@ -12,7 +12,7 @@ import { useAsset, useWatchlist, usePortfolio, useLpPositions, qk } from "@/hook
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { formatUsd } from "@/lib/format";
-import { AssetLogo, PriceChange } from "@/components/common/display";
+import { PriceChange } from "@/components/common/display";
 import { Coin3D } from "@/components/common/Coin3D";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { Badge, Button, Module, cx } from "@/components/ui/primitives";
@@ -53,7 +53,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
   const [side, setSide] = useState<TradeSide>(tradeParam === "sell" ? "sell" : "buy");
   const [mobileTrade, setMobileTrade] = useState(!!tradeParam);
   const [sendOpen, setSendOpen] = useState(false);
-  const [tab, setTab] = useState<"position" | "earn" | "details">("position");
+  const [tab, setTab] = useState<"position" | "trades" | "orders" | "earn" | "details">("position");
   const [seenParam, setSeenParam] = useState(tradeParam);
   if (tradeParam !== seenParam) {
     setSeenParam(tradeParam);
@@ -135,21 +135,22 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
           </Module>
 
           <Module>
-            <div role="tablist" aria-label="Stock sections" className="grid grid-cols-3 border-b border-line">
+            <div role="tablist" aria-label="Stock sections" className="grid grid-cols-5 border-b border-line">
               {(
                 [
-                  ["position", "Your position"],
-                  ["earn", "Earn or borrow"],
+                  ["position", "Position"],
+                  ["trades", "Trades"],
+                  ["orders", "Orders"],
+                  ["earn", "Earn"],
                   ["details", "Details"],
                 ] as const
               ).map(([id, label]) => (
-                <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cx("relative h-11 text-[13px] font-medium transition-fast", tab === id ? "text-primary after:absolute after:left-0 after:right-0 after:-bottom-px after:h-[2px] after:bg-primary" : "text-ink-secondary hover:text-ink")}>
+                <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cx("relative h-11 text-[12px] md:text-[13px] font-medium transition-fast", tab === id ? "text-primary after:absolute after:left-0 after:right-0 after:-bottom-px after:h-[2px] after:bg-primary" : "text-ink-secondary hover:text-ink")}>
                   {label}
                 </button>
               ))}
             </div>
             {tab === "position" && (
-              <>
               <PositionModule
                 asset={asset}
                 raw={balances.raw}
@@ -163,10 +164,11 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 onSend={() => setSendOpen(true)}
                 lp={lp}
               />
-              <OrdersModule owner={user} assetAddress={asset.address as Address} />
-              <TradesModule asset={asset} user={user} />
-              </>
             )}
+            {tab === "trades" && <TradesModule asset={asset} user={user} />}
+            {tab === "trades" && !user && <p className="px-4 py-4 text-[14px] text-ink-secondary">Connect a wallet to see your trades for this stock.</p>}
+            {tab === "orders" && <OrdersModule owner={user} assetAddress={asset.address as Address} title="Your orders" showEmpty />}
+            {tab === "orders" && !user && <p className="px-4 py-4 text-[14px] text-ink-secondary">Connect a wallet to see your limit orders for this stock.</p>}
             {tab === "earn" && <EarnModule assetAddress={asset.address as Address} user={user} symbol={asset.underlying} showEmpty />}
             {tab === "details" && (
               <>

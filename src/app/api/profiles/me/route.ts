@@ -14,8 +14,8 @@ const patchSchema = z.object({
 export const GET = route({}, async (req) => {
   const address = requireSession(req);
   const repos = getRepos();
-  const [profile, referral] = await Promise.all([repos.profiles.get(address), repos.referrals.statsFor(address)]);
-  return json({ profile: profile ?? { address, isPublic: true, createdAt: 0, updatedAt: 0 }, referral });
+  const profile = await repos.profiles.get(address);
+  return json({ profile: profile ?? { address, isPublic: true, createdAt: 0, updatedAt: 0 } });
 });
 
 export const PUT = route({ rateLimit: { key: "profiles.write", limit: 20, windowMs: 60_000 } }, async (req) => {

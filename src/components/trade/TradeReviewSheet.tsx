@@ -8,9 +8,8 @@ import type { TradeProviderId, TradeSide } from "@/domain/trade";
 import type { ResolvedRecipient } from "@/domain/gift";
 import type { GiftRecord, TradeQuoteSummary } from "@/lib/client-api";
 import { useTrade } from "@/hooks/useTrade";
-import { useAuth } from "@/hooks/useAuth";
 import { apiPost } from "@/lib/client-api";
-import { ShareButton } from "@/components/common/ShareSheet";
+import { ShareActions } from "@/components/common/ShareSheet";
 import { USDC_DECIMALS } from "@/config/chain";
 import { formatTokenAmount, formatUsd, formatPct, shortenAddress } from "@/lib/format";
 import { Sheet } from "@/components/ui/Sheet";
@@ -47,7 +46,6 @@ interface Props {
 export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, sellAmount, recipient, slippageBps, payWith = "USDC", payUsd, provider, strictProvider = false }: Props) {
   const trade = useTrade();
   const { address: buyer } = useAccount();
-  const auth = useAuth();
   const buy = side === "buy";
   const payEth = buy && payWith === "ETH";
   const usdcOut = buy ? (payEth ? (payUsd ?? 0) : Number(formatUnits(sellAmount, USDC_DECIMALS))) : Number(formatUnits(BigInt(summary.buyAmount), USDC_DECIMALS));
@@ -89,14 +87,6 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
 
   const title = trade.state === "CONFIRMED" ? (recipient ? "Gift sent" : buy ? "Purchase complete" : "Sale complete") : trade.state === "FAILED" ? "Not completed" : buy ? `Review buy` : `Review sell`;
 
-  // Referral attribution: the signed-in wallet's first confirmed trade (side effect only).
-  const referralReported = useRef<string | null>(null);
-  useEffect(() => {
-    if (trade.state !== "CONFIRMED" || !trade.txHash || !auth.isSignedIn || referralReported.current === trade.txHash) return;
-    referralReported.current = trade.txHash;
-    void apiPost("/api/referrals", { txHash: trade.txHash }).catch(() => undefined);
-  }, [trade.state, trade.txHash, auth.isSignedIn]);
-
   const recipientName = recipient ? (recipient.basename ?? (recipient.profile?.handle ? `@${recipient.profile.handle}` : shortenAddress(recipient.address))) : null;
   const shareText = recipient
     ? `I just gifted ${formatTokenAmount(tokenAmount, asset.decimals)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BStocks.`
@@ -108,12 +98,9 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
   const cta = () => {
     if (trade.state === "CONFIRMED")
       return (
-        <div className="flex gap-2">
-          <ShareButton path={sharePath} text={shareText} title={recipient ? "Share this gift" : "Share your trade"} size="md" className="flex-1" label="Share" />
-          <Button full onClick={handleClose}>
-            Done
-          </Button>
-        </div>
+        <Button full onClick={handleClose}>
+          Done
+        </Button>
       );
     if (trade.state === "FAILED")
       return (
@@ -186,6 +173,12 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
           </InfoBanner>
         )}
 
+        {trade.state === "CONFIRMED" && (
+          <div className="flex flex-col gap-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{recipient ? "Share this gift" : "Share your trade"}</div>
+            <ShareActions path={sharePath} text={shareText} />
+          </div>
+        )}
         {(trade.state !== "IDLE" && trade.state !== "FAILED") && (
           <div className="border border-line rounded-[8px] p-3 flex flex-col gap-2">
             <div className="text-[13px] text-ink-secondary">{signed ? (ORDER_STATE_COPY[trade.state] ?? STATE_COPY[trade.state]) : STATE_COPY[trade.state]}</div>

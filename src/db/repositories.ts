@@ -10,17 +10,14 @@ import {
   MemoryAutomationRepo,
   MemoryBasketRepo,
   MemoryProfileRepo,
-  MemoryReferralRepo,
   MemorySnapshotRepo,
   SupabaseAutomationRepo,
   SupabaseBasketRepo,
   SupabaseProfileRepo,
-  SupabaseReferralRepo,
   SupabaseSnapshotRepo,
   type AutomationRepo,
   type BasketRepo,
   type ProfileRepo,
-  type ReferralRepo,
   type SnapshotRepo,
 } from "./community-repos";
 
@@ -125,7 +122,6 @@ export interface Repos {
   discoveredAssets: DiscoveredAssetRepo;
   profiles: ProfileRepo;
   baskets: BasketRepo;
-  referrals: ReferralRepo;
   snapshots: SnapshotRepo;
   automation: AutomationRepo;
   earnActions: EarnActionRepo;
@@ -677,7 +673,6 @@ export function getRepos(): Repos {
       discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined }),
       profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined }),
       baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }),
-      referrals: resilient("referrals", new SupabaseReferralRepo(), { claim: undefined, markFirstTrade: undefined, get: null, statsFor: { invited: 0, traded: 0 } }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [] }),
       automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], create: (r: unknown) => r, update: null, remove: undefined }),
       earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, listByOwner: [] }),
@@ -695,7 +690,6 @@ export function getRepos(): Repos {
       discoveredAssets: new MemoryDiscoveredAssetRepo(),
       profiles: new MemoryProfileRepo(),
       baskets: new MemoryBasketRepo(),
-      referrals: new MemoryReferralRepo(),
       snapshots: new MemorySnapshotRepo(),
       automation: new MemoryAutomationRepo(),
       earnActions: new MemoryEarnActionRepo(),

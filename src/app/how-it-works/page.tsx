@@ -16,7 +16,7 @@ const FEATURES = [
   { icon: Sprout, title: "Earn", body: "Idle USDC into Morpho vaults, Aave V3 and Compound v3 from here. Stock venues, pools and your LP positions are discovered, not hardcoded.", href: "/earn" },
   { icon: Gift, title: "Send & gift", body: "To a Basename or address, with the recipient's profile shown before you confirm and a public receipt page to share.", href: "/portfolio" },
   { icon: PieChart, title: "Portfolio", body: "Value, allocation, history, LP positions, activity with onchain verification, rebalance against a template, daily AI summary.", href: "/portfolio" },
-  { icon: Users, title: "Community", body: "Published baskets, votes, clones, public profiles with badges and referral stats. Templates, not recommendations.", href: "/community" },
+  { icon: Users, title: "Community", body: "Published baskets, votes, clones, public pages under your Basename, badges. Templates, not recommendations.", href: "/community" },
   { icon: Newspaper, title: "News & brief", body: "Headlines from several publishers per stock and market-wide, plus one shared AI brief refreshed every six hours.", href: "/news" },
   { icon: Bot, title: "Assistant, fenced", body: "Drafts baskets and plans from live tickers and market context, summarises news and your day. It cannot sign, approve or pick addresses.", href: "/build" },
   { icon: Landmark, title: "Compliance", body: "Eligibility notice for restricted regions, issuer policies and pauses read before every action, plain-language errors.", href: "/how-it-works#faq" },
@@ -45,7 +45,7 @@ const FAQ: Array<{ q: string; a: string }> = [
   { q: "What does the assistant do, and what can it not do?", a: "It drafts baskets and plans from the listed tickers and live market context, writes a shared market brief and, on request, a daily summary of your portfolio. It cannot sign, approve, pick contract addresses or execute anything, it only knows the listed stocks, and every output is re-validated on the server. It is not advice." },
   { q: "What data does the assistant see?", a: "For drafts: ticker, name, tags, live or not, price, 24h move and DEX liquidity. For the market brief: headlines (titles only) and prices. For your daily summary: your onchain balances, last-24h activity and headlines about held stocks, sent only when you ask." },
   { q: "Can I add liquidity from here?", a: "Not yet. Pools are listed with what this app does with each (prices, routing, tracking); adding or removing liquidity happens on Aerodrome or Uniswap for now, and your positions, ranges and fees are tracked under Earn and on the stock page." },
-  { q: "How do referrals and badges work?", a: "Every link you share carries your wallet tag. A wallet that signs in through it counts as invited; its first confirmed trade counts as traded; three of those earn the Ambassador badge. Badges are recognition only, there are no payouts." },
+  { q: "How do badges work?", a: "Badges mark onchain milestones of your own wallet: first trade, five different stocks, an executed basket, a sent gift, published and popular baskets. Recognition only, there are no payouts." },
   { q: "What happens on a dividend or split?", a: "The issuer updates the token's multiplier onchain and the reference feed may freeze during the action. BStocks shows scheduled multiplier changes ahead of time and keeps showing share-equivalents, so your position reads correctly before and after." },
 ];
 

@@ -10,7 +10,6 @@ import { normalizeAddress } from "@/lib/address";
  */
 export const SESSION_COOKIE = "bstocks_session";
 export const NONCE_COOKIE = "bstocks_nonce";
-export const REF_COOKIE = "bstocks_ref";
 const SESSION_TTL_S = 7 * 24 * 3600;
 
 let secret: Buffer | null = null;

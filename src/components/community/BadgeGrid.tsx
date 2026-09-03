@@ -1,11 +1,11 @@
 "use client";
 
-import { Blocks, Gift, Layers, Megaphone, PenLine, Star, Zap, type LucideIcon } from "lucide-react";
+import { Blocks, Gift, Layers, PenLine, Star, Zap, type LucideIcon } from "lucide-react";
 import type { Badge as BadgeT } from "@/domain/community";
 import { timeAgo } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
 
-const ICON: Record<string, LucideIcon> = { "first-trade": Zap, diversified: Layers, builder: Blocks, gifter: Gift, curator: PenLine, popular: Star, ambassador: Megaphone };
+const ICON: Record<string, LucideIcon> = { "first-trade": Zap, diversified: Layers, builder: Blocks, gifter: Gift, curator: PenLine, popular: Star };
 const HOW: Record<string, string> = {
   "first-trade": "Buy or sell any tokenized stock here.",
   diversified: "Hold five different stocks bought here.",
@@ -13,7 +13,6 @@ const HOW: Record<string, string> = {
   gifter: "Send stock to a Basename or address.",
   curator: "Publish a basket to the community.",
   popular: "Get ten votes on a published basket.",
-  ambassador: "Three wallets you invited make a trade.",
 };
 
 /**

@@ -1,10 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Edge proxy with two jobs:
- * 1. Referral capture: `?ref=<address>` on any page is stored in an HttpOnly cookie for 30 days and
- *    linked to the wallet on its first sign-in (see /api/auth/verify). The query param is stripped.
- * 2. Compliance geoblock: execution routes (quotes, trade plans, Earn call building) answer 451 for
+ * Edge proxy: compliance geoblock. execution routes (quotes, trade plans, Earn call building) answer 451 for
  *    countries in GEOBLOCK_COUNTRIES (default "US"). Coinbase Tokenized Stocks are only for eligible
  *    persons outside the United States, and 0x's tokenized-equities opt-in makes the integrator
  *    responsible for geoblocking. Browsing, prices and news stay open everywhere. The country comes
@@ -50,13 +47,7 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const ref = req.nextUrl.searchParams.get("ref");
-  if (!ref || !/^0x[0-9a-fA-F]{40}$/.test(ref)) return NextResponse.next();
-  const url = req.nextUrl.clone();
-  url.searchParams.delete("ref");
-  const res = NextResponse.redirect(url);
-  res.cookies.set("bstocks_ref", ref, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 30 * 24 * 3600, secure: process.env.NODE_ENV === "production" });
-  return res;
+  return NextResponse.next();
 }
 
 export const config = {

@@ -1,4 +1,4 @@
-import type { Address, Hash } from "viem";
+import type { Address } from "viem";
 import type { Badge, CommunityBasket, CommunityPulse, Profile } from "@/domain/community";
 import type { Allocation } from "@/domain/portfolio";
 import { getRepos } from "@/db/repositories";
@@ -99,12 +99,11 @@ export async function resolveProfileRef(ref: string): Promise<Address | null> {
 
 export async function computeBadges(address: Address): Promise<Badge[]> {
   const repos = getRepos();
-  const [trades, gifts, executions, baskets, referral] = await Promise.all([
+  const [trades, gifts, executions, baskets] = await Promise.all([
     repos.trades.listByOwner(address),
     repos.gifts.listByOwner(address),
     repos.executions.listByOwner(address),
     repos.baskets.listByOwner(address),
-    repos.referrals.statsFor(address),
   ]);
   const submittedTrades = trades.filter((t) => t.txHash);
   const distinct = new Set(submittedTrades.filter((t) => t.side === "buy").map((t) => t.assetAddress.toLowerCase()));
@@ -122,10 +121,5 @@ export async function computeBadges(address: Address): Promise<Badge[]> {
     { id: "gifter", label: "Gifter", description: "Sent stock to another wallet or Basename.", earned: !!sentGift, earnedAt: sentGift?.createdAt, progress: step(sentGifts, 1) },
     { id: "curator", label: "Curator", description: "Published a community basket.", earned: baskets.length > 0, earnedAt: baskets[0]?.createdAt, progress: step(baskets.length, 1) },
     { id: "popular", label: "Popular curator", description: "A published basket reached 10 votes.", earned: baskets.some((b) => b.votes >= 10), progress: step(topVotes, 10) },
-    { id: "ambassador", label: "Ambassador", description: "Invited 3 wallets that made a trade.", earned: referral.traded >= 3, progress: step(referral.traded, 3) },
   ];
-}
-
-export async function recordFirstTradeForReferral(address: Address, tx: Hash): Promise<void> {
-  await getRepos().referrals.markFirstTrade(address, tx);
 }

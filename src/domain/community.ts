@@ -1,4 +1,4 @@
-import type { Address, Hash } from "viem";
+import type { Address } from "viem";
 import type { Allocation } from "./portfolio";
 
 export interface Profile {
@@ -21,13 +21,6 @@ export interface CommunityBasket {
   votes: number;
   createdAt: number;
   updatedAt: number;
-}
-
-export interface Referral {
-  referee: Address;
-  referrer: Address;
-  firstTradeTx?: Hash;
-  createdAt: number;
 }
 
 export interface PortfolioSnapshotRow {

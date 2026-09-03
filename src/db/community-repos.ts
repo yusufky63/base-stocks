@@ -1,5 +1,5 @@
-import type { Address, Hash } from "viem";
-import type { AutomationRule, CommunityBasket, PortfolioSnapshotRow, Profile, Referral } from "@/domain/community";
+import type { Address } from "viem";
+import type { AutomationRule, CommunityBasket, PortfolioSnapshotRow, Profile } from "@/domain/community";
 import { getSupabaseAdmin } from "./supabase";
 
 /* ------------------------------ Interfaces ------------------------------ */
@@ -19,12 +19,6 @@ export interface BasketRepo {
   vote(id: string, voter: Address): Promise<{ voted: boolean; votes: number }>;
   hasVoted(id: string, voter: Address): Promise<boolean>;
   incrementClones(id: string): Promise<void>;
-}
-export interface ReferralRepo {
-  claim(referee: Address, referrer: Address): Promise<void>;
-  markFirstTrade(referee: Address, tx: Hash): Promise<void>;
-  get(referee: Address): Promise<Referral | null>;
-  statsFor(referrer: Address): Promise<{ invited: number; traded: number }>;
 }
 export interface SnapshotRepo {
   record(row: PortfolioSnapshotRow): Promise<void>;
@@ -94,25 +88,6 @@ export class MemoryBasketRepo implements BasketRepo {
   async incrementClones(id: string) {
     const b = this.items.get(id);
     if (b) b.clones += 1;
-  }
-}
-
-export class MemoryReferralRepo implements ReferralRepo {
-  private items = new Map<string, Referral>();
-  async claim(referee: Address, referrer: Address) {
-    if (this.items.has(lower(referee))) return;
-    this.items.set(lower(referee), { referee, referrer, createdAt: Date.now() });
-  }
-  async markFirstTrade(referee: Address, tx: Hash) {
-    const r = this.items.get(lower(referee));
-    if (r && !r.firstTradeTx) r.firstTradeTx = tx;
-  }
-  async get(referee: Address) {
-    return this.items.get(lower(referee)) ?? null;
-  }
-  async statsFor(referrer: Address) {
-    const list = [...this.items.values()].filter((r) => lower(r.referrer) === lower(referrer));
-    return { invited: list.length, traded: list.filter((r) => r.firstTradeTx).length };
   }
 }
 
@@ -258,30 +233,6 @@ export class SupabaseBasketRepo implements BasketRepo {
     if (!cur) return;
     const { error } = await sb().from("baskets").update({ clones: cur.clones + 1 }).eq("id", id);
     if (error) throw error;
-  }
-}
-
-export class SupabaseReferralRepo implements ReferralRepo {
-  async claim(referee: Address, referrer: Address) {
-    const { error } = await sb().from("referrals").upsert({ referee: lower(referee), referrer: lower(referrer) }, { onConflict: "referee", ignoreDuplicates: true });
-    if (error) throw error;
-  }
-  async markFirstTrade(referee: Address, tx: Hash) {
-    const { error } = await sb().from("referrals").update({ first_trade_tx: tx }).eq("referee", lower(referee)).is("first_trade_tx", null);
-    if (error) throw error;
-  }
-  async get(referee: Address) {
-    const { data, error } = await sb().from("referrals").select("*").eq("referee", lower(referee)).maybeSingle();
-    if (error) throw error;
-    if (!data) return null;
-    const r = data as Row;
-    return { referee: r.referee as Address, referrer: r.referrer as Address, firstTradeTx: (r.first_trade_tx as Hash | null) ?? undefined, createdAt: ts(r.created_at) };
-  }
-  async statsFor(referrer: Address) {
-    const { data, error } = await sb().from("referrals").select("first_trade_tx").eq("referrer", lower(referrer));
-    if (error) throw error;
-    const rows = (data ?? []) as Row[];
-    return { invited: rows.length, traded: rows.filter((r) => r.first_trade_tx).length };
   }
 }
 

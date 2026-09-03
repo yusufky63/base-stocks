@@ -8,18 +8,17 @@ import { reverseResolve } from "@/services/basename-service";
 /** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
 export const maxDuration = 60;
 
-/** Public profile by handle or address: allocation (percent), badges, published baskets, referral stats. */
+/** Public profile by handle or address: allocation (percent), badges, published baskets. */
 export const GET = route<{ params: Promise<{ ref: string }> }>({ rateLimit: { key: "profiles.read", limit: 120, windowMs: 60_000 } }, async (_req, { params }) => {
   const { ref } = await params;
   const address = await resolveProfileRef(ref);
   if (!address) throw new AppError("NOT_FOUND", "Profile not found", 404);
   const repos = getRepos();
-  const [profile, baskets, badges, basename, referral, snapshot] = await Promise.all([
+  const [profile, baskets, badges, basename, snapshot] = await Promise.all([
     repos.profiles.get(address),
     repos.baskets.listByOwner(address),
     computeBadges(address),
     reverseResolve(address).catch(() => null),
-    repos.referrals.statsFor(address),
     getPortfolioSnapshot(address).catch(() => null),
   ]);
   const isPublic = profile?.isPublic ?? true;
@@ -30,7 +29,6 @@ export const GET = route<{ params: Promise<{ ref: string }> }>({ rateLimit: { ke
     basename,
     badges,
     baskets,
-    referral,
     allocation,
     positions: isPublic ? (snapshot?.holdings.length ?? 0) : null,
   });

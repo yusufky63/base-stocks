@@ -5,7 +5,7 @@ import { AppError } from "@/lib/errors";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { normalizeAddress } from "@/lib/address";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { clearCookieHeader, cookieHeader, encodeSession, NONCE_COOKIE, readCookie, REF_COOKIE, SESSION_COOKIE } from "@/lib/auth/session";
+import { clearCookieHeader, cookieHeader, encodeSession, NONCE_COOKIE, readCookie, SESSION_COOKIE } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
 import { metrics } from "@/lib/http";
 
@@ -16,7 +16,7 @@ const bodySchema = z.object({
 
 /**
  * Verify a SIWE message (EOA signatures and ERC-1271 / ERC-6492 smart-account signatures such
- * as Base Account) and set the session cookie. Also links a pending referral cookie.
+ * as Base Account) and set the session cookie.
  */
 export const POST = route({ rateLimit: { key: "auth.verify", limit: 20, windowMs: 60_000 } }, async (req) => {
   const { message, signature } = await parseBody(req, bodySchema);
@@ -35,15 +35,10 @@ export const POST = route({ rateLimit: { key: "auth.verify", limit: 20, windowMs
   if (!ok) throw new AppError("UNAUTHORIZED", "Signature could not be verified.", 401);
 
   const address = normalizeAddress(parsed.address);
-  const ref = readCookie(req, REF_COOKIE);
-  if (ref && /^0x[0-9a-fA-F]{40}$/.test(ref) && ref.toLowerCase() !== address.toLowerCase()) {
-    await getRepos().referrals.claim(address, normalizeAddress(ref)).catch(() => undefined);
-  }
   await getRepos().profiles.touch(address).catch(() => undefined);
 
   const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
   headers.append("set-cookie", cookieHeader(SESSION_COOKIE, encodeSession(address), 7 * 24 * 3600));
   headers.append("set-cookie", clearCookieHeader(NONCE_COOKIE));
-  if (ref) headers.append("set-cookie", clearCookieHeader(REF_COOKIE));
   return new Response(JSON.stringify({ address }), { status: 200, headers });
 });

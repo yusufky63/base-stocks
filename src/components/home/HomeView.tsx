@@ -183,7 +183,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
 
           <Module>
             <ModuleHeader title="Community" action={<Link href="/community" className="text-[13px] text-primary font-medium">Open</Link>} />
-            <p className="px-4 py-3 text-[13px] text-ink-secondary">Most bought and sold this week, baskets published by other users, votes and clones. Share any stock with your referral tag to earn badges.</p>
+            <p className="px-4 py-3 text-[13px] text-ink-secondary">Most bought and sold this week, baskets published by other users, votes and clones.</p>
           </Module>
         </div>
       </div>

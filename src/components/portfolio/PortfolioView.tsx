@@ -31,7 +31,7 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "overview", label: "Overview", hint: "Value · allocation · history" },
   { id: "rebalance", label: "Rebalance", hint: "Drift against a template" },
   { id: "activity", label: "Activity", hint: "Trades, sends, earn, builds" },
-  { id: "profile", label: "Profile", hint: "Public page, badges, referrals" },
+  { id: "profile", label: "Profile", hint: "Your page and badges" },
 ];
 
 const PROVIDER_LABEL: Record<string, string> = { morpho: "Morpho", aave: "Aave", compound: "Compound", aerodrome: "Aerodrome", uniswap: "Uniswap" };
