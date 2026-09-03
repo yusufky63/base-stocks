@@ -75,7 +75,7 @@ export const publicEnv = {
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? (process.env.NODE_ENV === "production" ? "https://basestocks.finance" : "http://localhost:3000"),
   baseRpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL ?? "",
   flashblocksRpcUrl: process.env.NEXT_PUBLIC_FLASHBLOCKS_RPC_URL ?? "",
-  /** Base Builder Code (public, appended to calldata as an ERC-8021 suffix). Override per environment if needed. */
-  builderCode: process.env.NEXT_PUBLIC_BASE_BUILDER_CODE ?? "bc_71vd6x2w",
+  /** Base Builder Code (public, appended to calldata as an ERC-8021 suffix). An empty env value counts as unset. */
+  builderCode: process.env.NEXT_PUBLIC_BASE_BUILDER_CODE || "bc_71vd6x2w",
   paymasterUrl: process.env.NEXT_PUBLIC_PAYMASTER_URL ?? "",
 } as const;

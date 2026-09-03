@@ -11,7 +11,7 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", weigh
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://basestocks.finance").replace(/\/$/, "");
 /** Base app id (Builder Codes): ties this web app to the registered Base project for attribution. */
-const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID ?? "6a98cc686e87922b5d1d4597";
+const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "6a98cc686e87922b5d1d4597";
 
 /** Base app / mini app embed: a launch button when a link to the site is shared inside the Base app. */
 const miniAppEmbed = JSON.stringify({
