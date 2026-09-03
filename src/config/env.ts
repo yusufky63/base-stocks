@@ -42,6 +42,8 @@ const serverSchema = z.object({
   /** block = hard 451 for blocked countries; attest (default) = warning + self-certification cookie. */
   GEOBLOCK_MODE: z.enum(["block", "attest"]).optional(),
   ADMIN_API_TOKEN: z.string().min(16).optional(),
+  /** Shared secret Vercel Cron sends as a Bearer token to /api/cron/refresh. */
+  CRON_SECRET: z.string().min(16).optional(),
   AUTH_SECRET: z.string().min(16).optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });

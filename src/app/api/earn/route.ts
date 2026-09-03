@@ -2,6 +2,9 @@ import { route, json } from "@/lib/api";
 import { getAssets } from "@/services/b20-asset-service";
 import { discoverEarn } from "@/services/earn-opportunity-service";
 
+/** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
+export const maxDuration = 60;
+
 /** Earn overview: runtime discovery across all verified assets (parallel, cached per asset). */
 export const GET = route({ rateLimit: { key: "earn.all", limit: 30, windowMs: 60_000 } }, async () => {
   const assets = await getAssets();

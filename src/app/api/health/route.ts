@@ -26,6 +26,7 @@ export const GET = route({}, async (req) => {
   }
   return json({
     ok: true,
+    deploy: { commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null, region: process.env.VERCEL_REGION ?? null, serverless: !!process.env.VERCEL },
     storage,
     schemaMissingSeen: [...schemaMissing],
     providers: admin || env.NODE_ENV !== "production" ? metrics.snapshot() : undefined,

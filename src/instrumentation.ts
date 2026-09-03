@@ -28,10 +28,14 @@ export async function register() {
     const s = await syncDiscoveredAssets({ lookbackBlocks });
     console.info(`[warmup] asset discovery: ${s.candidates} candidate(s), ${s.autoVerified} auto-verified, ${s.active} active beyond the curated list${s.lastError ? ` · error: ${s.lastError}` : ""}`);
   };
+  // Serverless (Vercel): instances are short-lived, so timers and the deep boot scan would repeat on
+  // every cold start. Load the stored registry only; the cron route does discovery and probes.
+  const serverless = !!process.env.VERCEL;
   void loadDiscoveredRegistry()
     .then(() => refresh())
-    .then(() => discover(450_000n))
+    .then(() => (serverless ? undefined : discover(450_000n)))
     .catch((err) => console.warn("[warmup] discovery failed:", err instanceof Error ? err.message : err));
+  if (serverless) return;
   const discoveryTimer = setInterval(() => void discover(60_000n), 30 * 60_000);
   discoveryTimer.unref?.();
   // Learn once whether 0x serves tokenized stocks for this key (opt-in required); re-checked hourly.

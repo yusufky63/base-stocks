@@ -3,6 +3,9 @@ import { requireSession } from "@/lib/auth/session";
 import { clientIp } from "@/lib/ai-quota";
 import { digestsEnabled, generatePortfolioDigest, getStoredPortfolioDigest } from "@/services/digest-service";
 
+/** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
+export const maxDuration = 60;
+
 /** Today's stored brief for the signed-in wallet (never triggers a model call). */
 export const GET = route({}, async (req) => {
   const owner = requireSession(req);

@@ -168,7 +168,7 @@ async function runChecks(): Promise<ServiceCheck[]> {
     probe("discovery", "Chain", "New-stock discovery (B20Created + Chainlink directory)", async () => {
       const d = discoveryStatus();
       if (d.lastError) return { status: "degraded", detail: `last scan failed: ${d.lastError.slice(0, 100)}` };
-      if (!d.lastSyncAt) return { status: "degraded", detail: "no scan yet in this process" };
+      if (!d.lastSyncAt) return process.env.VERCEL ? { detail: `serverless: scans run on the cron schedule · ${d.discovered.length} discovered stock(s) loaded from storage${d.discovered.length ? ` (${d.discovered.join(", ")})` : ""}` } : { status: "degraded", detail: "no scan yet in this process" };
       return { detail: `scanned ${d.lastScanBlocks.toLocaleString("en-US")} blocks ${Math.round((Date.now() - d.lastSyncAt) / 60_000)} min ago · ${d.candidates} candidate(s) · ${d.active} discovered stock(s) live${d.discovered.length ? ` (${d.discovered.join(", ")})` : ""}` };
     }, "https://docs.base.org/specifications/b20/tokenized-stocks-on-base"),
     probe("basenames", "Identity", "Basenames resolver", async () => {

@@ -4,6 +4,9 @@ import { getAssets } from "@/services/b20-asset-service";
 import { buildPlan, quotePlan, validateAllocations } from "@/services/portfolio-service";
 import type { Allocation } from "@/domain/portfolio";
 
+/** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
+export const maxDuration = 60;
+
 const allocationSchema = z.object({
   assetAddress: z.union([z.literal("USDC"), addressSchema]),
   weightBps: z.number().int().min(1).max(10_000),

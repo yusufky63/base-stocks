@@ -5,6 +5,9 @@ import { computeBadges, resolveProfileRef } from "@/services/community-service";
 import { getPortfolioSnapshot } from "@/services/portfolio-service";
 import { reverseResolve } from "@/services/basename-service";
 
+/** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
+export const maxDuration = 60;
+
 /** Public profile by handle or address: allocation (percent), badges, published baskets, referral stats. */
 export const GET = route<{ params: Promise<{ ref: string }> }>({ rateLimit: { key: "profiles.read", limit: 120, windowMs: 60_000 } }, async (_req, { params }) => {
   const { ref } = await params;

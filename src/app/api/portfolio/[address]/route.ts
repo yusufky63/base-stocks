@@ -1,6 +1,9 @@
 import { route, json, addressParam } from "@/lib/api";
 import { getPortfolioSnapshot } from "@/services/portfolio-service";
 
+/** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
+export const maxDuration = 60;
+
 /** Multiplier-aware portfolio snapshot (scaled balances, market + reference values). */
 export const GET = route<{ params: Promise<{ address: string }> }>({ rateLimit: { key: "portfolio", limit: 120, windowMs: 60_000 } }, async (_req, { params }) => {
   const owner = await addressParam(params);

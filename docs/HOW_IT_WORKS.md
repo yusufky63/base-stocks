@@ -31,7 +31,7 @@ This document is the technical reference. The product narrative and FAQ are on t
 - **Next.js 16 (App Router, Turbopack), React 19, TypeScript strict, Tailwind 4, pnpm, Vitest.** Server code lives in `src/services` (orchestration), `src/providers` (one adapter per external system), `src/domain` (types and pure rules), `src/db` (repositories with a memory backend and a Supabase backend), `src/lib` (cache, HTTP, rate gate, fallback racing, AI provider, quotas, math). UI lives in `src/components`, pages in `src/app`, route handlers in `src/app/api`.
 - **Caching.** `src/lib/cache.ts` is an in-process TTL + stale-while-revalidate cache keyed per resource; one upstream request serves every visitor for a window. `src/lib/rate-gate.ts` serialises calls to keyless APIs (GeckoTerminal ≈ 30 req/min). `src/lib/http.ts` provides `fetchJson`, per-provider circuit breakers and a metrics registry surfaced on `/api/health` and `/status`.
 - **Hedged fallback.** `src/lib/fallback.ts` races a primary provider against a fallback chain with a short hedge delay; used for firm quotes.
-- **Warm-up.** `src/instrumentation.ts` refreshes assets/prices at boot, runs B20 discovery (boot: 450k blocks, then every 30 min: 60k), and probes 0x hourly.
+- **Warm-up.** `src/instrumentation.ts` refreshes assets/prices at boot, runs B20 discovery (boot: 450k blocks, then every 30 min: 60k), and probes 0x hourly — on long-running Node. On Vercel (`VERCEL` set) it only loads the stored registry; `vercel.json` schedules `/api/cron/refresh` (Bearer `CRON_SECRET`) for the light discovery scan and status probes.
 - **Proxy.** `src/proxy.ts` captures `?ref=<address>` into an HttpOnly cookie (30 days) and enforces the geoblock on execution routes (`/api/trade/*`, `/api/earn/prepare`, `/api/portfolio/(plan|quote|execute)`).
 - **Storage.** Supabase (service role, server-side only) when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set, otherwise in-memory repositories with the same interfaces. Every Supabase repo is wrapped in `resilient()` so a storage outage degrades to defaults instead of failing pages.
 
@@ -185,6 +185,7 @@ Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market pr
 | `ORACLE_STALENESS_SECONDS` | Reference freshness threshold (93,600) |
 | `GEOBLOCK_COUNTRIES`, `GEOBLOCK_MODE` | Compliance |
 | `ADMIN_API_TOKEN` | `/admin` verification |
+| `CRON_SECRET` | Bearer token Vercel Cron sends to `/api/cron/refresh` (discovery + status on serverless) |
 | `MORPHO_API_URL`, `MARKET_WARMUP` | Optional overrides |
 
 No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp is deliberately not integrated.

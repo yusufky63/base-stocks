@@ -9,6 +9,9 @@ import { getAssets } from "@/services/b20-asset-service";
 import { USDC_ALLOCATION_KEY, TOTAL_BPS } from "@/domain/portfolio";
 import type { Allocation } from "@/domain/portfolio";
 
+/** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
+export const maxDuration = 60;
+
 /**
  * Sentence → automation plan draft ("buy $25 of NVDA every week"). Same guard rails as basket
  * drafting: fixed universe of live tickers, strict JSON, server-side re-validation, daily quotas and

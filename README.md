@@ -65,7 +65,8 @@ pnpm exec vitest run
 1. Import the repository; framework preset **Next.js**, Node 22, install with `pnpm install`.
 2. Add the environment variables from the table above (server variables stay server-only; only `NEXT_PUBLIC_*` reach the browser).
 3. Vercel supplies `x-vercel-ip-country`, which the proxy uses for the eligibility notice; set `GEOBLOCK_MODE=block` if you later enable 0x for US traffic.
-4. The in-process cache and warm-ups are per instance; that is fine for a single region. Persistent state (records, briefs, quotas) lives in Supabase.
+4. Set `NEXT_PUBLIC_APP_URL` to the deployed origin (wallet modal metadata and share links) and `CRON_SECRET` to a random 32+ character string: `vercel.json` schedules `/api/cron/refresh` (light discovery scan + status probes) because in-process timers do not survive on serverless.
+5. The in-process cache is per instance; that is fine for a single region. Persistent state (records, briefs, quotas, discovered assets) lives in Supabase.
 
 ## Safety model
 
