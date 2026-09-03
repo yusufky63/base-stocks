@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MIN_TRADE_USD } from "@/config/chain";
 import { route, json, parseBody, addressSchema } from "@/lib/api";
 import { aiConfigFromEnv, generateStructured } from "@/lib/ai-provider";
 import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
@@ -45,13 +46,16 @@ const clean = (s: string, max: number) => s.replace(/[<>`]/g, "").replace(/\s+/g
 /** Reasons come back with their own full stop; strip it so the sentence we build reads cleanly. */
 const reason = (s: string | null | undefined, fallback: string) => clean(s ?? "", 160).replace(/[.!\s]+$/, "") || fallback;
 
+/** Same ceiling as POST /api/automation. */
+const MAX_PLAN_USD = 100_000;
+
 function systemPrompt(universe: string): string {
   return `You turn one sentence into a recurring investment plan for Coinbase Tokenized Stocks on Base.
 Allowed tickers (only these; anything else must be refused):
 ${universe}
 Rules:
 - type "recurring-buy" for one ticker (set symbol), "recurring-basket" for two or more (set allocations in basis points summing to 10000; "USDC" is allowed as a cash share).
-- amountUsd is the amount per run in US dollars, between 5 and 500. cadenceDays is 1, 7, 14 or 30 (daily, weekly, biweekly, monthly).
+- amountUsd is the amount per run in US dollars, exactly as the user states it (any amount of at least 1). cadenceDays is 1, 7, 14 or 30 (daily, weekly, biweekly, monthly).
 - If the sentence is not a plan request, asks for advice, or names unknown tickers, set refused=true with a one-line reason.
 - notes: one neutral sentence restating the plan. No advice, no predictions.
 - Keys: refused, refusalReason, type, symbol, basketName, allocations (array of {symbol, weightBps}), amountUsd, cadenceDays, notes.
@@ -100,11 +104,11 @@ export const POST = route({ rateLimit: { key: "automation.intent", limit: 12, wi
   const liveList = assets.map((a) => a.underlying).join(", ");
   if (out.refused || !kind) return json({ ok: false, errors: [`Not a plan request: ${reason(out.refusalReason, "say the amount, the stock or mix, and how often")}. Live stocks today: ${liveList}.`], quota: remaining }, { status: 422 });
 
-  const amountUsd = Math.min(500, Math.max(5, Math.round(out.amountUsd)));
+  const amountUsd = Math.min(MAX_PLAN_USD, Math.max(MIN_TRADE_USD, Math.round(out.amountUsd * 100) / 100));
   const wanted = Number.isFinite(out.cadenceDays) ? out.cadenceDays : 7;
   const cadenceDays = CADENCES.reduce((best, c) => (Math.abs(c - wanted) < Math.abs(best - wanted) ? c : best), 7);
   const warnings: string[] = [];
-  if (amountUsd !== Math.round(out.amountUsd)) warnings.push(`Amount clamped to ${amountUsd} USD per run (5–500).`);
+  if (amountUsd !== out.amountUsd) warnings.push(`Amount adjusted to ${amountUsd} USD per run (minimum ${MIN_TRADE_USD}, maximum ${MAX_PLAN_USD.toLocaleString("en-US")}).`);
   if (cadenceDays !== wanted) warnings.push(`Cadence rounded to every ${cadenceDays} days.`);
 
   if (kind === "recurring-buy") {

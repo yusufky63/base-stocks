@@ -14,11 +14,12 @@ import { ErrorBanner } from "@/components/common/display";
 import { useAssets } from "@/hooks/queries";
 import { usePortfolioExecution } from "@/hooks/usePortfolioExecution";
 import { formatUsd, timeAgo } from "@/lib/format";
-import { USDC_DECIMALS } from "@/config/chain";
+import { MIN_TRADE_USD, USDC_DECIMALS } from "@/config/chain";
 import { parseUnits } from "viem";
 import { Module, ModuleHeader, Button, Badge, Chip } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/Select";
 import { Slider } from "@/components/ui/Slider";
+import { Input } from "@/components/ui/Input";
 import { SignInButton } from "@/components/layout/SignInButton";
 import { ExecutionProgress } from "@/components/build/ExecutionProgress";
 
@@ -49,7 +50,7 @@ export function AutomationModule({ templates, draft = null }: { templates: Portf
     setSeenDraft(draft);
     if (draft) {
       setType(draft.type);
-      setAmount(Math.min(500, Math.max(5, Math.round(draft.amountUsd / 5) * 5)));
+      setAmount(Math.max(MIN_TRADE_USD, Math.round(draft.amountUsd * 100) / 100));
       setCadence(draft.cadenceDays);
       if (draft.type === "recurring-buy") {
         setAsset(draft.assetAddress ?? "");
@@ -176,7 +177,12 @@ export function AutomationModule({ templates, draft = null }: { templates: Portf
             ) : (
               <Select value={templateId} onChange={setTemplateId} options={templateOptions} ariaLabel="Template" placeholder="Pick a template…" />
             )}
-            <Slider value={amount} min={5} max={500} step={5} onChange={setAmount} ariaLabel="Amount per run" valueLabel={formatUsd(amount)} marks={["$5", "$250", "$500"]} />
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <Slider value={Math.min(500, amount)} min={MIN_TRADE_USD} max={500} step={1} onChange={setAmount} ariaLabel="Amount per run" valueLabel={formatUsd(amount)} marks={["$1", "$250", "$500"]} />
+              </div>
+              <Input type="number" inputMode="decimal" min={MIN_TRADE_USD} step="any" value={amount} onChange={(e) => setAmount(Math.max(MIN_TRADE_USD, Number(e.target.value) || MIN_TRADE_USD))} prefix="$" aria-label="Custom amount per run" className="w-28 num text-right" />
+            </div>
             <div className="flex gap-2">
               {[1, 7, 14, 30].map((d) => (
                 <Chip key={d} active={cadence === d} onClick={() => setCadence(d)}>
