@@ -17,6 +17,7 @@ import { AllocationEditor } from "./AllocationEditor";
 import { PlanExecutor } from "./PlanExecutor";
 import { AiIntentInput } from "./AiIntentInput";
 import { TemplateCard } from "./TemplateCard";
+import { sortTemplatesByLiveness } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
 import { Dither } from "@/components/fx/Dither";
 import { SignInButton } from "@/components/layout/SignInButton";
@@ -35,7 +36,9 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   const auth = useAuth();
   const cloneId = search.get("basket");
   const cloned = useQuery({ queryKey: ["basket", cloneId], queryFn: () => apiGet<{ basket: CommunityBasket }>(`/api/baskets/${cloneId}`), enabled: !!cloneId });
-  const [mode, setMode] = useState<StartMode>("template");
+  const [mode, setMode] = useState<StartMode>("ai");
+  /** AI is the default start; when the operator disabled it the templates take its place. */
+  const activeMode: StartMode = mode === "ai" && flags?.aiEnabled === false ? "template" : mode;
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [name, setName] = useState<string>("Custom portfolio");
   const [description, setDescription] = useState("");
@@ -66,8 +69,8 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   };
 
   const MODES: Array<{ id: StartMode; label: string; hint: string }> = [
-    { id: "template", label: "Template", hint: "ready-made mix" },
-    { id: "ai", label: "AI draft", hint: "from a theme" },
+    { id: "ai", label: "AI draft", hint: "describe a theme" },
+    { id: "template", label: "Template", hint: "ready-made mix, live stocks first" },
     { id: "scratch", label: "From scratch", hint: "pick stocks yourself" },
   ];
 
@@ -98,7 +101,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
           action={
             <div role="tablist" aria-label="Starting point" className="flex gap-1 p-1 rounded-[8px] bg-surface-muted">
               {MODES.filter((m) => m.id !== "ai" || flags?.aiEnabled !== false).map((m) => (
-                <button key={m.id} role="tab" aria-selected={mode === m.id} onClick={() => setMode(m.id)} className={cx("h-8 px-3 rounded-[6px] text-[12px] font-medium transition-fast whitespace-nowrap", mode === m.id ? "bg-canvas border border-line text-primary" : "text-ink-secondary hover:text-ink")} title={m.hint}>
+                <button key={m.id} role="tab" aria-selected={activeMode === m.id} onClick={() => setMode(m.id)} className={cx("h-8 px-3 rounded-[6px] text-[12px] font-medium transition-fast whitespace-nowrap", activeMode === m.id ? "bg-canvas border border-line text-primary" : "text-ink-secondary hover:text-ink")} title={m.hint}>
                   {m.label}
                 </button>
               ))}
@@ -106,17 +109,17 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
           }
         />
         <div className="p-4">
-          {mode === "template" && (
+          {activeMode === "template" && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {(templates ?? []).map((t) => (
+              {sortTemplatesByLiveness(templates ?? [], assets).map((t) => (
                 <TemplateCard key={t.id} template={t} assets={assets} compact onLoad={(tpl) => load(tpl.allocations, tpl.name, "template")} />
               ))}
               {!templates && <Skeleton className="h-36" />}
               {templates && templates.length === 0 && <p className="text-[13px] text-ink-secondary">No templates yet.</p>}
             </div>
           )}
-          {mode === "ai" && <AiIntentInput onIntent={(intent) => load(intent.allocations, intent.name || "AI draft", "ai")} />}
-          {mode === "scratch" && <p className="text-[13px] text-ink-secondary">Add stocks and a USDC share in the basket below; weights must total 100%.</p>}
+          {activeMode === "ai" && <AiIntentInput onIntent={(intent) => load(intent.allocations, intent.name || "AI draft", "ai")} />}
+          {activeMode === "scratch" && <p className="text-[13px] text-ink-secondary">Add stocks and a USDC share in the basket below; weights must total 100%.</p>}
         </div>
       </Module>
 

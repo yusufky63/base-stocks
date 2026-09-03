@@ -8,6 +8,7 @@ import { useAssets, useActivity, usePortfolio, useTemplates, useWatchlist, useSp
 import type { AssetsResponse } from "@/lib/client-api";
 import type { PortfolioTemplate } from "@/domain/portfolio";
 import { formatUsd, bpsToPct, formatUsdCompact } from "@/lib/format";
+import { sortTemplatesByLiveness, templateLiveness } from "@/lib/templates";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar } from "@/components/common/AllocationBar";
 import { LinkButton, Module, ModuleHeader, Skeleton, Stat, Badge } from "@/components/ui/primitives";
@@ -152,16 +153,22 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
         <div className="flex flex-col gap-6">
           <Module ticks>
             <ModuleHeader title="Build a portfolio" action={<Link href="/build" className="text-[13px] text-primary font-medium">Custom</Link>} />
-            {(templates ?? []).slice(0, 3).map((t) => (
+            {sortTemplatesByLiveness(templates ?? [], assets).slice(0, 3).map((t) => {
+              const live = templateLiveness(t, assets);
+              return (
               <Link key={t.id} href={`/build/${t.slug}`} className="rail block px-4 py-3 border-b border-line last:border-b-0 hover:bg-surface transition-fast">
-                <div className="display-medium text-[16px]">{t.name}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="display-medium text-[16px]">{t.name}</div>
+                  <span className={`font-mono text-[11px] ${live.live === live.total ? "text-positive-fg" : "text-ink-muted"}`}>{live.live}/{live.total} live</span>
+                </div>
                 <div className="text-[13px] text-ink-secondary line-clamp-1">{t.description}</div>
                 <div className="mt-2">
                   <AllocationBar height={6} legend={false} segments={t.allocations.map((a) => ({ key: a.assetAddress, label: a.assetAddress === "USDC" ? "USDC" : symbolFor(assets, a.assetAddress), weightBps: a.weightBps }))} />
                 </div>
                 <div className="mt-1 text-[11px] font-mono text-ink-muted">{t.allocations.map((a) => `${a.assetAddress === "USDC" ? "USDC" : symbolFor(assets, a.assetAddress)} ${bpsToPct(a.weightBps)}`).join(" · ")}</div>
               </Link>
-            ))}
+              );
+            })}
             <p className="px-4 py-3 text-[12px] text-ink-muted">Templates, not recommendations.</p>
           </Module>
 

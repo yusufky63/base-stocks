@@ -282,20 +282,24 @@ function sb() {
 
 class SupabaseTemplateRepo implements TemplateRepo {
   private seeded = false;
+  /**
+   * The seed file is the source of truth for its own ids: rows are synced once per process so a
+   * weight change in content/templates.ts reaches the database without a migration. Templates
+   * with other ids (added by hand) are left untouched.
+   */
   private async ensureSeeded() {
     if (this.seeded) return;
-    const { count, error } = await sb().from("portfolio_templates").select("id", { count: "exact", head: true });
-    if (error) throw error;
-    if ((count ?? 0) === 0) {
-      const { error: e1 } = await sb().from("portfolio_templates").upsert(
-        SEED_TEMPLATES.map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description, active: t.active })),
-      );
-      if (e1) throw e1;
-      const { error: e2 } = await sb().from("portfolio_template_allocations").upsert(
-        SEED_TEMPLATES.flatMap((t) => t.allocations.map((a) => ({ template_id: t.id, asset_address_or_usdc: a.assetAddress, weight_bps: a.weightBps }))),
-      );
-      if (e2) throw e2;
-    }
+    const ids = SEED_TEMPLATES.map((t) => t.id);
+    const { error: e1 } = await sb().from("portfolio_templates").upsert(
+      SEED_TEMPLATES.map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description, active: t.active })),
+    );
+    if (e1) throw e1;
+    const { error: e2 } = await sb().from("portfolio_template_allocations").delete().in("template_id", ids);
+    if (e2) throw e2;
+    const { error: e3 } = await sb().from("portfolio_template_allocations").insert(
+      SEED_TEMPLATES.flatMap((t) => t.allocations.map((a) => ({ template_id: t.id, asset_address_or_usdc: a.assetAddress, weight_bps: a.weightBps }))),
+    );
+    if (e3) throw e3;
     this.seeded = true;
   }
   private map(row: Row, allocs: Row[]): PortfolioTemplate {
