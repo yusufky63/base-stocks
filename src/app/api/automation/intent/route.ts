@@ -46,8 +46,8 @@ const clean = (s: string, max: number) => s.replace(/[<>`]/g, "").replace(/\s+/g
 /** Reasons come back with their own full stop; strip it so the sentence we build reads cleanly. */
 const reason = (s: string | null | undefined, fallback: string) => clean(s ?? "", 160).replace(/[.!\s]+$/, "") || fallback;
 
-/** Same ceiling as POST /api/automation. */
-const MAX_PLAN_USD = 100_000;
+/** Per-run ceiling for assistant drafts; the manual form allows the same range. */
+const MAX_PLAN_USD = 1_000;
 
 function systemPrompt(universe: string): string {
   return `You turn one sentence into a recurring investment plan for Coinbase Tokenized Stocks on Base.
@@ -55,7 +55,7 @@ Allowed tickers (only these; anything else must be refused):
 ${universe}
 Rules:
 - type "recurring-buy" for one ticker (set symbol), "recurring-basket" for two or more (set allocations in basis points summing to 10000; "USDC" is allowed as a cash share).
-- amountUsd is the amount per run in US dollars, exactly as the user states it (any amount of at least 1). cadenceDays is 1, 7, 14 or 30 (daily, weekly, biweekly, monthly).
+- amountUsd is the amount per run in US dollars, exactly as the user states it (between 1 and 1000). cadenceDays is 1, 7, 14 or 30 (daily, weekly, biweekly, monthly).
 - If the sentence is not a plan request, asks for advice, or names unknown tickers, set refused=true with a one-line reason.
 - notes: one neutral sentence restating the plan. No advice, no predictions.
 - Keys: refused, refusalReason, type, symbol, basketName, allocations (array of {symbol, weightBps}), amountUsd, cadenceDays, notes.

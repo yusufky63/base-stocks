@@ -75,6 +75,26 @@ function jsonSchemaText(schema: z.ZodType): string {
 }
 
 /** Ask for a structured object; `schema` is enforced by the API (Anthropic) or validated after the fact (OpenAI-compatible JSON mode). */
+/** Human-readable reason for an upstream model error, so the UI can show it instead of a bare status code. */
+async function describeHttpError(provider: string, res: Response): Promise<string> {
+  let upstream = "";
+  try {
+    const body = (await res.json()) as { error?: { message?: string } | string; message?: string };
+    upstream = (typeof body.error === "string" ? body.error : body.error?.message) ?? body.message ?? "";
+  } catch {
+    /* no JSON body */
+  }
+  const why =
+    res.status === 401 ? "the API key was rejected" :
+    res.status === 402 ? "the model account has no credit left; top it up or switch AI_PROVIDER" :
+    res.status === 403 ? "the API key is not allowed to use this model" :
+    res.status === 404 ? "the configured model was not found at this endpoint" :
+    res.status === 429 ? "the model provider is rate limiting us; try again in a minute" :
+    res.status >= 500 ? "the model provider is having an outage" : "the model provider refused the request";
+  const detail = upstream ? ` (${upstream.slice(0, 140)})` : "";
+  return `AI assistant unavailable: ${why} — ${provider} answered ${res.status}${detail}.`;
+}
+
 export async function generateStructured<T>(cfg: AiConfig, opts: { system: string; user: string; schema: z.ZodType<T>; timeoutMs?: number; /** Per-call output cap; defaults to AI_MAX_OUTPUT_TOKENS. */ maxTokens?: number }): Promise<StructuredResult<T>> {
   const started = Date.now();
   if (cfg.provider === "anthropic") {
@@ -111,7 +131,7 @@ export async function generateStructured<T>(cfg: AiConfig, opts: { system: strin
       }),
       signal: controller.signal,
     });
-    if (!res.ok) throw new AppError("PROVIDER_UNAVAILABLE", `ai: ${cfg.provider} http ${res.status}`, 502);
+    if (!res.ok) throw new AppError("PROVIDER_UNAVAILABLE", await describeHttpError(cfg.provider, res), 502);
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_cache_hit_tokens?: number } };
     const usage: AiUsage = { inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: data.usage?.completion_tokens ?? 0, cacheReadTokens: data.usage?.prompt_cache_hit_tokens ?? 0 };
     metrics.count("ai.intent", true, String(Date.now() - started));

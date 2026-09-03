@@ -50,7 +50,7 @@ export function AutomationModule({ templates, draft = null }: { templates: Portf
     setSeenDraft(draft);
     if (draft) {
       setType(draft.type);
-      setAmount(Math.max(MIN_TRADE_USD, Math.round(draft.amountUsd * 100) / 100));
+      setAmount(Math.min(1000, Math.max(MIN_TRADE_USD, Math.round(draft.amountUsd * 100) / 100)));
       setCadence(draft.cadenceDays);
       if (draft.type === "recurring-buy") {
         setAsset(draft.assetAddress ?? "");
@@ -179,9 +179,9 @@ export function AutomationModule({ templates, draft = null }: { templates: Portf
             )}
             <div className="flex items-center gap-3">
               <div className="flex-1">
-                <Slider value={Math.min(500, amount)} min={MIN_TRADE_USD} max={500} step={1} onChange={setAmount} ariaLabel="Amount per run" valueLabel={formatUsd(amount)} marks={["$1", "$250", "$500"]} />
+                <Slider value={Math.min(1000, amount)} min={MIN_TRADE_USD} max={1000} step={1} onChange={setAmount} ariaLabel="Amount per run" valueLabel={formatUsd(amount)} marks={["$1", "$500", "$1,000"]} />
               </div>
-              <Input type="number" inputMode="decimal" min={MIN_TRADE_USD} step="any" value={amount} onChange={(e) => setAmount(Math.max(MIN_TRADE_USD, Number(e.target.value) || MIN_TRADE_USD))} prefix="$" aria-label="Custom amount per run" className="w-28 num text-right" />
+              <Input type="number" inputMode="decimal" min={MIN_TRADE_USD} max={1000} step="any" value={amount} onChange={(e) => setAmount(Math.min(1000, Math.max(MIN_TRADE_USD, Number(e.target.value) || MIN_TRADE_USD)))} prefix="$" aria-label="Custom amount per run" className="w-28 num text-right" />
             </div>
             <div className="flex gap-2">
               {[1, 7, 14, 30].map((d) => (

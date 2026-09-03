@@ -100,7 +100,7 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
             ))}
             <label className={cx("flex items-center h-8 rounded-[6px] border px-2 gap-1 text-[12px] transition-fast focus-within:border-primary", (AMOUNTS as readonly number[]).includes(amount) ? "border-line-strong text-ink-secondary" : "border-primary text-ink")}>
               <span>$</span>
-              <input type="number" inputMode="decimal" min={1} step="any" placeholder="Custom" aria-label="Custom amount per run" value={(AMOUNTS as readonly number[]).includes(amount) ? "" : amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} className="w-16 bg-transparent outline-none num placeholder:text-ink-muted" />
+              <input type="number" inputMode="decimal" min={1} max={1000} step="any" placeholder="Custom" aria-label="Custom amount per run" value={(AMOUNTS as readonly number[]).includes(amount) ? "" : amount} onChange={(e) => setAmount(Math.min(1000, Math.max(1, Number(e.target.value) || 1)))} className="w-16 bg-transparent outline-none num placeholder:text-ink-muted" />
             </label>
           </div>
           <span className="text-[12px] text-ink-secondary">Cadence</span>

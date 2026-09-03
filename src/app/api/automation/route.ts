@@ -12,7 +12,7 @@ const createSchema = z.object({
   assetAddress: addressSchema.optional(),
   basketName: z.string().max(48).optional(),
   allocations: z.array(allocationSchema).max(20).optional(),
-  amountUsd: z.number().positive().max(100_000).optional(),
+  amountUsd: z.number().min(1).max(1_000).optional(),
   cadenceDays: z.number().int().min(1).max(90).optional(),
   thresholdBps: z.number().int().min(100).max(5000).optional(),
   templateId: z.string().max(64).optional(),
