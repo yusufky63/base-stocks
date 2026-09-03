@@ -13,6 +13,7 @@ interface Vm {
     function expectRevert(bytes calldata) external;
     function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
     function addr(uint256 privateKey) external pure returns (address);
+    function assume(bool) external pure;
 }
 
 /// @dev ERC-20 with B20-like failure modes: issuer pause and per-address policy blocks.
@@ -281,6 +282,78 @@ contract GiftEscrowTest {
         (uint8 v, bytes32 r, bytes32 s) = _sig(id, RECIPIENT, CLAIM_PK);
         vm.expectRevert(GiftEscrow.GiftUnknown.selector);
         escrow.claim(id, RECIPIENT, v, r, s);
+    }
+
+    /* ---------- fuzz ---------- */
+
+    uint256 internal constant SECP_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
+
+    /// Any valid key, any amount, any recipient: create then claim pays exactly and clears state.
+    function testFuzz_create_claim_roundtrip(uint256 pk, uint96 amount, address recipient) public {
+        pk = 1 + (pk % (SECP_ORDER - 1));
+        vm.assume(amount > 0);
+        vm.assume(recipient != address(0) && recipient != SENDER && recipient != address(escrow) && recipient != address(token));
+        address key = vm.addr(pk);
+        token.mint(SENDER, amount);
+        uint256 senderBefore = token.balanceOf(SENDER);
+        vm.prank(SENDER);
+        bytes32 id = escrow.create(address(token), amount, key, expiry, 0);
+        require(token.balanceOf(address(escrow)) >= amount, "escrowed");
+        (uint8 v, bytes32 r, bytes32 s) = _sig(id, recipient, pk);
+        escrow.claim(id, recipient, v, r, s);
+        require(token.balanceOf(recipient) >= amount, "paid");
+        require(token.balanceOf(SENDER) == senderBefore - amount, "sender net");
+        (address gSender,,,) = escrow.gifts(id);
+        require(gSender == address(0), "cleared");
+        vm.expectRevert(GiftEscrow.GiftUnknown.selector);
+        escrow.claim(id, recipient, v, r, s);
+    }
+
+    /// A signature for one recipient can never pay any other address.
+    function testFuzz_signature_binds_recipient(uint256 pk, address intended, address thief) public {
+        pk = 1 + (pk % (SECP_ORDER - 1));
+        vm.assume(intended != thief);
+        vm.assume(intended != address(0) && thief != address(0));
+        address key = vm.addr(pk);
+        vm.prank(SENDER);
+        bytes32 id = escrow.create(address(token), AMOUNT, key, expiry, 0);
+        (uint8 v, bytes32 r, bytes32 s) = _sig(id, intended, pk);
+        vm.expectRevert(GiftEscrow.BadSignature.selector);
+        escrow.claim(id, thief, v, r, s);
+    }
+
+    /// After expiry no signature claims; the sender always gets everything back.
+    function testFuzz_expiry_boundary(uint64 wait) public {
+        bytes32 id = _create();
+        uint256 t = uint256(expiry) + 1 + (uint256(wait) % 365 days);
+        vm.warp(t);
+        (uint8 v, bytes32 r, bytes32 s) = _sig(id, RECIPIENT, CLAIM_PK);
+        vm.expectRevert(GiftEscrow.GiftExpired.selector);
+        escrow.claim(id, RECIPIENT, v, r, s);
+        vm.prank(SENDER);
+        escrow.reclaim(id);
+        _assertEq(token.balanceOf(SENDER), 100e8, "refunded in full");
+    }
+
+    /// Two gifts never collide: distinct keys, distinct ids, independent balances.
+    function testFuzz_ids_are_isolated(uint256 pkA, uint256 pkB, uint96 a, uint96 b) public {
+        pkA = 1 + (pkA % (SECP_ORDER - 1));
+        pkB = 1 + (pkB % (SECP_ORDER - 1));
+        vm.assume(pkA != pkB);
+        vm.assume(a > 0 && b > 0);
+        address keyA = vm.addr(pkA);
+        address keyB = vm.addr(pkB);
+        vm.assume(keyA != keyB);
+        token.mint(SENDER, uint256(a) + uint256(b));
+        vm.startPrank(SENDER);
+        bytes32 idA = escrow.create(address(token), a, keyA, expiry, 0);
+        bytes32 idB = escrow.create(address(token), b, keyB, expiry, 0);
+        vm.stopPrank();
+        require(idA != idB, "distinct ids");
+        (uint8 v, bytes32 r, bytes32 s) = _sig(idA, RECIPIENT, pkA);
+        escrow.claim(idA, RECIPIENT, v, r, s);
+        (, , , uint256 amtB) = escrow.gifts(idB);
+        require(amtB == b, "B untouched");
     }
 
     /* ---------- reentrancy ---------- */

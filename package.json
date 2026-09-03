@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify-b20.mjs",
-    "db:apply": "node scripts/db-apply.mjs"
+    "db:apply": "node scripts/db-apply.mjs",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
@@ -32,6 +33,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pngjs": "^6.0.5",
