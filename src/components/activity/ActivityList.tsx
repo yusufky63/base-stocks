@@ -20,10 +20,9 @@ const LABELS: Record<ActivityItem["type"], string> = {
   unknown: "Activity",
 };
 
-/** Basename, then BStocks handle, then the short address. */
-export function counterpartyLabel(it: Pick<ActivityItem, "counterparty" | "counterpartyBasename" | "counterpartyHandle">): string {
+/** Basename, then the short address. */
+export function counterpartyLabel(it: Pick<ActivityItem, "counterparty" | "counterpartyBasename">): string {
   if (it.counterpartyBasename) return it.counterpartyBasename;
-  if (it.counterpartyHandle) return `@${it.counterpartyHandle}`;
   return it.counterparty ? shortenAddress(it.counterparty) : "";
 }
 

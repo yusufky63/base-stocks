@@ -29,7 +29,7 @@ function writeSeen(seen: Set<string>) {
 
 /**
  * "Someone sent you stock": gift records where this wallet is the recipient and the banner has
- * not been dismissed on this device. Sender is shown as Basename / BStocks handle / address.
+ * not been dismissed on this device. Sender is shown as Basename / address.
  */
 export function GiftInbox({ address, onOpenActivity }: { address: Address; onOpenActivity?: () => void }) {
   const { data } = useActivity(address);

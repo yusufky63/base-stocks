@@ -95,21 +95,17 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
 
 function Party({ p, label }: { p: GiftParty; label: string }) {
   const name = giftPartyLabel(p);
-  const member = !!(p.handle || p.displayName);
-  const profileHref = p.handle ? `/u/${p.handle}` : null;
+  const member = !!(p.basename || p.displayName);
+  const profileHref = `/u/${p.address}`;
   return (
     <div className="flex items-center gap-3 min-w-0">
       <Avatar src={p.avatar} seed={p.address} label={name} size={44} />
       <span className="min-w-0">
         <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</span>
         <span className="flex items-center gap-1.5 min-w-0">
-          {profileHref ? (
-            <Link href={profileHref} className="text-[15px] font-medium truncate hover:underline">
-              {name}
-            </Link>
-          ) : (
-            <span className="text-[15px] font-medium truncate">{name}</span>
-          )}
+          <Link href={profileHref} className="text-[15px] font-medium truncate hover:underline">
+            {name}
+          </Link>
           {member && (
             <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title="BStocks member">
               <BadgeCheck size={12} strokeWidth={2} /> member
@@ -119,7 +115,6 @@ function Party({ p, label }: { p: GiftParty; label: string }) {
         <span className="block font-mono text-[11px] text-ink-secondary truncate">
           {shortenAddress(p.address, 6)}
           {p.basename && name !== p.basename ? ` · ${p.basename}` : ""}
-          {p.handle && name !== `@${p.handle}` ? ` · @${p.handle}` : ""}
         </span>
       </span>
     </div>

@@ -42,7 +42,7 @@ export async function getGiftReceipt(id: string): Promise<GiftReceipt | null> {
 }
 
 export function giftPartyLabel(p: GiftParty): string {
-  return p.displayName ?? p.basename ?? (p.handle ? `@${p.handle}` : `${p.address.slice(0, 6)}…${p.address.slice(-4)}`);
+  return p.basename ?? p.displayName ?? `${p.address.slice(0, 6)}…${p.address.slice(-4)}`;
 }
 
 /** Share-equivalent amount of the gift ("0.5 NVDA"), applying the B20 multiplier. */
