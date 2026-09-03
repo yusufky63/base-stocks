@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import type { Address, Hash } from "viem";
-import { apiPatch, ApiError, type ExecutableQuoteDTO, type OrderView } from "@/lib/client-api";
+import { apiPatch, apiPost, ApiError, type ExecutableQuoteDTO, type OrderView } from "@/lib/client-api";
 import type { TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { BASE_CHAIN_ID } from "@/config/chain";
@@ -22,10 +22,14 @@ export interface TradeExecParams {
   slippageBps?: number;
   /** For the activity record only. */
   usdValue?: number | null;
+  /** false = transactions only (no signed orders). */
+  orders?: boolean;
 }
 
 export interface TradeRun {
   state: TradeState;
+  /** Fetches the firm quote for the review screen; execute() reuses it while fresh. */
+  prepare: (params: TradeExecParams) => Promise<void>;
   error: HumanError | null;
   quote: ExecutableQuoteDTO | null;
   txHash?: Hash;
@@ -115,6 +119,35 @@ export function useTrade(): TradeRun {
     reported.current = null;
   }, []);
 
+  const prepare = useCallback(
+    async (params: TradeExecParams) => {
+      if (!address) return;
+      setMachine("GETTING_FIRM_QUOTE");
+      setLocalError(null);
+      try {
+        const q = await apiPost<ExecutableQuoteDTO>("/api/trade/quote", {
+          side: params.side,
+          assetAddress: params.assetAddress,
+          sellAmount: params.sellAmount.toString(),
+          payWith: params.payWith,
+          provider: params.provider,
+          strictProvider: params.strictProvider,
+          orders: params.orders,
+          taker: address,
+          recipient: params.recipient,
+          slippageBps: params.slippageBps,
+          chainId: BASE_CHAIN_ID,
+        });
+        setQuote(q);
+        setMachine("READY");
+      } catch (err) {
+        setLocalError(err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message, detail: err.code } : humanizeError(err));
+        setMachine("IDLE");
+      }
+    },
+    [address],
+  );
+
   const execute = useCallback(
     async (params: TradeExecParams) => {
       setLocalError(null);
@@ -129,7 +162,7 @@ export function useTrade(): TradeRun {
       try {
         const result = await executeTrade(
           { address, chainId, walletClient, publicClient },
-          params,
+          { ...params, prefetchedQuote: quote && Date.now() < quote.expiresAt ? quote : undefined },
           {
             onState: setMachine,
             onQuote: setQuote,
@@ -152,8 +185,8 @@ export function useTrade(): TradeRun {
         setMachine("FAILED");
       }
     },
-    [address, chainId, walletClient, publicClient],
+    [address, chainId, walletClient, publicClient, quote],
   );
 
-  return { state, error, quote, txHash: settledHash, approvalHash, mode, sponsored, orderUid, order, execute, reset, isBusy: BUSY.includes(state) };
+  return { state, error, quote, txHash: settledHash, approvalHash, mode, sponsored, orderUid, order, prepare, execute, reset, isBusy: BUSY.includes(state) };
 }

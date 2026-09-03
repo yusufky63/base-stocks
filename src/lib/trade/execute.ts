@@ -24,6 +24,8 @@ export interface ExecuteTradeParams {
   usdValue?: number | null;
   /** false = transactions only; signed-order providers (CoW) are left out. Basket legs need a hash per leg. */
   orders?: boolean;
+  /** Firm quote already fetched for the review screen; reused while fresh instead of fetching again. */
+  prefetchedQuote?: ExecutableQuoteDTO;
 }
 
 export interface ExecuteTradeContext {
@@ -92,7 +94,7 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
     return q;
   };
 
-  let q = await fetchQuote();
+  let q = params.prefetchedQuote && Date.now() < params.prefetchedQuote.expiresAt ? params.prefetchedQuote : await fetchQuote();
   if (q.balanceInsufficient) throw new ApiError("INSUFFICIENT_BALANCE", TRADE_ERROR_COPY.INSUFFICIENT_BALANCE, 400);
 
   // The activity record is created only once something was actually submitted to the wallet,
@@ -139,6 +141,12 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
 
   if (needsApproval && atomic && approveData) {
     hooks.onMode?.("batched", paymaster);
+    // Simulate approve + swap as one bundle (eth_simulateV1) so a revert surfaces before the wallet
+    // opens; RPCs without the method skip silently — the wallet itself still simulates.
+    await simulateBundle(publicClient, address, [
+      { to: q.sellToken, data: approveData },
+      { to: q.transaction.to, data: q.transaction.data, value: BigInt(q.transaction.value) },
+    ]);
     hooks.onState?.("AWAITING_WALLET");
     const { id } = await walletClient.sendCalls({
       account: address,
@@ -196,6 +204,24 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
   hooks.onSubmitted?.(hash, recordId);
   void record(q, hash);
   return { txHash: hash, recordId, quote: q, mode: "sequential" };
+}
+
+/** eth_simulateV1 bundle check; unsupported RPCs and transport hiccups skip rather than block. */
+async function simulateBundle(publicClient: PublicClient, account: Address, calls: Array<{ to: Address; data: Hex; value?: bigint }>): Promise<void> {
+  try {
+    const { results } = await publicClient.simulateCalls({ account, calls });
+    const failed = results.find((r) => r.status === "failure");
+    if (failed) {
+      const err = failed.error;
+      throw err instanceof Error ? err : new Error(typeof err === "string" ? err : "Simulation reported a revert");
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/eth_simulateV1|method not (found|supported)|not implemented|-32601|does not exist/i.test(msg)) return;
+    const h = humanizeError(err);
+    if (h.code === "UNKNOWN" || h.code === "PROVIDER_UNAVAILABLE") return; // never block on infra noise
+    throw new ApiError(h.code, h.message, 400, undefined, undefined);
+  }
 }
 
 /* ---------- signed orders (CoW Protocol) ---------- */

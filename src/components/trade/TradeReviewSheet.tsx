@@ -46,13 +46,31 @@ interface Props {
 export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, sellAmount, recipient, slippageBps, payWith = "USDC", payUsd, provider, strictProvider = false }: Props) {
   const trade = useTrade();
   const { address: buyer } = useAccount();
+  const preparedFor = useRef<string | null>(null);
   const buy = side === "buy";
   const payEth = buy && payWith === "ETH";
-  const usdcOut = buy ? (payEth ? (payUsd ?? 0) : Number(formatUnits(sellAmount, USDC_DECIMALS))) : Number(formatUnits(BigInt(summary.buyAmount), USDC_DECIMALS));
-  const tokenAmount = buy ? summary.buyAmount : summary.sellAmount;
+  /** Firm quote once fetched; the indicative summary only bridges the first paint (spec: review shows the firm quote). */
+  const live = trade.quote ?? summary;
+  const firm = trade.quote !== null;
+  const usdcOut = buy ? (payEth ? (payUsd ?? 0) : Number(formatUnits(sellAmount, USDC_DECIMALS))) : Number(formatUnits(BigInt(live.buyAmount), USDC_DECIMALS));
+  const tokenAmount = buy ? live.buyAmount : live.sellAmount;
+
+  const execParams = { side, assetAddress: asset.address, sellAmount, payWith: buy ? payWith : undefined, provider: provider ?? summary.provider, strictProvider, recipient: recipient?.address, slippageBps, usdValue: usdcOut };
+  // Fetch the firm quote as soon as the review opens; the CTA signs exactly what is on screen.
+  useEffect(() => {
+    if (!open) {
+      preparedFor.current = null;
+      return;
+    }
+    const key = `${side}:${sellAmount}:${provider ?? ""}:${strictProvider}:${payWith}:${slippageBps}:${recipient?.address ?? ""}`;
+    if (preparedFor.current === key || trade.state !== "IDLE") return;
+    preparedFor.current = key;
+    void trade.prepare(execParams);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, side, sellAmount, provider, strictProvider, payWith, slippageBps, recipient?.address, trade.state]);
   const locked = trade.isBusy;
   const doneReported = useRef(false);
-  const signed = trade.mode === "order" || (trade.mode === null && summary.provider === "cow");
+  const signed = trade.mode === "order" || (trade.mode === null && live.provider === "cow");
 
   const handleClose = () => {
     trade.reset();
@@ -108,15 +126,15 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
           <Button variant="secondary" full onClick={handleClose}>
             Close
           </Button>
-          <Button full onClick={() => trade.execute({ side, assetAddress: asset.address, sellAmount, payWith: buy ? payWith : undefined, provider: provider ?? summary.provider, strictProvider, recipient: recipient?.address, slippageBps, usdValue: usdcOut })}>
+          <Button full onClick={() => trade.execute(execParams)}>
             Try again
           </Button>
         </div>
       );
-    if (trade.state === "IDLE")
+    if (trade.state === "IDLE" || trade.state === "READY")
       return (
-        <Button full size="lg" onClick={() => trade.execute({ side, assetAddress: asset.address, sellAmount, payWith: buy ? payWith : undefined, provider: provider ?? summary.provider, strictProvider, recipient: recipient?.address, slippageBps, usdValue: usdcOut })}>
-          {buy ? `Buy ${asset.underlying} for ${formatUsd(usdcOut)}` : `Sell ${asset.underlying} for ≈ ${formatUsd(usdcOut)}`}
+        <Button full size="lg" onClick={() => trade.execute(execParams)}>
+          {buy ? `Buy ${asset.underlying} for ${formatUsd(usdcOut)}` : `Sell ${asset.underlying} for ${firm ? "" : "≈ "}${formatUsd(usdcOut)}`}
         </Button>
       );
     return (
@@ -150,23 +168,23 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
 
         <div>
           <KeyValue k="Stock" v={`${asset.name} (${asset.symbol})`} mono={false} />
-          <KeyValue k="Executable price" v={summary.executablePriceUsd !== null ? `${formatUsd(summary.executablePriceUsd, { precise: true })} / token` : "—"} />
-          <KeyValue k={`Price impact${summary.priceImpactBasis ? ` vs ${summary.priceImpactBasis}` : ""}`} v={summary.priceImpactPct !== null ? formatPct(summary.priceImpactPct, { sign: true }) : "—"} />
+          <KeyValue k="Executable price" v={live.executablePriceUsd !== null ? `${formatUsd(live.executablePriceUsd, { precise: true })} / token` : "—"} />
+          <KeyValue k={`Price impact${live.priceImpactBasis ? ` vs ${live.priceImpactBasis}` : ""}`} v={live.priceImpactPct !== null ? formatPct(live.priceImpactPct, { sign: true }) : "—"} />
           <KeyValue k="Network" v="Base" />
-          <KeyValue k="Provider" v={`${PROVIDER_LABEL[summary.provider] ?? summary.provider}${strictProvider ? " · your choice" : " · best net"}`} />
-          <KeyValue k="Est. network fee" v={summary.provider === "cow" ? "Paid by the solver · included in the price" : summary.estimatedNetworkFeeUsd !== null ? formatUsd(summary.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
+          <KeyValue k="Provider" v={`${PROVIDER_LABEL[live.provider] ?? live.provider}${strictProvider ? " · your choice" : " · best net"}${firm ? " · firm quote" : trade.state === "GETTING_FIRM_QUOTE" ? " · fetching firm quote…" : ""}`} />
+          <KeyValue k="Est. network fee" v={live.provider === "cow" ? "Paid by the solver · included in the price" : live.estimatedNetworkFeeUsd !== null ? formatUsd(live.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
         </div>
 
-        {summary.provider === "cow" && trade.state === "IDLE" && (
+        {live.provider === "cow" && (trade.state === "IDLE" || trade.state === "READY") && (
           <InfoBanner>
             You sign an order instead of sending a transaction. CoW Protocol solvers compete to fill it within about 30 minutes and pay the gas; if nobody can, it expires and nothing moves. A one-time approval for this amount is still a transaction{trade.sponsored ? " (sponsored)" : ""}.
           </InfoBanner>
         )}
 
-        {summary.warnings.length > 0 && (
+        {live.warnings.length > 0 && (
           <InfoBanner tone="warning">
             <ul className="list-disc pl-4 flex flex-col gap-1">
-              {summary.warnings.map((w) => (
+              {live.warnings.map((w) => (
                 <li key={w}>{w}</li>
               ))}
             </ul>
@@ -194,14 +212,14 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
         {trade.error && <ErrorBanner message={trade.error.message} detail={trade.error.detail} />}
 
         <Collapsible title="Execution details">
-          <KeyValue k="Route" v={summary.route.length ? summary.route.map((r) => `${r.source}${r.proportionBps ? ` ${(r.proportionBps / 100).toFixed(0)}%` : ""}`).join(", ") : "Best available"} />
-          <KeyValue k="Min. received" v={summary.minBuyAmount ? (buy ? `${formatTokenAmount(summary.minBuyAmount, asset.decimals)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(summary.minBuyAmount), USDC_DECIMALS)))) : "—"} />
+          <KeyValue k="Route" v={live.route.length ? live.route.map((r) => `${r.source}${r.proportionBps ? ` ${(r.proportionBps / 100).toFixed(0)}%` : ""}`).join(", ") : "Best available"} />
+          <KeyValue k="Min. received" v={live.minBuyAmount ? (buy ? `${formatTokenAmount(live.minBuyAmount, asset.decimals)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(live.minBuyAmount), USDC_DECIMALS)))) : "—"} />
           <KeyValue k="Slippage tolerance" v={`${(slippageBps / 100).toFixed(2)}%`} />
-          <KeyValue k="Approval" v={summary.allowanceRequired ? "Required (scoped to this amount)" : "Not required"} />
-          <KeyValue k="Spender" v={summary.allowanceSpender ?? "—"} />
+          <KeyValue k="Approval" v={live.allowanceRequired ? "Required (scoped to this amount)" : "Not required"} />
+          <KeyValue k="Spender" v={live.allowanceSpender ?? "—"} />
           <KeyValue k="Execution mode" v={trade.mode === "order" ? `Signed order · gasless${trade.sponsored ? " · approval sponsored" : ""}` : trade.mode === "batched" ? `Atomic batch${trade.sponsored ? " · sponsored gas" : ""}` : trade.mode === "sequential" ? "Sequential" : "—"} />
           {trade.orderUid && <KeyValue k="Order uid" v={`${trade.orderUid.slice(0, 10)}…${trade.orderUid.slice(-6)}`} />}
-          <KeyValue k="Quote fetched" v={new Date(summary.fetchedAt).toLocaleTimeString()} />
+          <KeyValue k="Quote fetched" v={`${new Date(live.fetchedAt).toLocaleTimeString()}${firm ? " · firm" : " · indicative"}`} />
           {trade.approvalHash && <KeyValue k="Approval tx" v={trade.approvalHash} />}
           {trade.quote?.quoteId && <KeyValue k="Quote id" v={trade.quote.quoteId} />}
         </Collapsible>
