@@ -192,7 +192,7 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
     );
 
   return (
-    <Sheet open={open} onClose={handleClose} title={txState === "CONFIRMED" ? "Sent" : step === "form" ? `Send ${asset.underlying}` : "Review send"} locked={busy} footer={mode === "link" ? undefined : footer}>
+    <Sheet open={open} onClose={handleClose} title={txState === "CONFIRMED" ? "Sent" : step === "form" ? (mode === "link" ? `Gift ${asset.underlying}` : `Send ${asset.underlying}`) : "Review send"} locked={busy} footer={mode === "link" ? undefined : footer}>
       {step === "form" && (
         <div className="mb-4">
           <Segmented<"direct" | "link">

@@ -13,11 +13,11 @@ type Variant = "primary" | "secondary" | "ghost" | "danger" | "ink";
 type Size = "sm" | "md" | "lg";
 
 const variantClass: Record<Variant, string> = {
-  primary: "bg-primary text-primary-contrast border border-primary hover:bg-primary-strong hover:border-primary-strong active:translate-y-px disabled:opacity-40 disabled:hover:bg-primary",
-  secondary: "bg-canvas text-ink border border-line-strong hover:border-line-strong hover:bg-surface active:translate-y-px disabled:opacity-40",
-  ghost: "bg-transparent text-ink border border-transparent hover:bg-surface disabled:opacity-40",
-  danger: "bg-canvas text-danger-fg border border-danger hover:bg-surface disabled:opacity-40",
-  ink: "bg-ink text-canvas border border-ink hover:opacity-90 active:translate-y-px disabled:opacity-40",
+  primary: "bg-primary text-primary-contrast border border-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] hover:bg-primary-strong hover:border-primary-strong active:translate-y-px active:shadow-none disabled:opacity-40 disabled:hover:bg-primary",
+  secondary: "bg-canvas text-ink border border-line hover:border-line-strong hover:bg-surface active:translate-y-px disabled:opacity-40",
+  ghost: "bg-transparent text-ink-secondary border border-transparent hover:bg-surface hover:text-ink disabled:opacity-40",
+  danger: "bg-canvas text-danger-fg border border-danger/60 hover:border-danger hover:bg-surface active:translate-y-px disabled:opacity-40",
+  ink: "bg-ink text-canvas border border-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] hover:opacity-90 active:translate-y-px active:shadow-none disabled:opacity-40",
 };
 const sizeClass: Record<Size, string> = {
   sm: "h-9 px-3 text-[13px]",
@@ -38,7 +38,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       disabled={disabled || loading}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-fast transition-[background-color,opacity,border-color,transform] select-none min-h-[44px] tracking-[-0.01em]",
+        "inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-fast transition-[background-color,opacity,border-color,transform,box-shadow] select-none min-h-[44px] tracking-[-0.01em] outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 focus-visible:ring-offset-canvas",
         variantClass[variant],
         sizeClass[size],
         full && "w-full",
@@ -54,7 +54,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 export function LinkButton({ href, variant = "secondary", size = "md", full, className, children }: { href: string; variant?: Variant; size?: Size; full?: boolean; className?: string; children: ReactNode }) {
   return (
-    <Link href={href} className={cx("inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-fast min-h-[44px] tracking-[-0.01em]", variantClass[variant], sizeClass[size], full && "w-full", className)}>
+    <Link href={href} className={cx("inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-fast min-h-[44px] tracking-[-0.01em] outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 focus-visible:ring-offset-canvas", variantClass[variant], sizeClass[size], full && "w-full", className)}>
       {children}
     </Link>
   );

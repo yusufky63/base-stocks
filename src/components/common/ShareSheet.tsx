@@ -1,10 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Share2, Smartphone, ExternalLink } from "lucide-react";
+import { Check, Copy, Share2, Smartphone } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button, cx } from "@/components/ui/primitives";
 import { publicEnv } from "@/config/env";
+
+/** X (Twitter) mark at button-icon size. */
+function XIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
 
 interface ShareProps {
   /** Path on this site (e.g. /stocks/0x…). */
@@ -67,14 +76,14 @@ export function ShareActions({ path, text, className }: ShareProps & { className
           target="_blank"
           rel="noreferrer noopener"
           onClick={() => void copy("post")}
-          className="inline-flex items-center justify-center gap-2 h-12 rounded-[6px] bg-primary text-primary-contrast font-medium text-[15px] whitespace-nowrap"
+          className="inline-flex items-center justify-center gap-2 h-12 rounded-[6px] bg-primary text-primary-contrast border border-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] font-medium text-[15px] whitespace-nowrap hover:bg-primary-strong active:translate-y-px active:shadow-none transition-fast outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
-          <Smartphone size={16} strokeWidth={1.75} /> {copied === "post" ? "Copied · opening Base app" : "Copy post & open Base app"} <ExternalLink size={14} strokeWidth={1.75} />
+          <Smartphone size={16} strokeWidth={1.75} /> {copied === "post" ? "Copied · opening Base app" : "Copy post & open Base app"}
         </a>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <a href={x} target="_blank" rel="noreferrer noopener" className="inline-flex items-center justify-center gap-2 h-11 rounded-[6px] border border-line-strong font-medium text-[14px] whitespace-nowrap hover:bg-surface transition-fast">
-          Post on X <ExternalLink size={13} strokeWidth={1.75} />
+        <a href={x} target="_blank" rel="noreferrer noopener" className="inline-flex items-center justify-center gap-2 h-11 rounded-[6px] border border-line bg-canvas text-ink font-medium text-[14px] whitespace-nowrap hover:bg-surface hover:border-line-strong active:translate-y-px transition-fast outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+          <XIcon /> Post on X
         </a>
         <Button variant="secondary" onClick={() => copy("post")} className="whitespace-nowrap">
           {copied === "post" ? <Check size={14} strokeWidth={1.75} /> : <Copy size={14} strokeWidth={1.75} />} {copied === "post" ? "Copied" : "Copy post"}

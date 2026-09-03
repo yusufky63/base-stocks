@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import QRCode from "qrcode";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, erc20Abi, formatUnits, type Hash } from "viem";
 import { base } from "viem/chains";
@@ -60,6 +62,14 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
   const setPct = (pct: number) => setShares(formatUnits((bpsOf(raw, pct * 100) * multiplier) / wad, asset.decimals));
 
   const link = gift && secret ? claimPath(gift.id, secret.privateKey) : null;
+  const fullLink = link ? `${typeof window !== "undefined" ? window.location.origin : publicEnv.appUrl}${link}` : null;
+  // QR of the full link for in-person gifting; rendered locally, the secret stays on this device.
+  const qr = useQuery({
+    queryKey: ["gift-qr", gift?.id ?? ""],
+    queryFn: () => QRCode.toDataURL(fullLink!, { margin: 1, width: 320, color: { dark: "#0a0b0d", light: "#ffffff" } }),
+    enabled: !!fullLink,
+    staleTime: Infinity,
+  });
   const amountLabel = `${formatTokenAmount((rawAmount * multiplier) / wad, asset.decimals)} ${asset.underlying}`;
 
   const create = async () => {
@@ -135,10 +145,18 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
   if (phase === "ready" && link && gift) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="border border-line rounded-[8px] p-4 bg-surface flex flex-col gap-1.5">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Locked in escrow</div>
-          <div className="display num text-[24px]">{amountLabel}</div>
-          <p className="text-[13px] text-ink-secondary">Valid for {days} days. If nobody claims it, cancel any time from the gift page and the stock comes straight back.</p>
+        <div className="border border-line rounded-[8px] p-4 bg-surface flex items-center gap-4">
+          {qr.data && (
+            <span className="shrink-0 rounded-[8px] bg-white p-1.5 border border-line">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qr.data} alt="Claim link QR code" width={112} height={112} className="w-28 h-28" />
+            </span>
+          )}
+          <div className="min-w-0 flex flex-col gap-1">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Locked in escrow</div>
+            <div className="display num text-[24px]">{amountLabel}</div>
+            <p className="text-[13px] text-ink-secondary">{`Valid for ${days} days. Let them scan the code in person, or share the link below. Unclaimed? Cancel any time and it comes straight back.`}</p>
+          </div>
         </div>
         <InfoBanner tone="warning">
           <span className="inline-flex items-start gap-2">
