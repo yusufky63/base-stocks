@@ -46,3 +46,7 @@ next-env.d.ts
 # local tool config (machine-specific)
 .mcp.json
 .claude/settings.local.json
+
+# Foundry artifacts
+contracts/out/
+contracts/cache/

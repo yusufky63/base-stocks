@@ -13,7 +13,7 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 | Strategies | Build baskets (sliders, templates, guided AI drafts with live market context), community baskets with votes and clones, recurring plans you approve run by run |
 | Earn | Idle USDC into Morpho vaults, Aave V3 and Compound v3 from the app; stock pools, LP positions and lending venues discovered at runtime, never hardcoded |
 | Portfolio | Value (stocks + USDC + Earn + LP), allocation, history, rebalance against a template, verified activity, daily AI summary and badges |
-| Send & gift | To a Basename or address with the recipient's profile shown first; public receipt pages to share |
+| Send & gift | To a Basename or address with the recipient's profile shown first, or a claim link for someone without a wallet: the stock waits in an ownerless escrow, they claim it with a passkey Base Account and the gas is sponsored. Public receipt pages to share |
 | News | Headlines per stock and market-wide plus one shared AI brief every six hours |
 | Compliance | Eligibility notice for restricted regions (`attest` or `block` mode), issuer policies and pauses read before every action |
 | Status | Live, smoothed checks of every dependency at `/status` |

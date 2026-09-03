@@ -339,6 +339,9 @@ class SupabaseGiftRepo implements GiftRepo {
     if (g.memo !== undefined) r.memo = g.memo;
     if (g.txHash !== undefined) r.tx_hash = g.txHash;
     if (g.status !== undefined) r.status = g.status;
+    if (g.escrowId !== undefined) r.escrow_id = g.escrowId;
+    if (g.expiresAt !== undefined) r.expires_at = g.expiresAt;
+    if (g.claimTx !== undefined) r.claim_tx = g.claimTx;
     if (g.createdAt !== undefined) r.created_at = new Date(g.createdAt).toISOString();
     return r;
   }
@@ -356,6 +359,9 @@ class SupabaseGiftRepo implements GiftRepo {
       txHash: (r.tx_hash as Hash | null) ?? undefined,
       status: r.status as GiftRecord["status"],
       createdAt: new Date(String(r.created_at)).getTime(),
+      escrowId: (r.escrow_id as GiftRecord["escrowId"] | null) ?? undefined,
+      expiresAt: r.expires_at !== null && r.expires_at !== undefined ? Number(r.expires_at) : undefined,
+      claimTx: (r.claim_tx as Hash | null) ?? undefined,
     };
   }
   async create(g: GiftRecord) {

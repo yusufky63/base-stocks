@@ -22,6 +22,8 @@ import { AddressLabel, ErrorBanner, InfoBanner } from "@/components/common/displ
 import { RecipientCard } from "@/components/common/RecipientCard";
 import { ShareButton } from "@/components/common/ShareSheet";
 import { TxProgress } from "@/components/trade/TxProgress";
+import { Segmented } from "@/components/ui/Segmented";
+import { ClaimLinkFlow } from "./ClaimLinkFlow";
 
 interface Props {
   open: boolean;
@@ -45,6 +47,7 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
   const [step, setStep] = useState<Step>("form");
+  const [mode, setMode] = useState<"direct" | "link">("direct");
   const [recipientInput, setRecipientInput] = useState("");
   const [shares, setShares] = useState("");
   const [message, setMessage] = useState("");
@@ -189,8 +192,24 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
     );
 
   return (
-    <Sheet open={open} onClose={handleClose} title={txState === "CONFIRMED" ? "Sent" : step === "form" ? `Send ${asset.underlying}` : "Review send"} locked={busy} footer={footer}>
-      {step === "form" ? (
+    <Sheet open={open} onClose={handleClose} title={txState === "CONFIRMED" ? "Sent" : step === "form" ? `Send ${asset.underlying}` : "Review send"} locked={busy} footer={mode === "link" ? undefined : footer}>
+      {step === "form" && (
+        <div className="mb-4">
+          <Segmented<"direct" | "link">
+            size="sm"
+            ariaLabel="How to send"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "direct", label: "To an address" },
+              { value: "link", label: "Claim link · no wallet needed" },
+            ]}
+          />
+        </div>
+      )}
+      {mode === "link" && step === "form" ? (
+        <ClaimLinkFlow asset={asset} raw={raw} scaled={scaled} priceUsd={priceUsd} onSent={onSent} />
+      ) : step === "form" ? (
         <div className="flex flex-col gap-4">
           <Input
             label="Recipient"

@@ -1,7 +1,7 @@
 import type { Address, Hash, Hex } from "viem";
 
-export type GiftKind = "send-existing" | "buy-for-recipient";
-export type GiftStatus = "draft" | "submitted" | "confirmed" | "failed";
+export type GiftKind = "send-existing" | "buy-for-recipient" | "claim-link";
+export type GiftStatus = "draft" | "submitted" | "confirmed" | "failed" | "claimed" | "reclaimed";
 
 export interface GiftRecord {
   id: string;
@@ -18,6 +18,12 @@ export interface GiftRecord {
   txHash?: Hash;
   status: GiftStatus;
   createdAt: number;
+  /** Claim-link gifts: onchain escrow id (keccak of the ephemeral claim key). */
+  escrowId?: Hex;
+  /** Claim-link gifts: unix ms after which only the sender can withdraw. */
+  expiresAt?: number;
+  /** Claim-link gifts: the claim transaction, once someone claimed. */
+  claimTx?: Hash;
 }
 
 /** What the recipient resolver returns for a Basename or raw address. */

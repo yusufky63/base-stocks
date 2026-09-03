@@ -79,7 +79,11 @@ create table if not exists public.gifts (
   memo               text not null,
   tx_hash            text,
   status             text not null,
-  created_at         timestamptz not null default now()
+  created_at         timestamptz not null default now(),
+  -- claim-link gifts (GiftEscrow): onchain id, expiry (unix ms) and the claim transaction
+  escrow_id          text,
+  expires_at         bigint,
+  claim_tx           text
 );
 create index if not exists gifts_sender_idx on public.gifts (sender, created_at desc);
 create index if not exists gifts_recipient_idx on public.gifts (recipient, created_at desc);

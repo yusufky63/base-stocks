@@ -37,7 +37,8 @@ export async function getGiftReceipt(id: string): Promise<GiftReceipt | null> {
   if (!gift || gift.status === "draft" || !gift.txHash) return null;
   const assets = await getAssets();
   const asset = assets.find((a) => a.address.toLowerCase() === gift.assetAddress.toLowerCase()) ?? null;
-  const [sender, recipient] = await Promise.all([party(gift.sender), party(gift.recipient, gift.recipientBasename)]);
+  const zero = gift.recipient === "0x0000000000000000000000000000000000000000";
+  const [sender, recipient] = await Promise.all([party(gift.sender), zero ? Promise.resolve({ address: gift.recipient, basename: null, handle: null, displayName: null, avatar: null } satisfies GiftParty) : party(gift.recipient, gift.recipientBasename)]);
   return { gift, asset: asset ? toAssetDTO(asset) : null, sender, recipient };
 }
 

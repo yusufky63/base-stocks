@@ -17,7 +17,9 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
   const { gift, asset } = receipt;
   const amount = giftAmountLabel(receipt);
   const me = address?.toLowerCase();
-  const role = me === gift.recipient.toLowerCase() ? "recipient" : me === gift.sender.toLowerCase() ? "sender" : "visitor";
+  const claimLink = gift.kind === "claim-link";
+  const unclaimed = claimLink && gift.recipient === "0x0000000000000000000000000000000000000000";
+  const role = !unclaimed && me === gift.recipient.toLowerCase() ? "recipient" : me === gift.sender.toLowerCase() ? "sender" : "visitor";
   const senderName = giftPartyLabel(receipt.sender);
   const recipientName = giftPartyLabel(receipt.recipient);
   const shareText =
@@ -27,7 +29,7 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
         ? `I just gifted ${amount} (a tokenized stock on Base) to ${recipientName} with BStocks.`
         : `${senderName} gifted ${amount} to ${recipientName} on BStocks — tokenized stocks on Base.`;
   const when = new Date(gift.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-  const status = gift.status === "confirmed" ? "confirmed onchain" : gift.status === "failed" ? "failed" : "submitted";
+  const status = gift.status === "claimed" ? "claimed" : gift.status === "reclaimed" ? "cancelled by sender" : claimLink ? "awaiting claim" : gift.status === "confirmed" ? "confirmed onchain" : gift.status === "failed" ? "failed" : "submitted";
 
   return (
     <div className="flex flex-col gap-6 max-w-[720px]">
@@ -41,7 +43,7 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
         }
         lead={
           <>
-            {senderName} sent {asset ? `${asset.name} as a Coinbase Tokenized Stock on Base` : "a tokenized stock"} to {recipientName} · {when}
+            {senderName} {claimLink ? `locked ${asset ? `${asset.name} as a Coinbase Tokenized Stock on Base` : "a tokenized stock"} behind a claim link` : `sent ${asset ? `${asset.name} as a Coinbase Tokenized Stock on Base` : "a tokenized stock"} to ${recipientName}`} · {when}
           </>
         }
         action={<ShareButton path={`/gifts/${gift.id}`} text={shareText} title="Share this gift" size="md" />}
@@ -53,7 +55,20 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
           <span className="hidden md:inline-flex items-center justify-center h-9 w-9 rounded-full border border-line text-primary" aria-hidden>
             <ArrowRight size={16} strokeWidth={2} />
           </span>
-          <Party p={receipt.recipient} label="To" />
+          {unclaimed ? (
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="w-11 h-11 rounded-full bg-primary-soft inline-flex items-center justify-center shrink-0">
+                <Gift size={18} strokeWidth={1.75} className="text-primary" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">To</span>
+                <span className="block text-[15px] font-medium">Whoever opens the link</span>
+                <span className="block font-mono text-[11px] text-ink-secondary">{gift.expiresAt ? `claimable until ${new Date(gift.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : "claim link"}</span>
+              </span>
+            </div>
+          ) : (
+            <Party p={receipt.recipient} label="To" />
+          )}
         </div>
         {gift.message && (
           <blockquote className="mx-4 md:mx-5 mb-4 border-l-2 border-primary pl-3 text-[15px] text-ink leading-snug">
@@ -62,15 +77,21 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
         )}
         <div className="border-t border-line px-4 md:px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] font-mono text-ink-muted">
           <span className="inline-flex items-center gap-1.5">
-            <Gift size={12} strokeWidth={2} className="text-primary" /> {gift.kind === "buy-for-recipient" ? "bought and delivered directly" : "sent from the sender's wallet"}
+            <Gift size={12} strokeWidth={2} className="text-primary" /> {gift.kind === "buy-for-recipient" ? "bought and delivered directly" : claimLink ? "held by the BStocks gift escrow" : "sent from the sender's wallet"}
           </span>
-          <Badge tone={gift.status === "confirmed" ? "positive" : gift.status === "failed" ? "danger" : "warning"}>{status}</Badge>
+          <Badge tone={gift.status === "confirmed" || gift.status === "claimed" ? "positive" : gift.status === "failed" ? "danger" : gift.status === "reclaimed" ? "neutral" : "warning"}>{status}</Badge>
           {gift.txHash && <TxLink hash={gift.txHash}>view transaction</TxLink>}
+          {gift.claimTx && <TxLink hash={gift.claimTx}>claim transaction</TxLink>}
           <span>network: Base</span>
         </div>
       </Module>
 
       <div className="flex flex-wrap gap-2">
+        {claimLink && role === "sender" && unclaimed && (
+          <LinkButton href={`/gifts/claim/${gift.id}`} variant="primary" size="lg">
+            Manage or cancel the gift <ArrowUpRight size={16} strokeWidth={1.75} />
+          </LinkButton>
+        )}
         {role === "recipient" && (
           <LinkButton href="/portfolio" variant="primary" size="lg">
             See it in your portfolio <ArrowUpRight size={16} strokeWidth={1.75} />
