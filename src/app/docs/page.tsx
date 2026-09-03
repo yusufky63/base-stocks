@@ -34,6 +34,7 @@ const NAV = [
   ["limit-orders", "Limit orders"],
   ["earn", "Liquidity math"],
   ["gifts", "Gift escrow"],
+  ["gas", "Gas & sponsorship"],
   ["privacy", "Data & privacy"],
   ["contracts", "Contracts"],
 ] as const;
@@ -61,6 +62,15 @@ const COW_SPEC: Array<[string, string]> = [
   ["Signing", "eip712 for EOAs, eip1271 for smart wallets — picked by checking deployed code"],
   ["Fills", "Partially fillable; remaining size stays open until validTo"],
   ["Cancel", "Signed off-chain (free) or on-chain via invalidateOrder"],
+];
+
+const GAS_SPEC: Array<[string, string]> = [
+  ["Base Account", "Transactions go out as EIP-5792 batches; the CDP paymaster sponsors gas where its policy allows, so a fresh passkey wallet can act with zero ETH"],
+  ["Other wallets", "You pay the Base network fee yourself \u2014 usually well under a cent per transaction"],
+  ["Trades & earn & LP", "Same rule: sponsored on Base Account when the paymaster accepts, otherwise cents of ETH; approval + action is one confirmation on Base Account, two elsewhere"],
+  ["CoW limit orders", "Placing and (off-chain) cancelling cost no gas at all \u2014 the winning solver pays the settlement gas; only the one-time approval is a transaction"],
+  ["Gift claims", "claim() is allowlisted on the paymaster, so recipients with empty wallets claim for free; the function is also permissionless \u2014 anyone holding the recipient's EIP-712 signature can pay the gas instead"],
+  ["Sponsorship limits", "Paymaster budgets and policies live on Coinbase Developer Platform; if a sponsorship is declined the wallet simply asks the user to pay, nothing breaks"],
 ];
 
 const GIFT_SPEC: Array<[string, string]> = [
@@ -276,7 +286,12 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={8} id="privacy" title="Data, limits and privacy" />
+        <SectionHead n={8} id="gas" title="Gas and sponsorship" sub="who pays for what" />
+        <SpecRows rows={GAS_SPEC} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={9} id="privacy" title="Data, limits and privacy" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={Database} title="Supabase for the social layer">
             Baskets, profiles, gift metadata and AI usage live behind row-level security. Positions and balances are always read from the chain, never mirrored.
@@ -291,7 +306,7 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={9} id="contracts" title="Contract addresses" sub="Base mainnet" />
+        <SectionHead n={10} id="contracts" title="Contract addresses" sub="Base mainnet" />
         <div className="border border-line rounded-[8px] bg-canvas overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
