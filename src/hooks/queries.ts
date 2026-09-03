@@ -187,7 +187,7 @@ export function useOrderStatus(uid?: string) {
 export function useOrders(owner?: Address) {
   return useQuery({
     queryKey: qk.orders(owner ?? ""),
-    queryFn: () => apiGet<{ orders: OrderView[] }>(`/api/trade/orders?owner=${owner}`).then((r) => r.orders),
+    queryFn: () => apiGet<{ orders: OrderView[] }>(`/api/trade/orders?owner=${owner}&limit=50`).then((r) => r.orders),
     enabled: !!owner,
     staleTime: 10_000,
     refetchInterval: (q) => (q.state.data?.some((o) => o.status === "open") ? 8_000 : 60_000),

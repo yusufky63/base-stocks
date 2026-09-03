@@ -20,7 +20,6 @@ interface Props {
   portfolioWeightBps?: number;
   connected: boolean;
   onBuy: () => void;
-  onSell: () => void;
   onSend: () => void;
   /** This wallet's liquidity positions that contain the stock (Uniswap v3 / Aerodrome Slipstream). */
   lp?: LpSummary | null;
@@ -36,7 +35,7 @@ export interface LpSummary {
 }
 
 /** "Your position": share-equivalents from scaledBalanceOf, value from raw × token price. */
-export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, portfolioWeightBps, connected, onBuy, onSell, onSend, lp }: Props) {
+export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, portfolioWeightBps, connected, onBuy, onSend, lp }: Props) {
   const valueUsd = priceUsd !== null ? Number(formatUnits(raw, asset.decimals)) * priceUsd : null;
   const multiplier = Number(formatUnits(BigInt(asset.multiplier), 18));
   const dayPnl = valueUsd !== null && change24hPct !== null ? valueUsd - valueUsd / (1 + change24hPct / 100) : null;
@@ -91,17 +90,9 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <Button size="md" onClick={onBuy} disabled={asset.status === "paused" || BigInt(asset.totalSupply ?? "0") === 0n}>
-              Buy more
-            </Button>
-            <Button size="md" variant="secondary" onClick={onSell} disabled={asset.status === "paused"}>
-              Sell
-            </Button>
-            <Button size="md" variant="secondary" onClick={onSend} disabled={asset.status === "paused"}>
-              <Send size={14} strokeWidth={1.75} /> Send
-            </Button>
-          </div>
+          <Button size="md" variant="secondary" onClick={onSend} disabled={asset.status === "paused"}>
+            <Send size={14} strokeWidth={1.75} /> Send to a wallet or Basename
+          </Button>
         </>
       )}
       {lp && lp.count > 0 && (

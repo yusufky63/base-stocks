@@ -19,6 +19,8 @@ import { COW_DOMAIN_CLIENT } from "./cow-domain";
  * "Your orders": CoW limit and market orders of the connected wallet, open ones first. Cancel is
  * an offchain signature for EOAs and a small onchain transaction for smart accounts.
  */
+const PAGE = 5;
+
 export function OrdersModule({ owner, assetAddress, title = "Your orders", showEmpty = false }: { owner?: Address; assetAddress?: Address; title?: string; showEmpty?: boolean }) {
   const orders = useOrders(owner);
   const assets = useAssets();
@@ -28,10 +30,18 @@ export function OrdersModule({ owner, assetAddress, title = "Your orders", showE
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE);
 
-  const list = (orders.data ?? []).filter((o) => !assetAddress || o.assetAddress?.toLowerCase() === assetAddress.toLowerCase());
+  // The CoW order book returns every order of the wallet, including pairs traded through other
+  // apps; only orders on listed tokenized stocks belong here.
+  const known = new Set((assets.data?.assets ?? []).map((a) => a.canonicalId));
+  const list = (orders.data ?? []).filter((o) => {
+    if (assets.data && (!o.assetAddress || !known.has(o.assetAddress.toLowerCase()))) return false;
+    return !assetAddress || o.assetAddress?.toLowerCase() === assetAddress.toLowerCase();
+  });
   const open = list.filter((o) => o.status === "open" || o.status === "presignaturePending");
-  const settled = list.filter((o) => o.status !== "open" && o.status !== "presignaturePending").slice(0, 8);
+  const allSettled = list.filter((o) => o.status !== "open" && o.status !== "presignaturePending");
+  const settled = allSettled.slice(0, shown);
   if (!owner || (!showEmpty && list.length === 0)) return null;
 
   const cancel = async (o: OrderView) => {
@@ -96,10 +106,17 @@ export function OrdersModule({ owner, assetAddress, title = "Your orders", showE
       ) : list.length === 0 ? (
         <p className="px-4 py-3 text-[13px] text-ink-muted">No orders yet. A limit order waits in the CoW Protocol order book until the market reaches your price.</p>
       ) : (
-        <ul>
-          {open.map(row)}
-          {settled.map(row)}
-        </ul>
+        <>
+          <ul>
+            {open.map(row)}
+            {settled.map(row)}
+          </ul>
+          {allSettled.length > shown && (
+            <button type="button" onClick={() => setShown((n) => n + PAGE)} className="w-full h-10 text-[13px] font-medium text-primary hover:bg-surface transition-fast border-t border-line">
+              Show {Math.min(PAGE, allSettled.length - shown)} more · {allSettled.length - shown} older
+            </button>
+          )}
+        </>
       )}
       {error && <p className="px-4 pb-3 text-[13px] text-danger-fg">{error}</p>}
     </section>

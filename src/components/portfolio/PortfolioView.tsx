@@ -182,14 +182,7 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                 </div>
               )}
             </Module>
-          </div>
 
-          <div className="flex flex-col gap-6">
-            <AutomationCard />
-            <HistoryModule address={address} />
-            <Module>
-              <OrdersModule owner={address} showEmpty />
-            </Module>
             <Module>
               <ModuleHeader title="Earn" action={<Link href="/earn" className="text-[13px] text-primary font-medium">Manage →</Link>} />
               {data && data.earnPositions.length > 0 ? (
@@ -237,6 +230,14 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
               <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Deposits in Morpho, Aave and Compound stay in your wallet and count toward the total above.</p>
             </Module>
             <LpPositionsModule compact />
+          </div>
+
+          <div className="flex flex-col gap-6">
+            <AutomationCard />
+            <HistoryModule address={address} />
+            <Module>
+              <OrdersModule owner={address} showEmpty />
+            </Module>
           </div>
         </div>
       )}

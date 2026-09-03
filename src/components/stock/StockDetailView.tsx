@@ -160,7 +160,6 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 portfolioWeightBps={portfolio?.holdings.find((h) => h.assetAddress.toLowerCase() === asset.canonicalId)?.currentWeightBps}
                 connected={!!user}
                 onBuy={() => { setSide("buy"); setMobileTrade(true); }}
-                onSell={() => { setSide("sell"); setMobileTrade(true); }}
                 onSend={() => setSendOpen(true)}
                 lp={lp}
               />
