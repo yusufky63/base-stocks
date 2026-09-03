@@ -10,19 +10,19 @@
   "miniapp": {
     "version": "1",
     "name": "BStocks",
-    "homeUrl": "https://base-stocks.vercel.app/",
-    "iconUrl": "https://base-stocks.vercel.app/brand/icon-1024.png",
-    "splashImageUrl": "https://base-stocks.vercel.app/brand/splash-200.png",
+    "homeUrl": "https://basestocks.finance/",
+    "iconUrl": "https://basestocks.finance/brand/icon-1024.png",
+    "splashImageUrl": "https://basestocks.finance/brand/splash-200.png",
     "splashBackgroundColor": "#0370fd",
     "subtitle": "Stocks, built for onchain",
     "description": "Trade Coinbase Tokenized Stocks, build baskets, automate plans and put idle USDC to work on Base. Self-custodial: every action is confirmed in your wallet.",
     "primaryCategory": "finance",
     "tags": ["stocks", "base", "defi", "portfolio", "usdc"],
-    "heroImageUrl": "https://base-stocks.vercel.app/opengraph-image",
+    "heroImageUrl": "https://basestocks.finance/opengraph-image",
     "tagline": "Tokenized stocks, your wallet",
     "ogTitle": "BStocks · Stocks on Base",
     "ogDescription": "Trade tokenized stocks, build baskets and earn on Base, self-custodially.",
-    "ogImageUrl": "https://base-stocks.vercel.app/opengraph-image",
+    "ogImageUrl": "https://basestocks.finance/opengraph-image",
     "noindex": false
   }
 }

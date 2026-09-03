@@ -71,7 +71,8 @@ export function serverEnv(): ServerEnv {
 /** Public (browser-safe) environment. Only NEXT_PUBLIC_ values. */
 export const publicEnv = {
   reownProjectId: process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "",
-  appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  /** Official production origin as the fallback so share links, wallet metadata and manifests never point at localhost. */
+  appUrl: process.env.NEXT_PUBLIC_APP_URL ?? (process.env.NODE_ENV === "production" ? "https://basestocks.finance" : "http://localhost:3000"),
   baseRpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL ?? "",
   flashblocksRpcUrl: process.env.NEXT_PUBLIC_FLASHBLOCKS_RPC_URL ?? "",
   builderCode: process.env.NEXT_PUBLIC_BASE_BUILDER_CODE ?? "",

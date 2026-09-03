@@ -9,7 +9,7 @@ const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["40
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", weight: ["500", "700"], display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"], display: "swap" });
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://base-stocks.vercel.app").replace(/\/$/, "");
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://basestocks.finance").replace(/\/$/, "");
 
 /** Base app / mini app embed: a launch button when a link to the site is shared inside the Base app. */
 const miniAppEmbed = JSON.stringify({
