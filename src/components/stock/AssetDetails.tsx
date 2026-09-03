@@ -1,6 +1,7 @@
 "use client";
 
 import { formatUnits } from "viem";
+import { ExternalLink } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
 import { KeyValue, Badge } from "@/components/ui/primitives";
@@ -13,6 +14,14 @@ import { TimeAgo } from "@/components/common/TimeAgo";
 const utcStamp = (unixSeconds: number) => `${new Date(unixSeconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 const FRESHNESS_LABEL = { live: "live", "last-close": "last close · market closed", stale: "stale", frozen: "frozen · corporate action" } as const;
+
+/** CoinGecko lists only the liquid tokenized stocks; slugs follow {company}-coinbase-tokenized-stock (verified 2026-09-03). */
+const COINGECKO_SLUGS: Record<string, string> = {
+  AAPL: "apple-coinbase-tokenized-stock",
+  GOOGL: "alphabet-coinbase-tokenized-stock",
+  META: "meta-coinbase-tokenized-stock",
+  NVDA: "nvidia-coinbase-tokenized-stock",
+};
 
 /** Asset details / B20 / Oracle / Contract — advanced, collapsed by default on mobile. */
 export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: PriceView | null }) {
@@ -35,6 +44,22 @@ export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: Pric
       </div>
 
       <KeyValue k="Contract" v={<AddressLabel address={asset.address} explorer />} />
+      <KeyValue
+        k="Market data"
+        v={
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+            {[
+              ["DexScreener", `https://dexscreener.com/base/${asset.address}`],
+              ["GeckoTerminal", `https://www.geckoterminal.com/base/tokens/${asset.address}`],
+              ...(COINGECKO_SLUGS[asset.underlying] ? [["CoinGecko", `https://www.coingecko.com/en/coins/${COINGECKO_SLUGS[asset.underlying]}`] as const] : []),
+            ].map(([label, url]) => (
+              <a key={label} href={url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-primary font-medium hover:underline">
+                {label} <ExternalLink size={11} strokeWidth={1.75} />
+              </a>
+            ))}
+          </span>
+        }
+      />
       <KeyValue k="Symbol / decimals" v={`${asset.symbol} · ${asset.decimals}`} />
       <KeyValue k="Underlying" v={asset.underlying} />
       {asset.isin && <KeyValue k="ISIN" v={asset.isin} />}
