@@ -6,7 +6,7 @@ import { useAccount } from "wagmi";
 import { Gift as GiftIcon, Send } from "lucide-react";
 import type { PortfolioHolding } from "@/domain/portfolio";
 import { useAssets, usePortfolio } from "@/hooks/queries";
-import { formatTokenAmount } from "@/lib/format";
+import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { Button, LinkButton, Module, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
@@ -71,10 +71,31 @@ export function GiftsView() {
         </Module>
       ) : holdings.length === 0 ? (
         <Module>
-          <div className="p-6 flex flex-col items-start gap-3">
-            <p className="text-[14px] text-ink-secondary">Nothing to gift yet — you gift stock you hold.</p>
+          <div className="px-4 py-3 border-b border-line font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">1 · What to give</div>
+          <div className="px-4 py-4 border-b border-line">
+            <p className="text-[14px] text-ink-secondary">Nothing to gift yet — you gift stock you hold. Pick one to buy first; it takes a minute and comes straight back here.</p>
+          </div>
+          <ul>
+            {(assets.data?.assets ?? []).slice(0, 5).map((a) => {
+              const price = assets.data?.prices[a.canonicalId]?.displayUsd ?? null;
+              return (
+                <li key={a.address}>
+                  <Link href={`/stocks/${a.address}`} className="flex items-center gap-3 px-4 py-3 border-b border-line hover:bg-surface transition-fast">
+                    <AssetLogo src={a.logoURI} symbol={a.underlying} size={32} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium text-[14px]">{a.underlying}</span>
+                      <span className="block text-[12px] text-ink-secondary truncate">{a.name}</span>
+                    </span>
+                    {price !== null && <span className="font-mono num text-[13px] text-ink-secondary">{formatUsd(price)}</span>}
+                    <span className="text-[13px] text-primary font-medium shrink-0">Buy →</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="p-4">
             <LinkButton href="/markets" variant="primary">
-              Buy a stock first
+              Browse all markets
             </LinkButton>
           </div>
         </Module>

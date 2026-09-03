@@ -15,6 +15,7 @@ import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { claimPath, GIFT_ESCROW_ADDRESS, giftEscrowAbi, makeClaimSecret, type ClaimSecret } from "@/lib/escrow";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
+import { callAfterApproval } from "@/lib/trade/execute";
 import { bpsOf, parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AmountInput, Input } from "@/components/ui/Input";
@@ -127,7 +128,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
       } else {
         const ah = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(approveData) });
         await publicClient.waitForTransactionReceipt({ hash: ah });
-        await publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data: createData });
+        await callAfterApproval(publicClient, address, { to: GIFT_ESCROW_ADDRESS, data: createData });
         hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(createData) });
         setPhase("submitted");
         await publicClient.waitForTransactionReceipt({ hash });

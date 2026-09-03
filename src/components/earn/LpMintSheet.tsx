@@ -13,7 +13,7 @@ import { poolTokensAbi, slipstreamMintAbi, slipstreamPoolSlot0Abi, uniswapV3Mint
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
 import { alignTick, amountsForOneSide, priceToTick, sqrtPriceX96ToSqrtPrice } from "@/lib/earn/lp-math";
 import { equityPricePerShare, parseAmountSafe } from "@/lib/b20/math";
-import { simulateBundle } from "@/lib/trade/execute";
+import { callAfterApproval, simulateBundle } from "@/lib/trade/execute";
 import { humanizeError, type HumanError } from "@/lib/errors";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { qk, useAssets, useRegion } from "@/hooks/queries";
@@ -246,7 +246,7 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
         hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
       } else {
         for (const c of calls) {
-          if (c.to === target.npm) await publicClient.call({ account: address, to: c.to, data: c.data });
+          if (c.to === target.npm) await callAfterApproval(publicClient, address, { to: c.to, data: c.data });
           hash = await walletClient.sendTransaction({ account: address, chain: base, to: c.to, data: withAttribution(c.data) });
           setPhase("submitted");
           await publicClient.waitForTransactionReceipt({ hash });

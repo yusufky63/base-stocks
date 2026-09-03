@@ -183,7 +183,7 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
   }
 
   try {
-    await publicClient.call({ account: address, to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) });
+    await callAfterApproval(publicClient, address, { to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) });
   } catch (simErr) {
     const h = humanizeError(simErr);
     if (h.code === "QUOTE_EXPIRED" || h.code === "SLIPPAGE") {
@@ -204,6 +204,27 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
   hooks.onSubmitted?.(hash, recordId);
   void record(q, hash);
   return { txHash: hash, recordId, quote: q, mode: "sequential" };
+}
+
+/**
+ * Simulate a call that depends on an approval we just mined. The fallback transport spreads
+ * requests across RPCs, and a public node can lag the approve receipt by a block or two - an
+ * "insufficient allowance" revert right after our own approval is stale state, not a real
+ * failure, so it retries briefly before surfacing.
+ */
+export async function callAfterApproval(publicClient: PublicClient, account: Address, call: { to: Address; data: Hex; value?: bigint }, attempts = 4): Promise<void> {
+  for (let i = 0; ; i++) {
+    try {
+      await publicClient.call({ account, to: call.to, data: call.data, value: call.value });
+      return;
+    } catch (err) {
+      if (humanizeError(err).code === "ALLOWANCE_REQUIRED" && i < attempts) {
+        await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 /** eth_simulateV1 bundle check; unsupported RPCs and transport hiccups skip rather than block. */
