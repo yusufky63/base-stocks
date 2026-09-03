@@ -42,7 +42,7 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 
 ## Phase E — Reach
 
-- **GiftEscrow shipped 2026-09-03** (`0x8D9fE4b3Ab9BecbE1181d15d51FB9724561C7f55`, `contracts/`, 17 Foundry tests): claim-link gifts with passkey onboarding and sponsored claims. Still open: verify the source on Basescan (`ETHERSCAN_API_KEY` + `forge verify-contract`), add the escrow's `claim` to the CDP paymaster allowlist so no-ETH recipients are actually sponsored, and a first real mainnet run (create → claim → cancel with a few dollars of stock).
+- **GiftEscrow shipped 2026-09-03** (`0x8D9fE4b3Ab9BecbE1181d15d51FB9724561C7f55`, `contracts/`, 17 Foundry tests): claim-link gifts with passkey onboarding and sponsored claims. Source verified on Basescan (2026-09-03). Still open: add the escrow's `claim` to the CDP paymaster allowlist so no-ETH recipients are actually sponsored, and a first real mainnet run (create → claim → cancel with a few dollars of stock).
 
 - **LI.FI SDK / widget in-app** instead of the hosted jumper.exchange link (heavy dependency; the link already covers 20+ chains).
 - **CoinGecko Onchain (paid)** as primary market data once public rate limits bind; the adapter already exists behind `COINGECKO_API_KEY`.
