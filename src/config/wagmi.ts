@@ -1,10 +1,10 @@
-import { cookieStorage, createConfig, createStorage, http, type Config } from "wagmi";
+import { cookieStorage, createConfig, createStorage, fallback, http, type Config } from "wagmi";
 import { base } from "wagmi/chains";
 import { baseAccount, injected } from "wagmi/connectors";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { base as appkitBase, type AppKitNetwork } from "@reown/appkit/networks";
 import { publicEnv } from "@/config/env";
-import { BASE_CHAIN_ID } from "@/config/chain";
+import { BASE_CHAIN_ID, PUBLIC_BASE_RPC_URLS } from "@/config/chain";
 
 /**
  * Wallet stack (spec §18): Reown AppKit + Wagmi + Viem, Base Account featured but never exclusive.
@@ -16,8 +16,13 @@ export const projectId = publicEnv.reownProjectId;
 export const hasReown = projectId.length > 0;
 export const networks = [appkitBase] as [AppKitNetwork, ...AppKitNetwork[]];
 
+// Dedicated browser RPC first, public Base endpoints behind it, in order (no latency ranking).
+const rpcChain = [
+  ...(publicEnv.baseRpcUrl ? [http(publicEnv.baseRpcUrl, { batch: true, retryCount: 2 })] : []),
+  ...PUBLIC_BASE_RPC_URLS.filter((u) => u !== publicEnv.baseRpcUrl).map((u) => http(u, { batch: true, retryCount: 1 })),
+];
 const transports = {
-  [base.id]: http(publicEnv.baseRpcUrl || undefined, { batch: true }),
+  [base.id]: fallback(rpcChain, { rank: false }),
 } as const;
 
 function buildConnectors() {
