@@ -10,6 +10,8 @@ const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", 
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"], display: "swap" });
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://basestocks.finance").replace(/\/$/, "");
+/** Base app id (Builder Codes): ties this web app to the registered Base project for attribution. */
+const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID ?? "6a98cc686e87922b5d1d4597";
 
 /** Base app / mini app embed: a launch button when a link to the site is shared inside the Base app. */
 const miniAppEmbed = JSON.stringify({
@@ -29,7 +31,7 @@ export const metadata: Metadata = {
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BStocks",
   icons: { icon: [{ url: "/brand/logo-mark-transparent-128.png", type: "image/png" }, { url: "/icon.svg", type: "image/svg+xml" }], apple: "/brand/icon-1024.png" },
-  other: { "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
+  other: { "base:app_id": BASE_APP_ID, "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
 };
 
 export const viewport: Viewport = {
