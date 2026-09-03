@@ -22,6 +22,10 @@ export function ensureAppKit(themeMode: "light" | "dark" = "light"): AppKitInsta
     projectId,
     networks,
     defaultNetwork: appkitBase,
+    // Do not pop AppKit's own "Switch network" modal on page load when the wallet sits on another
+    // chain (spec §19: nothing is requested on load). The header shows a "Switch to Base" button
+    // instead, and every action re-checks the chain before it runs.
+    allowUnsupportedChain: true,
     metadata: {
       name: APP_NAME,
       description: "Stocks, built for onchain. Trade tokenized stocks and build portfolios on Base.",

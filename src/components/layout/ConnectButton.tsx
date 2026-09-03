@@ -19,9 +19,10 @@ import { AddressLabel } from "@/components/common/display";
  * No signature is requested on connect (spec §19).
  */
 export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "md" | "lg"; full?: boolean; compact?: boolean }) {
-  const { address, isConnected, chainId } = useAccount();
+  const { address, isConnected, chainId, status, connector } = useAccount();
   const [open, setOpen] = useState(false);
-  const { switchChain, isPending: switching } = useSwitchChain();
+  const { switchChainAsync, isPending: switching } = useSwitchChain();
+  const [switchError, setSwitchError] = useState<string | null>(null);
 
   const openWallet = () => {
     const kit = hasReown ? getAppKit() : null;
@@ -30,11 +31,26 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
   };
 
   if (isConnected && address) {
-    if (chainId !== BASE_CHAIN_ID) {
+    // Only a settled connection can be on the wrong chain; while reconnecting the chain id is not known yet.
+    if (status === "connected" && chainId !== undefined && chainId !== BASE_CHAIN_ID) {
+      const switchToBase = async () => {
+        setSwitchError(null);
+        try {
+          // Ask the connector that owns this session, so the request does not land in another
+          // installed wallet extension when several are fighting over window.ethereum.
+          await switchChainAsync({ chainId: BASE_CHAIN_ID, connector });
+        } catch (err) {
+          const msg = err instanceof Error ? (err.message.split(/\r?\n/)[0] ?? "") : "";
+          setSwitchError(/rejected|denied/i.test(msg) ? "Switch request declined in the wallet." : `This wallet did not switch. Open ${connector?.name ?? "the wallet"} and choose the Base network there, then come back.`);
+        }
+      };
       return (
-        <Button size={size} full={full} variant="danger" loading={switching} onClick={() => switchChain({ chainId: BASE_CHAIN_ID })}>
-          Switch to Base
-        </Button>
+        <span className={cx("inline-flex flex-col items-end gap-1", full && "w-full")}>
+          <Button size={size} full={full} variant="danger" loading={switching} onClick={() => void switchToBase()} title={`Connected to chain ${chainId}; BStocks runs on Base (8453)`}>
+            Switch to Base
+          </Button>
+          {switchError && <span role="alert" className="text-[12px] text-danger-fg text-right max-w-[260px]">{switchError}</span>}
+        </span>
       );
     }
     return (
@@ -81,7 +97,10 @@ function FallbackWalletSheet({ open, onClose }: { open: boolean; onClose: () => 
   const { isConnected, address } = useAccount();
   const { disconnect } = useDisconnect();
 
-  const ordered = [...connectors].sort((a, b) => rank(a.id) - rank(b.id));
+  // With several wallet extensions installed, EIP-6963 announces each one as its own connector;
+  // the generic "injected" entry (whatever owns window.ethereum) is then redundant and ambiguous.
+  const discovered = connectors.some((c) => c.type === "injected" && c.id !== "injected");
+  const ordered = connectors.filter((c) => !(discovered && c.id === "injected")).sort((a, b) => rank(a.id) - rank(b.id));
 
   return (
     <Sheet open={open} onClose={onClose} title={isConnected ? "Wallet" : "Connect a wallet"}>
