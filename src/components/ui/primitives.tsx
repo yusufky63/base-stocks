@@ -12,12 +12,16 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "ink";
 type Size = "sm" | "md" | "lg";
 
+/**
+ * Button language: honest 1px outline plus a solid 3px "ground" edge below (restrained
+ * neo-brutalist step); pressing collapses the edge and the button sits down 2px.
+ */
 const variantClass: Record<Variant, string> = {
-  primary: "bg-primary text-primary-contrast border border-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] hover:bg-primary-strong hover:border-primary-strong active:translate-y-px active:shadow-none disabled:opacity-40 disabled:hover:bg-primary",
-  secondary: "bg-canvas text-ink border border-line hover:border-line-strong hover:bg-surface active:translate-y-px disabled:opacity-40",
+  primary: "bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:bg-primary-strong active:border-b active:translate-y-[2px] disabled:opacity-40 disabled:hover:bg-primary",
+  secondary: "bg-canvas text-ink border border-line-strong border-b-[3px] hover:bg-surface active:border-b active:translate-y-[2px] disabled:opacity-40",
   ghost: "bg-transparent text-ink-secondary border border-transparent hover:bg-surface hover:text-ink disabled:opacity-40",
-  danger: "bg-canvas text-danger-fg border border-danger/60 hover:border-danger hover:bg-surface active:translate-y-px disabled:opacity-40",
-  ink: "bg-ink text-canvas border border-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] hover:opacity-90 active:translate-y-px active:shadow-none disabled:opacity-40",
+  danger: "bg-canvas text-danger-fg border border-danger border-b-[3px] hover:bg-surface active:border-b active:translate-y-[2px] disabled:opacity-40",
+  ink: "bg-ink text-canvas border border-ink border-b-[3px] border-b-black/40 hover:opacity-90 active:border-b active:translate-y-[2px] disabled:opacity-40",
 };
 const sizeClass: Record<Size, string> = {
   sm: "h-9 px-3 text-[13px]",

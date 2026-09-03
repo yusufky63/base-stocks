@@ -40,6 +40,8 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
     <div className="flex flex-col gap-6">
       <section className="hero-fx border border-line rounded-[8px] ticks overflow-hidden bg-canvas">
         <Dither className="fx-layer" pixelSize={5} opacity={0.2} speed={0.25} mouseRadius={120} />
+        {/* Readability scrim: solid canvas under the copy, dots fading in toward the coins. */}
+        <div aria-hidden className="fx-layer pointer-events-none absolute inset-0 bg-gradient-to-r from-canvas from-20% via-canvas/70 via-60% to-transparent" />
         <div className="fx-content p-6 md:p-12 grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-8 items-center">
           <div className="reveal">
             <div className="eyebrow mb-4">01 — Built on Base</div>

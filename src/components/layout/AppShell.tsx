@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, LineChart, Layers, PieChart, Sprout, Moon, Sun, Newspaper, Settings } from "lucide-react";
+import { Home, LineChart, Layers, PieChart, Sprout, Moon, Sun, Newspaper, Settings, Gift as GiftIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { ConnectButton } from "./ConnectButton";
 import { useTheme } from "./ThemeProvider";
@@ -29,6 +29,7 @@ const NAV = [
   { href: "/markets", label: "Markets", icon: LineChart },
   { href: "/build", label: "Strategies", icon: Layers },
   { href: "/earn", label: "Earn", icon: Sprout },
+  { href: "/gifts", label: "Gifts", icon: GiftIcon },
   { href: "/portfolio", label: "Portfolio", icon: PieChart },
 ] as const;
 
@@ -150,7 +151,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </footer>
 
       <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-5">
+        <div className="grid grid-cols-6">
           {NAV.map((n) => {
             const Icon = n.icon;
             const active = isActive(path, n.href);
