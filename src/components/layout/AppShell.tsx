@@ -134,6 +134,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               <LegalNotice compact />
             </div>
           </details>
+
+          {/* Brand blocks at footer scale: the BStocks mark (stepped B, three ascending blocks on a
+              baseline) as quiet oversized shapes, the tallest carrying the brand blue. */}
+          <svg viewBox="0 0 1200 236" aria-hidden className="mt-4 w-full h-auto select-none pointer-events-none" role="presentation">
+            <rect x="0" y="0" width="118" height="122" rx="26" fill="var(--surface-muted)" />
+            <rect x="0" y="76" width="252" height="132" rx="26" fill="var(--surface-muted)" />
+            <rect x="300" y="118" width="252" height="90" rx="26" fill="var(--surface-muted)" />
+            <rect x="600" y="62" width="252" height="146" rx="26" fill="var(--surface-muted)" />
+            <rect x="900" y="0" width="300" height="208" rx="26" fill="var(--primary)" opacity="0.14" />
+            <rect x="0" y="222" width="1200" height="14" rx="7" fill="var(--surface-muted)" />
+          </svg>
         </div>
       </footer>
 
