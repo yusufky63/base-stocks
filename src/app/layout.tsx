@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BStocks",
   twitter: { card: "summary_large_image", site: "@BaseOnStocks", creator: "@BaseOnStocks" },
-  icons: { icon: [{ url: "/brand/logo-mark-transparent-128.png", type: "image/png" }, { url: "/icon.svg", type: "image/svg+xml" }], apple: "/brand/icon-1024.png" },
+  icons: { icon: [{ url: "/favicon.ico", sizes: "16x16 32x32 48x48 64x64" }, { url: "/brand/logo-mark-transparent-128.png", type: "image/png", sizes: "128x128" }], apple: "/brand/icon-1024.png" },
   other: { "base:app_id": BASE_APP_ID, "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
 };
 

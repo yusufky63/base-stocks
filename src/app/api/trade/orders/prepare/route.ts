@@ -16,6 +16,7 @@ const bodySchema = z.object({
   owner: addressSchema,
   recipient: addressSchema.optional(),
   validForSeconds: z.number().int().min(60).max(MAX_ORDER_VALID_FOR_S),
+  partiallyFillable: z.boolean().default(true),
 });
 
 /**
@@ -35,6 +36,7 @@ export const POST = route({ rateLimit: { key: "orders.prepare", limit: 60, windo
     owner: body.owner as Address,
     receiver: body.recipient as Address | undefined,
     validForSeconds: body.validForSeconds,
+    partiallyFillable: body.partiallyFillable,
   });
   return json({ order, warnings });
 });

@@ -313,10 +313,10 @@ export const cowProvider = new CowTradeProvider();
  * A limit order is the same intent with the user's own buyAmount and a longer validity; it is
  * partially fillable so a thin pool can fill it in pieces. No quote is needed to build it.
  */
-export function prepareLimitOrder(params: { sellToken: Address; buyToken: Address; sellAmount: bigint; minBuyAmount: bigint; owner: Address; receiver?: Address; validForSeconds: number }): SignedOrderRequest {
+export function prepareLimitOrder(params: { sellToken: Address; buyToken: Address; sellAmount: bigint; minBuyAmount: bigint; owner: Address; receiver?: Address; validForSeconds: number; partiallyFillable?: boolean }): SignedOrderRequest {
   const validFor = Math.min(MAX_ORDER_VALID_FOR_S, Math.max(60, Math.round(params.validForSeconds)));
   const validTo = Math.floor(Date.now() / 1000) + validFor;
-  return signedOrderRequest({ sellToken: params.sellToken, buyToken: params.buyToken, receiver: params.receiver ?? params.owner, sellAmount: params.sellAmount, buyAmount: params.minBuyAmount, validTo, partiallyFillable: true }, "limit", 0, null);
+  return signedOrderRequest({ sellToken: params.sellToken, buyToken: params.buyToken, receiver: params.receiver ?? params.owner, sellAmount: params.sellAmount, buyAmount: params.minBuyAmount, validTo, partiallyFillable: params.partiallyFillable ?? true }, "limit", 0, null);
 }
 
 /* ---------- submission, status, cancellation ---------- */

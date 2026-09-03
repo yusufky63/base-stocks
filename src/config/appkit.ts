@@ -30,7 +30,7 @@ export function ensureAppKit(themeMode: "light" | "dark" = "light"): AppKitInsta
       name: APP_NAME,
       description: "Stocks, built for onchain. Trade tokenized stocks and build portfolios on Base.",
       url: publicEnv.appUrl,
-      icons: [`${publicEnv.appUrl}/icon.svg`],
+      icons: [`${publicEnv.appUrl}/brand/icon-1024.png`],
     },
     themeMode,
     themeVariables: {

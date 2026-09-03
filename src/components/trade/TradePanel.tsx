@@ -16,7 +16,7 @@ import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useSlippage } from "@/hooks/useSettings";
 import { useResolveRecipient, useAssets, useRegion } from "@/hooks/queries";
 import { AmountInput, Input } from "@/components/ui/Input";
-import { Button, Chip, KeyValue, cx } from "@/components/ui/primitives";
+import { Button, KeyValue, cx } from "@/components/ui/primitives";
 import { Slider } from "@/components/ui/Slider";
 import { Collapsible } from "@/components/ui/Collapsible";
 import { RecipientCard } from "@/components/common/RecipientCard";
@@ -25,11 +25,12 @@ import { RegionNotice } from "@/components/common/RegionNotice";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { TradeReviewSheet } from "./TradeReviewSheet";
-import { LimitOrderSheet } from "./LimitOrderSheet";
-import { RouteCompare, PROVIDER_LABEL } from "./RouteCompare";
+import { LimitOrderPanel } from "./LimitOrderPanel";
+import { RouteCompare, PROVIDER_LABEL, ProviderMark } from "./RouteCompare";
+import { Segmented } from "@/components/ui/Segmented";
+import { SlippageControl } from "./SlippageControl";
 import { TRADE_ERROR_COPY } from "@/lib/errors";
 
-const USD_CHIPS = [10, 25, 50, 100];
 const PCT_CHIPS = [25, 50, 75, 100];
 
 interface Props {
@@ -44,11 +45,12 @@ interface Props {
 export function TradePanel({ asset, price, initialSide = "buy", onTraded, className }: Props) {
   const { address, isConnected } = useAccount();
   const [side, setSide] = useState<TradeSide>(initialSide);
-  const [limitOpen, setLimitOpen] = useState(false);
+  const [limitMode, setLimitMode] = useState(false);
   const [usd, setUsd] = useState<string>("25");
   const [shares, setShares] = useState<string>("");
   const [pct, setPctState] = useState<number>(0);
-  const [custom, setCustom] = useState(false);
+  /** Balance percentage preset for buys (null = typed amount). */
+  const [buyPct, setBuyPct] = useState<number | null>(null);
   const [review, setReview] = useState(false);
   const [giftMode, setGiftMode] = useState(false);
   const [payWith, setPayWith] = useState<"USDC" | "ETH">("USDC");
@@ -110,26 +112,27 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
 
   return (
     <div className={cx("flex flex-col", className)}>
-      <div className="p-3 border-b border-line">
-        <div role="tablist" aria-label="Trade side" className="grid grid-cols-2 p-1 rounded-[8px] bg-surface-muted">
-          {(["buy", "sell"] as TradeSide[]).map((t) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={side === t}
-              onClick={() => {
-                setSide(t);
-                setProviderChoice(null);
-              }}
-              className={cx(
-                "h-10 rounded-[6px] text-[13px] font-mono font-medium uppercase tracking-[0.12em] transition-fast",
-                side === t ? (t === "buy" ? "bg-canvas text-primary border border-line" : "bg-canvas text-danger-fg border border-line") : "text-ink-secondary hover:text-ink",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+      <div className="p-3 border-b border-line flex items-center gap-2">
+        <Segmented<"buy" | "sell" | "limit">
+          className="flex-1 min-w-0"
+          ariaLabel="Trade mode"
+          value={limitMode ? "limit" : side}
+          onChange={(t) => {
+            if (t === "limit") {
+              setLimitMode(true);
+              return;
+            }
+            setLimitMode(false);
+            setSide(t);
+            setProviderChoice(null);
+          }}
+          options={[
+            { value: "buy", label: "Buy", tone: "buy" },
+            { value: "sell", label: "Sell", tone: "sell" },
+            { value: "limit", label: "Limit", title: restricted ? "Not available in your region" : "Your own price, filled gaslessly by CoW Protocol", disabled: restricted },
+          ]}
+        />
+        <SlippageControl />
       </div>
 
       <div className="p-4 flex flex-col gap-4">
@@ -137,30 +140,39 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           <ColorDot k={asset.address} /> {asset.underlying} · {displayPrice !== null ? formatUsd(displayPrice) : "—"} <span className="text-ink-muted">{price?.displaySource === "reference" ? "reference" : "market"}</span>
         </div>
 
+        {limitMode ? (
+          <LimitOrderPanel initialSide={side} asset={asset} priceUsd={displayPrice} rawStockBalance={balances.raw} usdcBalance={balances.usdc} onPlaced={() => onTraded?.()} />
+        ) : (
+          <>
         {side === "buy" ? (
           <>
             <div className="flex items-center justify-between gap-3">
               <span className="text-[12px] text-ink-secondary">Pay with</span>
-              <div className="flex gap-1.5">
-                {(["USDC", "ETH"] as const).map((t) => (
-                  <Chip key={t} active={payWith === t} onClick={() => setPayWith(t)} className="h-8 min-h-[32px] px-3 text-[12px]">
-                    {t}
-                  </Chip>
-                ))}
-              </div>
+              <Segmented<"USDC" | "ETH">
+                size="sm"
+                className="w-[150px]"
+                ariaLabel="Pay with"
+                value={payWith}
+                onChange={setPayWith}
+                options={[
+                  { value: "USDC", label: "USDC" },
+                  { value: "ETH", label: "ETH" },
+                ]}
+              />
             </div>
-            <AmountInput value={usd} onChange={(v) => { setUsd(v); setCustom(true); }} unit="USD" ariaLabel="Amount in US dollars" />
-            <Slider value={Math.min(buySliderMax, usdNumber)} min={0} max={buySliderMax} step={1} onChange={(v) => { setUsd(String(v)); setCustom(true); }} ariaLabel="Buy amount slider" marks={["$0", formatUsd(buySliderMax / 2), isConnected && payBalanceUsd >= 1 ? "Balance" : formatUsd(buySliderMax)]} />
-            <div className="grid grid-cols-5 gap-1.5">
-              {USD_CHIPS.map((v) => (
-                <Chip key={v} className="w-full px-0" active={!custom && usd === String(v)} onClick={() => { setUsd(String(v)); setCustom(false); }}>
-                  ${v}
-                </Chip>
-              ))}
-              <Chip className="w-full px-0" active={custom && !USD_CHIPS.includes(usdNumber)} onClick={() => { setCustom(true); setUsd(""); }}>
-                Custom
-              </Chip>
-            </div>
+            <AmountInput value={usd} onChange={(v) => { setUsd(v);  setBuyPct(null); }} unit="USD" ariaLabel="Amount in US dollars" />
+            <Slider value={Math.min(buySliderMax, usdNumber)} min={0} max={buySliderMax} step={1} onChange={(v) => { setUsd(String(v));  setBuyPct(null); }} ariaLabel="Buy amount slider" marks={["$0", formatUsd(buySliderMax / 2), isConnected && payBalanceUsd >= 1 ? "Balance" : formatUsd(buySliderMax)]} />
+            <Segmented<number>
+              size="sm"
+              ariaLabel="Share of balance to spend"
+              value={buyPct}
+              onChange={(p) => {
+                setBuyPct(p);
+                const amount = Math.floor(payBalanceUsd * p) / 100;
+                setUsd(amount > 0 ? amount.toFixed(2).replace(/\.00$/, "") : "0");
+              }}
+              options={[25, 50, 75, 100].map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: !isConnected || payBalanceUsd < 1, title: !isConnected ? "Connect a wallet to use balance presets" : payBalanceUsd < 1 ? "No balance to spend" : `${p}% of your ${payEth ? "ETH" : "USDC"} balance` }))}
+            />
             <div className="flex items-center justify-between text-[13px] text-ink-secondary">
               <span>{payEth ? "ETH balance" : "USDC balance"}</span>
               <span className="font-mono num">{!isConnected ? "—" : payEth ? `${formatTokenAmount(ethWei, NATIVE_ETH_DECIMALS)} ETH · ≈ ${formatUsd(ethBalanceUsd)}` : formatUsd(usdcBalanceUsd)}</span>
@@ -199,13 +211,13 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           <>
             <AmountInput value={shares} onChange={(v) => { setShares(v); setPctState(0); }} unit={asset.underlying} ariaLabel={`Amount of ${asset.underlying} shares`} />
             <Slider value={pct} min={0} max={100} step={1} onChange={setPct} ariaLabel="Percentage of position to sell" disabled={!isConnected || balances.raw === 0n} marks={["0%", "50%", "Max"]} valueLabel={`${pct}%`} />
-            <div className="grid grid-cols-4 gap-1.5">
-              {PCT_CHIPS.map((p) => (
-                <Chip key={p} className="w-full px-0" active={pct === p} onClick={() => setPct(p)} disabled={!isConnected || balances.raw === 0n}>
-                  {p === 100 ? "Max" : `${p}%`}
-                </Chip>
-              ))}
-            </div>
+            <Segmented<number>
+              size="sm"
+              ariaLabel="Share of position to sell"
+              value={PCT_CHIPS.includes(pct) ? pct : null}
+              onChange={setPct}
+              options={PCT_CHIPS.map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: !isConnected || balances.raw === 0n, title: !isConnected ? "Connect a wallet to use position presets" : undefined }))}
+            />
             <div className="flex items-center justify-between text-[13px] text-ink-secondary">
               <span>Your position</span>
               <span className="font-mono num">{isConnected ? `${formatTokenAmount(balances.scaled, asset.decimals)} ${asset.underlying}` : "—"}</span>
@@ -234,7 +246,15 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
                 <span className="text-[13px] text-ink-secondary">{recipient ? "Recipient gets (est.)" : "You receive (est.)"}</span>
                 <span className="display num text-[22px]">{side === "buy" ? `${estimateShares} ${asset.underlying}` : formatUsd(estimateUsdNumber)}</span>
               </div>
-              <KeyValue k="Route" v={`${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : " · best net"}${view.route.length ? ` · ${view.route.map((r) => r.source).join(", ")}` : ""}`} />
+              <KeyValue
+                k="Route"
+                v={
+                  <span className="inline-flex items-center gap-1.5 max-w-full">
+                    <ProviderMark provider={view.provider} size={14} />
+                    <span className="truncate">{`${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : " · best net"}${view.route.length ? ` · ${routeLabel(view.route)}` : ""}`}</span>
+                  </span>
+                }
+              />
               <KeyValue k="Executable price" v={view.executablePriceUsd !== null ? `${formatUsd(view.executablePriceUsd, { precise: true })}` : "—"} />
               <KeyValue k={`Price impact${view.priceImpactBasis ? ` vs ${view.priceImpactBasis}` : ""}`} v={view.priceImpactPct !== null ? formatPct(view.priceImpactPct, { sign: true }) : "—"} />
               <KeyValue k="Est. network fee" v={view.estimatedNetworkFeeUsd !== null ? formatUsd(view.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
@@ -260,11 +280,6 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         )}
 
         {s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
-        {isConnected && !restricted && !recipient && (
-          <button type="button" onClick={() => setLimitOpen(true)} className="self-start text-[13px] text-primary font-medium hover:underline min-h-[32px]">
-            Or set your own price: limit order →
-          </button>
-        )}
         <Collapsible title="Execution details">
           <KeyValue k="Market price" v={displayPrice !== null ? formatUsd(displayPrice, { precise: true }) : "—"} />
           <KeyValue k="Reference (Chainlink)" v={price?.referenceUsd !== null && price?.referenceUsd !== undefined ? `${formatUsd(price.referenceUsd, { precise: true })}${price.referenceStale ? " · stale" : ""}${price.referencePaused ? " · paused" : ""}` : "—"} />
@@ -275,9 +290,9 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           <KeyValue k="Multiplier" v={formatUnits(multiplier, 18)} />
           <KeyValue k="Sell amount (raw units)" v={sellAmount.toString()} />
         </Collapsible>
+          </>
+        )}
       </div>
-
-      <LimitOrderSheet open={limitOpen} onClose={() => setLimitOpen(false)} side={side} asset={asset} priceUsd={displayPrice} rawStockBalance={balances.raw} usdcBalance={balances.usdc} onPlaced={() => onTraded?.()} />
 
       {view && (
         <TradeReviewSheet
@@ -301,6 +316,12 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
       )}
     </div>
   );
+}
+
+/** At most two hop names in the quote line; the full list lives under Execution details. */
+function routeLabel(route: Array<{ source: string }>): string {
+  const names = route.map((r) => r.source);
+  return names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
 }
 
 function computeSellAmount(side: TradeSide, usd: string, shares: string, decimals: number, multiplier: bigint, wad: bigint, rawBalance: bigint): bigint {

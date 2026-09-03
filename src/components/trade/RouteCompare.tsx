@@ -7,8 +7,26 @@ import type { TradeProviderId, TradeQuoteAlternative, TradeSide } from "@/domain
 import { USDC_DECIMALS } from "@/config/chain";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
+import { IntegrationMark } from "@/components/common/IntegrationMark";
 
 export const PROVIDER_LABEL: Record<TradeProviderId, string> = { zeroX: "0x", kyber: "KyberSwap", okx: "OKX", uniswap: "Uniswap", velora: "Velora", aerodrome: "Aerodrome direct", cow: "CoW Protocol · gasless" };
+
+/** Marks for the comparison rows and the route line (DefiLlama icon CDN slugs, lettered fallback). */
+const PROVIDER_MARK: Record<TradeProviderId, { name: string; mark: string | null; color: string }> = {
+  zeroX: { name: "0x", mark: "0x", color: "#111111" },
+  kyber: { name: "KyberSwap", mark: "kyberswap", color: "#31cb9e" },
+  okx: { name: "OKX", mark: "okx-dex", color: "#000000" },
+  uniswap: { name: "Uniswap", mark: "uniswap", color: "#ff007a" },
+  velora: { name: "Velora", mark: "velora", color: "#1a56db" },
+  aerodrome: { name: "Aerodrome", mark: "aerodrome", color: "#2563eb" },
+  cow: { name: "CoW Protocol", mark: "cowswap", color: "#012f7a" },
+};
+
+export function ProviderMark({ provider, size = 16, className }: { provider: TradeProviderId; size?: number; className?: string }) {
+  const m = PROVIDER_MARK[provider];
+  if (!m) return null;
+  return <IntegrationMark name={m.name} mark={m.mark} color={m.color} size={size} className={className} />;
+}
 
 /** Short, honest reason when a provider returned nothing. */
 export function failureLabel(a: TradeQuoteAlternative): string {
@@ -79,6 +97,7 @@ export function RouteCompare({ alternatives, side, asset, selected, onSelect, lo
                 <span className={cx("shrink-0 w-4 h-4 rounded-full border inline-flex items-center justify-center", active ? "border-primary bg-primary text-primary-contrast" : "border-line-strong")} aria-hidden>
                   {active && <Check size={11} strokeWidth={3} />}
                 </span>
+                <ProviderMark provider={a.provider} size={20} className="shrink-0" />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className={cx("text-[13px] font-medium truncate", active ? "text-ink" : "text-ink-secondary")}>
@@ -106,7 +125,8 @@ export function RouteCompare({ alternatives, side, asset, selected, onSelect, lo
         {failed.length > 0 && (
           <li className="px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 bg-surface/60">
             {failed.map((a) => (
-              <span key={a.provider} className="font-mono text-[10px] text-ink-muted" title={a.error}>
+              <span key={a.provider} className="inline-flex items-center gap-1 font-mono text-[10px] text-ink-muted" title={a.error}>
+                <ProviderMark provider={a.provider} size={12} className="opacity-70" />
                 {PROVIDER_LABEL[a.provider] ?? a.provider}: {failureLabel(a)}
               </span>
             ))}

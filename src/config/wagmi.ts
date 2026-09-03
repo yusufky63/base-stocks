@@ -24,7 +24,7 @@ function buildConnectors() {
   return [
     baseAccount({
       appName: APP_NAME,
-      appLogoUrl: `${publicEnv.appUrl}/icon.svg`,
+      appLogoUrl: `${publicEnv.appUrl}/brand/icon-1024.png`,
       ...(publicEnv.paymasterUrl ? { paymasterUrls: { [BASE_CHAIN_ID]: publicEnv.paymasterUrl } } : {}),
     }),
     injected({ shimDisconnect: true }),

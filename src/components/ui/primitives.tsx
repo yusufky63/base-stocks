@@ -150,8 +150,8 @@ export function Row({ className, children, ...rest }: HTMLAttributes<HTMLDivElem
 export function KeyValue({ k, v, mono = true }: { k: ReactNode; v: ReactNode; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-2 text-[14px] border-b border-dashed border-line last:border-b-0">
-      <span className="text-ink-secondary">{k}</span>
-      <span className={cx("text-right text-ink", mono && "font-mono num text-[13px]")}>{v}</span>
+      <span className="text-ink-secondary shrink-0">{k}</span>
+      <span className={cx("text-right text-ink min-w-0 break-words", mono && "font-mono num text-[13px]")}>{v}</span>
     </div>
   );
 }
