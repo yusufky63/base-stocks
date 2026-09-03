@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, ShieldCheck, Timer, Zap } from "lucide-react";
+import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, Scale, ShieldCheck, Timer, Zap } from "lucide-react";
 import {
   B20_FACTORY_ADDRESS,
   B20_ACTIVATION_REGISTRY_ADDRESS,
@@ -21,13 +21,14 @@ import { LinkButton } from "@/components/ui/primitives";
 
 export const metadata: Metadata = {
   title: "Technical docs",
-  description: "How BStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow and the contract addresses it talks to.",
+  description: "How BStocks works under the hood: the Base stack it builds on, the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, gas sponsorship, testing, and every contract address.",
 };
 
 /* ------------------------------------------------------------------ data */
 
 const NAV = [
   ["architecture", "Architecture"],
+  ["base-stack", "Base stack"],
   ["b20", "B20 standard"],
   ["prices", "Price model"],
   ["trading", "Trading"],
@@ -36,6 +37,7 @@ const NAV = [
   ["gifts", "Gift escrow"],
   ["gas", "Gas & sponsorship"],
   ["privacy", "Data & privacy"],
+  ["testing", "Testing"],
   ["contracts", "Contracts"],
 ] as const;
 
@@ -52,6 +54,24 @@ const EARN_MARKS = [
   { name: "Compound", mark: "compound-v3", color: "#00d395" },
 ];
 
+const BASE_SPEC: Array<[string, string]> = [
+  ["Base Account", "Capabilities are detected per wallet via getCapabilities: atomic EIP-5792 sendCalls batches (forceAtomic, tracked with waitForCallsStatus) when supported, a clean per-transaction fallback for every other wallet — same code path, no degraded features"],
+  ["Builder Codes (ERC-8021)", "The attribution suffix is appended to the calldata of every transaction the app builds, and declared as a capability on batches — every swap, deposit, mint, gift and claim credits the app onchain"],
+  ["Paymaster (CDP)", "Sponsors gas on eligible calls (see Gas & sponsorship); the same CDP endpoint doubles as a JSON-RPC fallback in the server's transport chain"],
+  ["Basenames", "Wallets are reverse-resolved to names through the L2 resolver across profiles, leaderboards and gift receipts; sending accepts alice.base.eth directly"],
+  ["Flashblocks", "Transaction status subscribes to ~200 ms preconfirmations with mainnet.base.org as backstop, so confirmations feel instant without trusting a single endpoint"],
+  ["Coinbase Tokenized Stocks", "The B20 standard, OracleRegistry and creator-trust discovery — covered in full in the next section"],
+];
+
+const GAS_SPEC: Array<[string, string]> = [
+  ["Base Account", "Transactions go out as EIP-5792 batches; the CDP paymaster sponsors gas where its policy allows, so a fresh passkey wallet can act with zero ETH"],
+  ["Other wallets", "You pay the Base network fee yourself — usually well under a cent per transaction"],
+  ["Trades & earn & LP", "Same rule: sponsored on Base Account when the paymaster accepts, otherwise cents of ETH; approval + action is one confirmation on Base Account, two elsewhere"],
+  ["CoW limit orders", "Placing and (off-chain) cancelling cost no gas at all — the winning solver pays the settlement gas; only the one-time approval is a transaction"],
+  ["Gift claims", "claim() is allowlisted on the paymaster, so recipients with empty wallets claim for free; the function is also permissionless — anyone holding the recipient's EIP-712 signature can pay the gas instead"],
+  ["Sponsorship limits", "Paymaster budgets and policies live on Coinbase Developer Platform; if a sponsorship is declined the wallet simply asks the user to pay, nothing breaks"],
+];
+
 const COW_SPEC: Array<[string, string]> = [
   ["Order type", "EIP-712 signed intent, settled by solvers — no gas on placement"],
   ["Domain", "“Gnosis Protocol” v2 on GPv2Settlement"],
@@ -64,15 +84,6 @@ const COW_SPEC: Array<[string, string]> = [
   ["Cancel", "Signed off-chain (free) or on-chain via invalidateOrder"],
 ];
 
-const GAS_SPEC: Array<[string, string]> = [
-  ["Base Account", "Transactions go out as EIP-5792 batches; the CDP paymaster sponsors gas where its policy allows, so a fresh passkey wallet can act with zero ETH"],
-  ["Other wallets", "You pay the Base network fee yourself \u2014 usually well under a cent per transaction"],
-  ["Trades & earn & LP", "Same rule: sponsored on Base Account when the paymaster accepts, otherwise cents of ETH; approval + action is one confirmation on Base Account, two elsewhere"],
-  ["CoW limit orders", "Placing and (off-chain) cancelling cost no gas at all \u2014 the winning solver pays the settlement gas; only the one-time approval is a transaction"],
-  ["Gift claims", "claim() is allowlisted on the paymaster, so recipients with empty wallets claim for free; the function is also permissionless \u2014 anyone holding the recipient's EIP-712 signature can pay the gas instead"],
-  ["Sponsorship limits", "Paymaster budgets and policies live on Coinbase Developer Platform; if a sponsorship is declined the wallet simply asks the user to pay, nothing breaks"],
-];
-
 const GIFT_SPEC: Array<[string, string]> = [
   ["Contract", "Ownerless — no admin, no upgrade path, verified source"],
   ["Claim link secret", "Lives only in the URL fragment; never reaches any server"],
@@ -82,6 +93,15 @@ const GIFT_SPEC: Array<[string, string]> = [
   ["Reclaim", "The sender, at any time before claim"],
   ["Expiry", "Chosen per gift, at most 90 days"],
   ["Reentrancy", "Checks-effects-interactions plus a mutex guard"],
+];
+
+const TEST_SPEC: Array<[string, string]> = [
+  ["GiftEscrow.sol", "21 Foundry tests including 4 fuzz suites; deployed ownerless and source-verified on Basescan"],
+  ["Unit tests", "70 Vitest cases: concentrated-liquidity math round-trips, trade routing (net-wins, failures, dust), escrow links, B20 share math, rate limiting"],
+  ["End-to-end", "8 Playwright smoke tests exercise the running app — pages render, tabs work, data loads"],
+  ["Simulation-first", "Every mutating flow simulates before the wallet opens: eth_simulateV1 for whole bundles, per-call checks elsewhere, with a brief allowance-lag retry right after a fresh approval so a slow RPC replica never surfaces a false error"],
+  ["Live-API verification", "Provider behaviors that documentation left unclear (CoW fee semantics, validTo cap, signing-scheme acceptance) were verified against the live APIs before shipping"],
+  ["Continuous checks", "Strict TypeScript, ESLint and the full test suite gate every commit; CI runs them on push"],
 ];
 
 const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
@@ -198,7 +218,7 @@ export default function DocsPage() {
             The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BStocks never custodies funds.
           </Cell>
           <Cell icon={Network} title="Reads that survive outages">
-            All reads batch through Multicall3 and fall back across RPCs — a dedicated endpoint first, then Coinbase Developer Platform, then four public RPCs. Confirmations stream from Flashblocks (~200 ms) with mainnet.base.org as backstop.
+            All reads batch through Multicall3 and fall back across RPCs — a dedicated endpoint first, then Coinbase Developer Platform, then four public RPCs, in fixed order so behavior stays deterministic. Confirmations stream from Flashblocks (~200 ms) with mainnet.base.org as backstop.
           </Cell>
           <Cell icon={Zap} title="One signature, many calls">
             On Base Account, approve + swap or approve + mint go out as a single atomic EIP-5792 batch, gas-sponsored when the paymaster allows, with ERC-8021 builder attribution on every call.
@@ -207,21 +227,26 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={2} id="b20" title="The B20 token standard" sub="Coinbase Tokenized Stocks" />
+        <SectionHead n={2} id="base-stack" title="Built on the Base stack" sub="every primitive, used properly" />
+        <SpecRows rows={BASE_SPEC} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={3} id="b20" title="The B20 token standard" sub="Coinbase Tokenized Stocks" />
         <div className="module-grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr] ticks">
           <Formula label="Share equivalents" lines={["scaled = raw × mult / 1e18", "8 decimals · WAD multiplier"]} />
           <Cell icon={Blocks} title="Corporate actions, onchain">
             Splits and dividends update the token&apos;s multiplier; scheduled changes are announced onchain ahead of time and shown on the stock page. The OracleRegistry&apos;s pause flag freezes the reference feed during the action — surfaced, never hidden.
           </Cell>
           <Cell icon={ShieldCheck} title="Discovery trusts one creator">
-            Dozens of copycat “NVDAc” tokens exist. Discovery only accepts B20s deployed by Coinbase&apos;s creator address and picks up new listings with a background scan roughly every 30 minutes.
+            Dozens of copycat “NVDAc” tokens exist. Discovery only accepts B20s deployed by Coinbase&apos;s creator address and picks up new listings with a background scan roughly every 30 minutes — no cron infrastructure, the scan piggybacks on traffic.
           </Cell>
         </div>
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={3} id="prices" title="Price model" sub="two prices, both shown" />
-        <div className="module-grid grid-cols-1 md:grid-cols-2 ticks">
+        <SectionHead n={4} id="prices" title="Price model" sub="two prices, both shown, neither trusted blindly" />
+        <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Display price · live market</div>
             <div className="flex items-center gap-2 text-[14px] font-medium">
@@ -231,41 +256,42 @@ export default function DocsPage() {
           </article>
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>
-            <div className="flex items-center gap-2 text-[14px] font-medium">
-              8 decimals · total-return · 24/5
-            </div>
+            <div className="flex items-center gap-2 text-[14px] font-medium">8 decimals · total-return · 24/5</div>
             <p className="text-[13px] text-ink-secondary leading-relaxed">Marked stale after one hour without an update. Price-impact math prefers a fresh reference as its fair-value basis.</p>
           </article>
+          <Cell icon={Scale} title="Trust gate on the display">
+            A “market” price read off a dust pool is noise: market wins only with ≥$20K reported DEX liquidity or ≤20% deviation from a usable reference — otherwise the reference is displayed, the raw market stays visible, and the trade panel warns about the premium before anyone pays it.
+          </Cell>
         </div>
         <Formula label="Per-share figures" lines={["per share = token price ÷ multiplier"]} />
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={4} id="trading" title="Trading and routing" sub="best net output wins" />
+        <SectionHead n={5} id="trading" title="Trading and routing" sub="best net output wins" />
         <div className="border border-line rounded-[8px] bg-canvas px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <Marks items={TRADE_MARKS} />
           <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted">quoted in parallel</span>
         </div>
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={GitBranch} title="Net wins, failures listed">
-            Every provider quotes at once; the route with the best net output (output minus estimated network fee) wins. Providers that fail are listed with their reasons instead of silently dropped.
+            Every provider quotes at once; the route with the best net output (output minus estimated network fee) wins. Providers that fail are listed with their reasons instead of silently dropped, and a manual provider choice is honored strictly.
           </Cell>
           <Cell icon={Timer} title="Firm quote before signing">
-            The review sheet re-fetches a binding quote right before you sign, so the numbers you approve are the numbers that execute.
+            The review sheet re-fetches a binding quote right before you sign, and refreshes it again after an approval lands — the numbers you approve are the numbers that execute.
           </Cell>
           <Cell icon={ShieldCheck} title="Simulated, exact approvals">
-            The whole bundle runs through an eth_simulateV1 check before the wallet opens. Approvals are exact-amount to the specific router in use — never unlimited, never to an address from the quote payload.
+            The whole bundle runs through an eth_simulateV1 check before the wallet opens, with a brief allowance-lag retry after fresh approvals so a slow RPC never raises a false error. Approvals are exact-amount to the specific router in use — never unlimited, never to an address taken from a quote payload.
           </Cell>
         </div>
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={5} id="limit-orders" title="Limit orders on CoW Protocol" sub="facts verified against the live API" />
+        <SectionHead n={6} id="limit-orders" title="Limit orders on CoW Protocol" sub="facts verified against the live API" />
         <SpecRows rows={COW_SPEC} />
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={6} id="earn" title="Earn and liquidity math" sub="in-app, simulated first" />
+        <SectionHead n={7} id="earn" title="Earn and liquidity math" sub="in-app, simulated first" />
         <div className="module-grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr] ticks">
           <Formula label="Concentrated liquidity" lines={["price(tick) = 1.0001^tick", "USD per share ⇄ tick, spacing-aligned"]} />
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
@@ -275,23 +301,23 @@ export default function DocsPage() {
             <p className="text-[13px] text-ink-secondary leading-relaxed">Deposits and withdrawals run in-app: exact approval to the venue, simulated, signed by your wallet.</p>
           </article>
           <Cell icon={Boxes} title="LP positions, end to end">
-            Mint from a USD-per-share range (one token amount derives the other from the current √price), collect fees — singly or all at once — and withdraw 25–100%. Minimums sit 1% under the shown amounts; deadlines are 10 minutes.
+            Mint from a USD-per-share range (one token amount derives the other from the current √price), collect fees — singly or all at once — and withdraw 25–100%. Minimums sit 1% under the shown amounts; deadlines are 10 minutes; out-of-range positions explain themselves.
           </Cell>
         </div>
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={7} id="gifts" title="Gift escrow" sub={`${GIFT_ESCROW_ADDRESS.slice(0, 10)}…`} />
+        <SectionHead n={8} id="gifts" title="Gift escrow" sub={`${GIFT_ESCROW_ADDRESS.slice(0, 10)}…`} />
         <SpecRows rows={GIFT_SPEC} />
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={8} id="gas" title="Gas and sponsorship" sub="who pays for what" />
+        <SectionHead n={9} id="gas" title="Gas and sponsorship" sub="who pays for what" />
         <SpecRows rows={GAS_SPEC} />
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={9} id="privacy" title="Data, limits and privacy" />
+        <SectionHead n={10} id="privacy" title="Data, limits and privacy" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={Database} title="Supabase for the social layer">
             Baskets, profiles, gift metadata and AI usage live behind row-level security. Positions and balances are always read from the chain, never mirrored.
@@ -300,13 +326,18 @@ export default function DocsPage() {
             API routes limit per hashed IP in fixed windows that survive serverless cold starts. AI features run on small models with per-wallet quotas surfaced before they run out.
           </Cell>
           <Cell icon={EyeOff} title="Nothing to leak">
-            No analytics wallets, no custodial keys, no secrets in the client bundle. The only privileged surface is an admin API behind a server-side token.
+            No analytics wallets, no custodial keys, no secrets in the client bundle. Market-data keys stay server-side; the only privileged surface is an admin API behind a server-side token.
           </Cell>
         </div>
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={10} id="contracts" title="Contract addresses" sub="Base mainnet" />
+        <SectionHead n={11} id="testing" title="Testing and verification" sub="green before every commit" />
+        <SpecRows rows={TEST_SPEC} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={12} id="contracts" title="Contract addresses" sub="Base mainnet" />
         <div className="border border-line rounded-[8px] bg-canvas overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
