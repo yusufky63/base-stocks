@@ -6,7 +6,7 @@ import { ThumbsUp, Copy } from "lucide-react";
 import type { CommunityBasket, Profile } from "@/domain/community";
 import { apiGet, apiPost, ApiError } from "@/lib/client-api";
 import { useAuth } from "@/hooks/useAuth";
-import { useAssets } from "@/hooks/queries";
+import { useAssets, useBasename } from "@/hooks/queries";
 import { bpsToPct, formatUsd, shortenAddress } from "@/lib/format";
 import { Module, ModuleHeader, Button, Badge } from "@/components/ui/primitives";
 import { AssetLogo, PriceChange } from "@/components/common/display";
@@ -37,10 +37,11 @@ export function BasketDetailView({ id }: { id: string }) {
     },
   });
   const clone = useMutation({ mutationFn: () => apiPost(`/api/baskets/${id}`, { action: "clone" }) });
+  const ownerName = useBasename(data?.basket.owner);
 
   if (isLoading || !data) return <div className="border border-line rounded-[8px] p-8 text-ink-secondary">Loading basket…</div>;
   const b = data.basket;
-  const ownerLabel = data.ownerProfile?.handle ? `@${data.ownerProfile.handle}` : shortenAddress(b.owner);
+  const ownerLabel = ownerName.data?.name ?? shortenAddress(b.owner);
 
   return (
     <div className="flex flex-col gap-6">
@@ -55,7 +56,7 @@ export function BasketDetailView({ id }: { id: string }) {
             <p className="mt-2 max-w-[60ch] text-ink-secondary">{b.description || "No description."}</p>
             <p className="mt-2 text-[12px] font-mono text-ink-muted">
               by{" "}
-              <Link href={`/u/${data.ownerProfile?.handle ?? b.owner}`} className="text-primary">
+              <Link href={`/u/${b.owner}`} className="text-primary">
                 {ownerLabel}
               </Link>{" "}
               · {b.clones} clones · {b.votes} votes

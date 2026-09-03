@@ -13,11 +13,10 @@ import { cx } from "@/components/ui/primitives";
  * address), Basename avatar, and the BStocks profile when the recipient has signed in here.
  */
 export function RecipientCard({ r, className, compact = false }: { r: ResolvedRecipient; className?: string; compact?: boolean }) {
-  const handle = r.profile?.handle ? `@${r.profile.handle}` : null;
-  const name = r.profile?.displayName ?? r.basename ?? handle;
+  const name = r.basename ?? r.profile?.displayName ?? null;
   const member = !!r.profile;
-  const profileHref = r.profile && r.profile.isPublic ? `/u/${r.profile.handle ?? r.address}` : null;
-  const secondary = [shortenAddress(r.address, 6), r.basename && name !== r.basename ? r.basename : null, handle && name !== handle ? handle : null].filter(Boolean).join(" · ");
+  const profileHref = r.profile && r.profile.isPublic ? `/u/${r.address}` : null;
+  const secondary = [shortenAddress(r.address, 6), r.basename && name !== r.basename ? r.basename : null].filter(Boolean).join(" · ");
   return (
     <div className={cx("flex items-center gap-3 min-w-0", !compact && "border border-line rounded-[8px] px-3 py-2 bg-surface", className)}>
       <Avatar src={r.avatar} seed={r.address} label={name ?? r.address.slice(2)} size={compact ? 28 : 36} />
