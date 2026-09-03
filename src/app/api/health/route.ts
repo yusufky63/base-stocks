@@ -28,6 +28,8 @@ export const GET = route({}, async (req) => {
     ok: true,
     deploy: { commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null, region: process.env.VERCEL_REGION ?? null, serverless: !!process.env.VERCEL },
     storage,
+    /** Without AUTH_SECRET every instance signs sessions with its own random key: sign-ins do not survive restarts or other instances. */
+    auth: { persistentSessions: !!env.AUTH_SECRET },
     schemaMissingSeen: [...schemaMissing],
     providers: admin || env.NODE_ENV !== "production" ? metrics.snapshot() : undefined,
     time: Date.now(),

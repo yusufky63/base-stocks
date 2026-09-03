@@ -7,7 +7,7 @@ import type { Allocation } from "@/domain/portfolio";
 import { apiPost, ApiError, type IntentResponse } from "@/lib/client-api";
 import { useAssets } from "@/hooks/queries";
 import { Button, Chip, cx } from "@/components/ui/primitives";
-import { ErrorBanner } from "@/components/common/display";
+import { AiQuotaNote, ErrorBanner } from "@/components/common/display";
 
 type Resp = IntentResponse & { warnings?: string[]; quota?: { remainingForWallet: number; remainingForIp: number }; sent?: string };
 
@@ -56,6 +56,8 @@ export function AiIntentInput({ onIntent }: { onIntent: (intent: { name?: string
       setNotes([res.intent.notes, ...(res.warnings ?? [])].filter(Boolean).join(" "));
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "AI assistance is unavailable right now."]);
+      const quota = err instanceof ApiError ? (err.body?.quota as { remainingForWallet?: number } | undefined) : undefined;
+      if (typeof quota?.remainingForWallet === "number") setRemaining(quota.remainingForWallet);
     } finally {
       setLoading(false);
     }
@@ -131,7 +133,7 @@ export function AiIntentInput({ onIntent }: { onIntent: (intent: { name?: string
       )}
 
       <p className="text-[12px] text-ink-muted">
-        Uses live prices and liquidity. A draft you edit and confirm; not advice.{remaining !== null ? ` ${remaining} drafts left today.` : ""}
+        Uses live prices and liquidity. A draft you edit and confirm; not advice. <AiQuotaNote remaining={remaining} />
       </p>
       {notes && <p className="text-[13px] text-ink-secondary border-l-2 border-primary pl-3">{notes}</p>}
       {errors.map((e) => (

@@ -9,6 +9,7 @@ import { apiGet, apiPost, ApiError } from "@/lib/client-api";
 import { useAuth } from "@/hooks/useAuth";
 import { Button, Module, ModuleHeader, Skeleton } from "@/components/ui/primitives";
 import { SignInButton } from "@/components/layout/SignInButton";
+import { AiQuotaNote } from "@/components/common/display";
 
 type Resp = { ok: boolean; digest?: PortfolioDigest; errors?: string[]; quota?: { remainingForWallet: number } };
 
@@ -21,18 +22,34 @@ export function PortfolioDigestCard({ address }: { address: Address }) {
   const auth = useAuth();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [remaining, setRemaining] = useState<number | null>(null);
   const stored = useQuery({ queryKey: ["portfolio", "digest", address.toLowerCase(), auth.isSignedIn], queryFn: () => apiGet<{ enabled: boolean; digest: PortfolioDigest | null }>("/api/portfolio/digest"), enabled: auth.isSignedIn, staleTime: 5 * 60_000 });
   const generate = useMutation({
     mutationFn: async () => {
       await auth.ensureSignedIn();
-      return apiPost<Resp>("/api/portfolio/digest", {});
+      try {
+        return await apiPost<Resp>("/api/portfolio/digest", {});
+      } catch (e) {
+        // The server no longer recognises the session cookie (restart, another instance, expiry) while
+        // the client still believes it is signed in: refresh the session state, sign in again, retry once.
+        if (!(e instanceof ApiError && e.status === 401)) throw e;
+        await qc.invalidateQueries({ queryKey: ["auth", "session"] });
+        await auth.signIn();
+        return await apiPost<Resp>("/api/portfolio/digest", {});
+      }
     },
     onSuccess: (r) => {
       setError(null);
+      if (r.quota) setRemaining(r.quota.remainingForWallet);
       if (!r.ok) setError(r.errors?.[0] ?? "No summary available.");
       void qc.invalidateQueries({ queryKey: ["portfolio", "digest"] });
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : "AI assistance is unavailable right now."),
+    onError: (e) => {
+      setError(e instanceof ApiError ? e.message : "AI assistance is unavailable right now.");
+      const quota = e instanceof ApiError ? (e.body?.quota as { remainingForWallet?: number } | undefined) : undefined;
+      if (typeof quota?.remainingForWallet === "number") setRemaining(quota.remainingForWallet);
+      if (e instanceof ApiError && e.status === 401) void qc.invalidateQueries({ queryKey: ["auth", "session"] });
+    },
   });
   if (stored.data && !stored.data.enabled) return null;
   const d = stored.data?.digest ?? null;
@@ -88,6 +105,11 @@ export function PortfolioDigestCard({ address }: { address: Address }) {
           </div>
         )}
         {error && <p className="text-[13px] text-danger-fg">{error}</p>}
+        {remaining !== null && (
+          <p className="text-[12px] text-ink-muted">
+            <AiQuotaNote remaining={remaining} />
+          </p>
+        )}
       </div>
     </Module>
   );

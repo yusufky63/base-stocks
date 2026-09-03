@@ -15,6 +15,8 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly details?: Record<string, unknown>,
+    /** Full JSON body of the failed response (e.g. `errors`, `quota`), when there was one. */
+    public readonly body?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -32,7 +34,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const err = (body as { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null)?.error;
-    throw new ApiError(err?.code ?? "UNKNOWN", err?.message ?? `Request failed (${res.status})`, res.status, err?.details);
+    const errors = (body as { errors?: unknown } | null)?.errors;
+    const firstError = Array.isArray(errors) && typeof errors[0] === "string" ? errors[0] : undefined;
+    throw new ApiError(err?.code ?? "UNKNOWN", err?.message ?? firstError ?? `Request failed (${res.status})`, res.status, err?.details, body && typeof body === "object" ? (body as Record<string, unknown>) : undefined);
   }
   return body as T;
 }

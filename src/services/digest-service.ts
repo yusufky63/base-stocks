@@ -224,7 +224,8 @@ export async function generatePortfolioDigest(owner: Address, ip: string): Promi
     return { digest, quota: charged, charged: true };
   } catch (err) {
     metrics.count("ai.digest.portfolio", false, err instanceof Error ? err.message : String(err));
-    return { digest: null, error: "AI assistance is unavailable right now.", quota: charged, charged: true };
+    const reason = err instanceof AppError && err.code === "PROVIDER_UNAVAILABLE" ? err.message : "AI assistance is unavailable right now.";
+    return { digest: null, error: reason, quota: charged, charged: true };
   }
 }
 

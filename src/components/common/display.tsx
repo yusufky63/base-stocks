@@ -88,6 +88,14 @@ export function ErrorBanner({ message, detail, onRetry, className }: { message: 
   );
 }
 
+/** Remaining AI requests for this wallet today; loud when only a few are left. */
+export function AiQuotaNote({ remaining, className }: { remaining: number | null | undefined; className?: string }) {
+  if (remaining === null || remaining === undefined) return null;
+  if (remaining <= 0) return <span className={cx("font-medium text-danger-fg", className)}>No AI requests left today for this wallet. The allowance resets at 00:00 UTC.</span>;
+  if (remaining <= 3) return <span className={cx("font-medium text-ink", className)}>{remaining === 1 ? "Last AI request today for this wallet." : `Last ${remaining} AI requests today for this wallet.`}</span>;
+  return <span className={className}>{remaining} AI requests left today.</span>;
+}
+
 export function InfoBanner({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: "neutral" | "warning"; className?: string }) {
   return (
     <div role="status" className={cx("border rounded-[8px] px-4 py-3 text-[13px] text-ink-secondary", tone === "warning" ? "border-line-strong" : "border-line", className)}>

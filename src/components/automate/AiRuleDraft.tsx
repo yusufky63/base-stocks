@@ -7,7 +7,7 @@ import type { Address } from "viem";
 import { apiPost, ApiError, type AutomationDraft } from "@/lib/client-api";
 import { useAssets } from "@/hooks/queries";
 import { Button, Chip, cx } from "@/components/ui/primitives";
-import { ErrorBanner } from "@/components/common/display";
+import { AiQuotaNote, ErrorBanner } from "@/components/common/display";
 
 type Resp = { ok: boolean; draft?: AutomationDraft; errors?: string[]; warnings?: string[]; quota?: { remainingForWallet: number } };
 
@@ -79,6 +79,8 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
       setNotes([res.draft.notes, ...(res.warnings ?? [])].filter(Boolean).join(" "));
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "AI assistance is unavailable right now."]);
+      const quota = err instanceof ApiError ? (err.body?.quota as { remainingForWallet?: number } | undefined) : undefined;
+      if (typeof quota?.remainingForWallet === "number") setRemaining(quota.remainingForWallet);
     } finally {
       setLoading(false);
     }
@@ -156,7 +158,7 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
           </Button>
         </div>
         <p className="text-[12px] text-ink-muted">
-          Live stocks today: {live.length > 0 ? live.map((a) => a.underlying).join(", ") : "none"}. The assistant only names these, never executes, and is not advice.{remaining !== null ? ` ${remaining} drafts left today.` : ""}
+          Live stocks today: {live.length > 0 ? live.map((a) => a.underlying).join(", ") : "none"}. The assistant only names these, never executes, and is not advice. <AiQuotaNote remaining={remaining} />
         </p>
       </div>
       {notes && <p className="text-[13px] text-ink-secondary border-l-2 border-primary pl-3">{notes} Review it in the form.</p>}
