@@ -17,7 +17,7 @@ import { LinkButton, Module, ModuleHeader, Skeleton, Stat, Badge } from "@/compo
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ActivityList } from "@/components/activity/ActivityList";
-import { LetterGlitch } from "@/components/fx/LetterGlitch";
+import { Dither } from "@/components/fx/Dither";
 import { NewsModule } from "@/components/news/NewsModule";
 import { FundWallet } from "@/components/common/FundWallet";
 
@@ -39,7 +39,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
   return (
     <div className="flex flex-col gap-6">
       <section className="hero-fx border border-line rounded-[8px] ticks overflow-hidden bg-canvas">
-        <LetterGlitch className="fx-layer" glitchSpeed={70} opacity={0.22} outerVignette centerVignette />
+        <Dither className="fx-layer" pixelSize={5} opacity={0.2} speed={0.25} mouseRadius={120} />
         <div className="fx-content p-6 md:p-12 grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-8 items-center">
           <div className="reveal">
             <div className="eyebrow mb-4">01 — Built on Base</div>
