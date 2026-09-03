@@ -102,7 +102,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
               <div className="flex items-center gap-2 shrink-0">
                 <ShareButton iconOnly path={`/stocks/${asset.address}`} text={`${asset.underlying} as a tokenized stock on Base. Trade it self-custodially on BStocks.`} title={`Share ${asset.underlying}`} />
                 {user && (
-                  <button type="button" aria-label={watched ? "Remove from watchlist" : "Add to watchlist"} aria-pressed={watched} onClick={() => watchlist.toggle(asset.address as Address)} className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border transition-fast", watched ? "text-primary border-primary bg-primary-soft" : "text-ink-muted border-line hover:border-ink hover:text-ink")}>
+                  <button type="button" aria-label={watched ? "Remove from watchlist" : "Add to watchlist"} aria-pressed={watched} onClick={() => watchlist.toggle(asset.address as Address)} className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border transition-fast", watched ? "text-primary border-primary bg-primary-soft" : "text-ink-muted border-line hover:border-line-strong hover:text-ink")}>
                     <Star size={16} strokeWidth={1.75} fill={watched ? "currentColor" : "none"} />
                   </button>
                 )}

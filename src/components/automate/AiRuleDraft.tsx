@@ -112,7 +112,7 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
             {live.map((a) => {
               const on = picked.includes(a.underlying);
               return (
-                <button key={a.canonicalId} type="button" aria-pressed={on} onClick={() => setPicked(on ? picked.filter((x) => x !== a.underlying) : [...picked, a.underlying])} className={cx("h-8 px-3 rounded-[5px] border text-[12px] font-medium transition-fast", on ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:border-ink")}>
+                <button key={a.canonicalId} type="button" aria-pressed={on} onClick={() => setPicked(on ? picked.filter((x) => x !== a.underlying) : [...picked, a.underlying])} className={cx("h-8 px-3 rounded-[5px] border text-[12px] font-medium transition-fast", on ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:border-line-strong")}>
                   {a.underlying}
                 </button>
               );

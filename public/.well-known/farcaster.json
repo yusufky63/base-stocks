@@ -13,7 +13,7 @@
     "homeUrl": "https://base-stocks.vercel.app/",
     "iconUrl": "https://base-stocks.vercel.app/brand/icon-1024.png",
     "splashImageUrl": "https://base-stocks.vercel.app/brand/splash-200.png",
-    "splashBackgroundColor": "#0000ff",
+    "splashBackgroundColor": "#0370fd",
     "subtitle": "Stocks, built for onchain",
     "description": "Trade Coinbase Tokenized Stocks, build baskets, automate plans and put idle USDC to work on Base. Self-custodial: every action is confirmed in your wallet.",
     "primaryCategory": "finance",

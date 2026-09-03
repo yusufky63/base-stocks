@@ -30,7 +30,7 @@ export function ensureAppKit(themeMode: "light" | "dark" = "light"): AppKitInsta
     },
     themeMode,
     themeVariables: {
-      "--w3m-accent": "#0000ff",
+      "--w3m-accent": "#0370fd",
       "--w3m-border-radius-master": "2px",
       "--w3m-font-family": "Inter, system-ui, sans-serif",
     },

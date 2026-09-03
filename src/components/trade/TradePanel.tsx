@@ -165,7 +165,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
             </div>
             {payEth && sellAmount > 0n && <p className="text-[12px] text-ink-muted">≈ {formatTokenAmount(sellAmount, NATIVE_ETH_DECIMALS, 6)} ETH at {ethUsd ? formatUsd(ethUsd) : "—"} per ETH. No approval needed; ETH is sent with the swap.</p>}
             {isConnected && !balances.isLoading && (payEth ? ethWei === 0n : balances.usdc === 0n) && <FundWallet compact onPayWithEth={!payEth ? () => setPayWith("ETH") : undefined} ethAvailable={ethWei > 0n} />}
-            <button type="button" onClick={() => setGiftMode((g) => !g)} aria-pressed={giftMode} className={cx("self-start inline-flex items-center gap-2 h-9 px-3 rounded-[6px] border text-[13px] font-medium transition-fast", giftMode ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:text-ink hover:border-ink")}>
+            <button type="button" onClick={() => setGiftMode((g) => !g)} aria-pressed={giftMode} className={cx("self-start inline-flex items-center gap-2 h-9 px-3 rounded-[6px] border text-[13px] font-medium transition-fast", giftMode ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:text-ink hover:border-line-strong")}>
               <Gift size={14} strokeWidth={1.75} /> {giftMode ? "Buying for someone else" : "Buy for someone else"}
             </button>
             {giftMode && (

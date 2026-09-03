@@ -65,7 +65,7 @@ export function BasketDetailView({ id }: { id: string }) {
             <Button variant={data.voted ? "primary" : "secondary"} size="sm" loading={vote.isPending} onClick={() => vote.mutate()}>
               <ThumbsUp size={14} strokeWidth={1.75} /> {data.voted ? "Voted" : "Upvote"} · {b.votes}
             </Button>
-            <Link href={`/build?basket=${b.id}`} onClick={() => clone.mutate()} className="inline-flex items-center justify-center gap-2 h-9 min-h-[44px] px-3 rounded-[6px] border border-line-strong hover:border-ink hover:bg-surface text-[13px] font-medium transition-fast">
+            <Link href={`/build?basket=${b.id}`} onClick={() => clone.mutate()} className="inline-flex items-center justify-center gap-2 h-9 min-h-[44px] px-3 rounded-[6px] border border-line-strong hover:border-line-strong hover:bg-surface text-[13px] font-medium transition-fast">
               <Copy size={14} strokeWidth={1.75} /> Clone & edit
             </Link>
             <ShareButton path={`/baskets/${b.id}`} text={`${b.name}: a tokenized-stock basket on BStocks (Base).`} title="Share basket" />

@@ -27,7 +27,7 @@ export function PriceChart({ candles, height = 320, style = "line" }: { candles:
     if (!el) return;
     const text = cssVar("--text-muted") || "#717886";
     const line = cssVar("--border") || "#dee1e7";
-    const primary = cssVar("--primary") || "#0000ff";
+    const primary = cssVar("--primary") || "#0370fd";
     const up = cssVar("--positive") || "#16a34a";
     const down = cssVar("--danger") || "#ef4444";
     const chart = createChart(el, {

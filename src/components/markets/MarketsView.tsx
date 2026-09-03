@@ -186,7 +186,7 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
             Buy <ArrowUpRight size={14} strokeWidth={1.75} />
           </Link>
         ) : (
-          <Link href={`/stocks/${asset.address}`} title={restricted && tradable ? "Trading is not available in your region" : undefined} className="inline-flex items-center justify-center h-9 min-w-[88px] px-3 rounded-[6px] text-[13px] font-medium border border-line text-ink-secondary hover:text-ink hover:border-ink transition-fast">
+          <Link href={`/stocks/${asset.address}`} title={restricted && tradable ? "Trading is not available in your region" : undefined} className="inline-flex items-center justify-center h-9 min-w-[88px] px-3 rounded-[6px] text-[13px] font-medium border border-line text-ink-secondary hover:text-ink hover:border-line-strong transition-fast">
             {restricted && tradable ? "Unavailable" : view.status === "paused" ? "Paused" : view.status === "not-issued" ? "Watch" : "Details"}
           </Link>
         )}

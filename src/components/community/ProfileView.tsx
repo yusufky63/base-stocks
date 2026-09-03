@@ -116,7 +116,7 @@ export function ProfileView({ refParam }: { refParam: string }) {
                     const a = byId.get(h.assetAddress.toLowerCase());
                     return (
                       <li key={h.assetAddress}>
-                        <Link href={`/stocks/${h.assetAddress}`} className="flex items-center gap-2 border border-line rounded-[6px] px-2 py-1.5 hover:border-ink transition-fast">
+                        <Link href={`/stocks/${h.assetAddress}`} className="flex items-center gap-2 border border-line rounded-[6px] px-2 py-1.5 hover:border-line-strong transition-fast">
                           <ColorDot k={h.assetAddress} />
                           {a && <AssetLogo src={a.logoURI} symbol={a.symbol} size={22} />}
                           <span className="font-medium text-[13px]">{h.symbol}</span>

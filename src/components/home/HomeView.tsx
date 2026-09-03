@@ -181,17 +181,17 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
 
       <Module ticks>
         <ModuleHeader title="How it works" action={<Link href="/how-it-works" className="text-[13px] text-primary font-medium">Full walkthrough →</Link>} />
-        <ol className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+        <ol className="grid grid-cols-2 md:grid-cols-3">
           {HOW_IT_WORKS.map((s, i) => {
             const Icon = s.icon;
             return (
-              <li key={s.title} className="p-4 border-b lg:border-b-0 border-r border-line [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:[&:nth-child(3n)]:border-r-0 lg:[&:nth-child(3n)]:border-r lg:last:border-r-0 flex flex-col gap-2 min-h-[150px]">
+              <li key={s.title} className="p-5 border-b border-r border-line [&:nth-child(2n)]:border-r-0 [&:nth-child(n+5)]:border-b-0 md:[&:nth-child(2n)]:border-r md:[&:nth-child(3n)]:border-r-0 md:[&:nth-child(n+4)]:border-b-0 flex flex-col gap-2 min-h-[150px]">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-[11px] text-primary">0{i + 1}</span>
                   <Icon size={16} strokeWidth={1.75} className="text-ink-muted" />
                 </div>
                 <div className="display-medium text-[17px]">{s.title}</div>
-                <p className="text-[12px] text-ink-secondary leading-snug">{s.body}</p>
+                <p className="text-[13px] text-ink-secondary leading-snug max-w-[34ch]">{s.body}</p>
               </li>
             );
           })}

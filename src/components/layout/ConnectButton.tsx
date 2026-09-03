@@ -64,7 +64,7 @@ function AccountChip({ address, onClick, compact, full }: { address: Address; on
       onClick={onClick}
       aria-label="Wallet menu"
       className={cx(
-        "inline-flex items-center gap-2 rounded-[6px] border border-line bg-canvas hover:border-ink transition-fast",
+        "inline-flex items-center gap-2 rounded-[6px] border border-line bg-canvas hover:border-line-strong transition-fast",
         compact ? "h-9 px-2.5" : "h-11 px-3",
         full && "w-full justify-between",
       )}
@@ -114,7 +114,7 @@ function FallbackWalletSheet({ open, onClose }: { open: boolean; onClose: () => 
                   /* surfaced via error below */
                 }
               }}
-              className="rail flex items-center justify-between min-h-[52px] px-4 rounded-[6px] border border-line hover:border-ink text-left transition-fast disabled:opacity-50"
+              className="rail flex items-center justify-between min-h-[52px] px-4 rounded-[6px] border border-line hover:border-line-strong text-left transition-fast disabled:opacity-50"
             >
               <span className="font-medium">{friendlyName(c.id, c.name)}</span>
               {c.id === "baseAccount" && <span className="eyebrow text-primary">Recommended</span>}

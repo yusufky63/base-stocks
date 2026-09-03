@@ -14,7 +14,7 @@ type Size = "sm" | "md" | "lg";
 
 const variantClass: Record<Variant, string> = {
   primary: "bg-primary text-primary-contrast border border-primary hover:bg-primary-strong hover:border-primary-strong active:translate-y-px disabled:opacity-40 disabled:hover:bg-primary",
-  secondary: "bg-canvas text-ink border border-line-strong hover:border-ink hover:bg-surface active:translate-y-px disabled:opacity-40",
+  secondary: "bg-canvas text-ink border border-line-strong hover:border-line-strong hover:bg-surface active:translate-y-px disabled:opacity-40",
   ghost: "bg-transparent text-ink border border-transparent hover:bg-surface disabled:opacity-40",
   danger: "bg-canvas text-danger-fg border border-danger hover:bg-surface disabled:opacity-40",
   ink: "bg-ink text-canvas border border-ink hover:opacity-90 active:translate-y-px disabled:opacity-40",
@@ -108,7 +108,7 @@ export function Chip({ active, className, children, ...rest }: ButtonHTMLAttribu
       aria-pressed={active}
       className={cx(
         "h-9 min-h-[36px] px-3 rounded-[6px] border text-[13px] font-medium transition-fast whitespace-nowrap",
-        active ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:border-ink hover:text-ink",
+        active ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:border-line-strong hover:text-ink",
         className,
       )}
       {...rest}

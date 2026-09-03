@@ -49,7 +49,7 @@ export function LetterGlitch({ colors, glitchSpeed = 60, smooth = true, centerVi
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const fallback: [number, number, number] = [113, 120, 134];
-    const palette: Array<[number, number, number]> = (colors ?? [cssVar("--text-muted", "#717886"), cssVar("--primary", "#0000ff"), cssVar("--positive", "#66c800")]).map((c) => hexToRgb(c) ?? fallback);
+    const palette: Array<[number, number, number]> = (colors ?? [cssVar("--text-muted", "#717886"), cssVar("--primary", "#0370fd"), cssVar("--positive", "#66c800")]).map((c) => hexToRgb(c) ?? fallback);
     const reduced = !enabled;
 
     type Cell = { ch: string; color: [number, number, number]; target: [number, number, number]; t: number };

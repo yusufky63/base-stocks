@@ -80,7 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href="/settings"
                 aria-label="Settings"
                 aria-current={path.startsWith("/settings") ? "page" : undefined}
-                className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border transition-fast", path.startsWith("/settings") ? "text-primary border-primary" : "text-ink-secondary hover:text-ink border-line hover:border-ink")}
+                className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border transition-fast", path.startsWith("/settings") ? "text-primary border-primary" : "text-ink-secondary hover:text-ink border-line hover:border-line-strong")}
               >
                 <Settings size={16} strokeWidth={1.75} />
               </Link>
@@ -143,7 +143,7 @@ export function ThemeToggle() {
   const { resolved, setPreference } = useTheme();
   const Icon = resolved === "dark" ? Sun : Moon;
   return (
-    <button type="button" aria-label={resolved === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setPreference(resolved === "dark" ? "light" : "dark")} className="h-9 w-9 inline-flex items-center justify-center rounded-[6px] text-ink-secondary hover:text-ink border border-line hover:border-ink transition-fast">
+    <button type="button" aria-label={resolved === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setPreference(resolved === "dark" ? "light" : "dark")} className="h-9 w-9 inline-flex items-center justify-center rounded-[6px] text-ink-secondary hover:text-ink border border-line hover:border-line-strong transition-fast">
       <Icon size={16} strokeWidth={1.75} />
     </button>
   );

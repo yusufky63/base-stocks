@@ -62,7 +62,7 @@ export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, o
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const reduced = !enabled;
-    const rgb = parseColor(color ?? getComputedStyle(document.documentElement).getPropertyValue("--primary") ?? "#0000ff");
+    const rgb = parseColor(color ?? getComputedStyle(document.documentElement).getPropertyValue("--primary") ?? "#0370fd");
     const off = document.createElement("canvas");
     const octx = off.getContext("2d")!;
     let cols = 0, rows = 0, img: ImageData | null = null, raf = 0, visible = true;

@@ -118,7 +118,7 @@ export function AiIntentInput({ onIntent }: { onIntent: (intent: { name?: string
               const on = avoid.includes(a.underlying);
               const isLive = BigInt(a.totalSupply ?? "0") > 0n;
               return (
-                <button key={a.canonicalId} type="button" aria-pressed={on} onClick={() => setAvoid(on ? avoid.filter((x) => x !== a.underlying) : [...avoid, a.underlying])} className={cx("h-7 px-2 rounded-[5px] border text-[12px] font-medium transition-fast", on ? "border-danger-fg text-danger-fg line-through" : "border-line text-ink-secondary hover:border-ink", !isLive && "opacity-60")} title={isLive ? undefined : "not issued yet"}>
+                <button key={a.canonicalId} type="button" aria-pressed={on} onClick={() => setAvoid(on ? avoid.filter((x) => x !== a.underlying) : [...avoid, a.underlying])} className={cx("h-7 px-2 rounded-[5px] border text-[12px] font-medium transition-fast", on ? "border-danger-fg text-danger-fg line-through" : "border-line text-ink-secondary hover:border-line-strong", !isLive && "opacity-60")} title={isLive ? undefined : "not issued yet"}>
                   {a.underlying}
                 </button>
               );

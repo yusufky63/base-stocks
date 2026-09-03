@@ -78,7 +78,7 @@ function VenueList({ items, onPick }: { items: EarnOpportunity[]; onPick: (o: Ea
     <ul className="flex flex-col gap-2">
       {items.map((o) => (
         <li key={o.id}>
-          <button type="button" onClick={() => onPick(o)} className="rail w-full text-left border border-line rounded-[8px] px-3 py-3 hover:border-ink transition-fast flex items-center justify-between gap-3">
+          <button type="button" onClick={() => onPick(o)} className="rail w-full text-left border border-line rounded-[8px] px-3 py-3 hover:border-line-strong transition-fast flex items-center justify-between gap-3">
             <span className="min-w-0">
               <span className="block font-medium text-[14px] truncate">{o.title}</span>
               <span className="flex items-center gap-1.5 mt-1 flex-wrap text-[12px] text-ink-secondary">

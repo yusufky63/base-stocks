@@ -58,7 +58,8 @@ export default function HowItWorksPage() {
           <h1 className="display text-[40px] md:text-[64px] leading-[0.92] max-w-[16ch]">
             Complex infrastructure. <span className="text-primary">Simple product.</span>
           </h1>
-          <p className="mt-5 max-w-[60ch] text-ink-secondary text-[16px]">Find → Understand → Buy → Hold → Build → Send / Earn. Under the hood: B20, Chainlink, DEX aggregation, Base Account, Basenames, Builder Codes and Flashblocks. You never have to think about any of it.</p>
+          <p className="mt-6 max-w-[52ch] text-ink text-[18px] md:text-[21px] leading-snug font-medium">Find a stock, understand its price, buy it, hold it in your own wallet, build a basket, send it or earn on idle USDC.</p>
+          <p className="mt-3 max-w-[60ch] text-ink-secondary text-[14px] md:text-[15px]">Under the hood: B20 tokens, Chainlink reference prices, DEX aggregation, Base Account, Basenames, Builder Codes and Flashblocks. You never have to think about any of it.</p>
           <div className="mt-6 flex gap-2 flex-wrap">
             <LinkButton href="/markets" variant="primary">
               Browse markets

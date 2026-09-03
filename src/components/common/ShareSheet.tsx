@@ -26,7 +26,7 @@ export function ShareButton({ path, text, title = "Share", size = "sm", classNam
   return (
     <>
       {iconOnly ? (
-        <button type="button" aria-label={title} onClick={() => setOpen(true)} className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border border-line text-ink-muted hover:border-ink hover:text-ink transition-fast", className)}>
+        <button type="button" aria-label={title} onClick={() => setOpen(true)} className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border border-line text-ink-muted hover:border-line-strong hover:text-ink transition-fast", className)}>
           <Share2 size={16} strokeWidth={1.75} />
         </button>
       ) : (
@@ -100,7 +100,7 @@ export function ShareSheet({ open, onClose, path, text, title = "Share" }: { ope
             </a>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <a href={x} target="_blank" rel="noreferrer noopener" className={cx("inline-flex items-center justify-center gap-2 h-11 rounded-[6px] border border-line-strong hover:border-ink font-medium text-[14px] whitespace-nowrap")}>
+            <a href={x} target="_blank" rel="noreferrer noopener" className={cx("inline-flex items-center justify-center gap-2 h-11 rounded-[6px] border border-line-strong hover:border-line-strong font-medium text-[14px] whitespace-nowrap")}>
               Post on X <ExternalLink size={13} strokeWidth={1.75} />
             </a>
             <Button variant="secondary" onClick={() => copy("post")} className="whitespace-nowrap">

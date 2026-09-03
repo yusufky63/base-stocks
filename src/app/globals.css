@@ -13,8 +13,8 @@
   --text-secondary: #5b616e;
   --text-muted: #717886;
 
-  --primary: #0000ff;
-  --primary-strong: #0000cc;
+  --primary: #0370fd;
+  --primary-strong: #0257c9;
   --primary-contrast: #ffffff;
   --positive: #66c800;
   --danger: #fc401f;
@@ -22,7 +22,7 @@
   --danger-fg: #c62a0f;
 
   --grid: rgba(10, 11, 13, 0.045);
-  --primary-soft: rgba(0, 0, 255, 0.06);
+  --primary-soft: rgba(3, 112, 253, 0.08);
   --ink-soft: rgba(10, 11, 13, 0.06);
 
   --radius-sm: 6px;
@@ -34,8 +34,8 @@
   --dur-slow: 240ms;
 }
 
-/* Dark: pure #0000FF has poor contrast on near-black, so the accent lifts to a readable
-   Base-family blue while the light theme keeps the exact brand value. */
+/* Dark: the brand blue (#0370fd) lifts slightly so text and rails stay readable on near-black;
+   the light theme keeps the exact logo value. */
 html[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0a0b0d;
@@ -46,13 +46,13 @@ html[data-theme="dark"] {
   --text: #ffffff;
   --text-secondary: #b1b7c3;
   --text-muted: #8a90a0;
-  --primary: #4d7cff;
-  --primary-strong: #6b93ff;
+  --primary: #2b86ff;
+  --primary-strong: #5aa0ff;
   --primary-contrast: #0a0b0d;
   --positive-fg: #7ddc1a;
   --danger-fg: #ff6a4d;
   --grid: rgba(255, 255, 255, 0.045);
-  --primary-soft: rgba(77, 124, 255, 0.14);
+  --primary-soft: rgba(43, 134, 255, 0.16);
   --ink-soft: rgba(255, 255, 255, 0.07);
 }
 
@@ -67,13 +67,13 @@ html[data-theme="dark"] {
     --text: #ffffff;
     --text-secondary: #b1b7c3;
     --text-muted: #8a90a0;
-    --primary: #4d7cff;
-    --primary-strong: #6b93ff;
+    --primary: #2b86ff;
+    --primary-strong: #5aa0ff;
     --primary-contrast: #0a0b0d;
     --positive-fg: #7ddc1a;
     --danger-fg: #ff6a4d;
     --grid: rgba(255, 255, 255, 0.045);
-    --primary-soft: rgba(77, 124, 255, 0.14);
+    --primary-soft: rgba(43, 134, 255, 0.16);
     --ink-soft: rgba(255, 255, 255, 0.07);
   }
 }

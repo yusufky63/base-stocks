@@ -97,7 +97,7 @@ export function Select<T extends string>({ value, onChange, options, placeholder
         className={cx(
           "w-full flex items-center justify-between gap-2 rounded-[6px] border bg-canvas text-left transition-fast",
           size === "sm" ? "h-9 px-2.5 text-[13px]" : "h-11 px-3 text-[14px]",
-          open ? "border-primary" : "border-line-strong hover:border-ink",
+          open ? "border-primary" : "border-line-strong hover:border-line-strong",
           disabled && "opacity-50 cursor-not-allowed",
         )}
       >

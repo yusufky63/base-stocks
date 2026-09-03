@@ -15,12 +15,12 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://base-stocks.vercel.
 const miniAppEmbed = JSON.stringify({
   version: "1",
   imageUrl: `${APP_URL}/opengraph-image`,
-  button: { title: "Open BStocks", action: { type: "launch_miniapp", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0000ff" } },
+  button: { title: "Open BStocks", action: { type: "launch_miniapp", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0370fd" } },
 });
 const frameEmbed = JSON.stringify({
   version: "1",
   imageUrl: `${APP_URL}/opengraph-image`,
-  button: { title: "Open BStocks", action: { type: "launch_frame", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0000ff" } },
+  button: { title: "Open BStocks", action: { type: "launch_frame", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0370fd" } },
 });
 
 export const metadata: Metadata = {
