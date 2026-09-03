@@ -48,7 +48,7 @@ html[data-theme="dark"] {
   --text-muted: #8a90a0;
   --primary: #2b86ff;
   --primary-strong: #5aa0ff;
-  --primary-contrast: #0a0b0d;
+  --primary-contrast: #ffffff;
   --positive-fg: #7ddc1a;
   --danger-fg: #ff6a4d;
   --grid: rgba(255, 255, 255, 0.045);
@@ -69,7 +69,7 @@ html[data-theme="dark"] {
     --text-muted: #8a90a0;
     --primary: #2b86ff;
     --primary-strong: #5aa0ff;
-    --primary-contrast: #0a0b0d;
+    --primary-contrast: #ffffff;
     --positive-fg: #7ddc1a;
     --danger-fg: #ff6a4d;
     --grid: rgba(255, 255, 255, 0.045);

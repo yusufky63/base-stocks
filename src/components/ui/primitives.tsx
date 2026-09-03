@@ -17,7 +17,7 @@ type Size = "sm" | "md" | "lg";
  * neo-brutalist step); pressing collapses the edge and the button sits down 2px.
  */
 const variantClass: Record<Variant, string> = {
-  primary: "bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:bg-primary-strong active:border-b active:translate-y-[2px] disabled:opacity-40 disabled:hover:bg-primary",
+  primary: "bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:brightness-[1.08] active:border-b active:translate-y-[2px] disabled:opacity-40 disabled:hover:bg-primary",
   secondary: "bg-canvas text-ink border border-line-strong border-b-[3px] hover:bg-surface active:border-b active:translate-y-[2px] disabled:opacity-40",
   ghost: "bg-transparent text-ink-secondary border border-transparent hover:bg-surface hover:text-ink disabled:opacity-40",
   danger: "bg-canvas text-danger-fg border border-danger border-b-[3px] hover:bg-surface active:border-b active:translate-y-[2px] disabled:opacity-40",

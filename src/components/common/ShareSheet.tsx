@@ -76,7 +76,7 @@ export function ShareActions({ path, text, className }: ShareProps & { className
           target="_blank"
           rel="noreferrer noopener"
           onClick={() => void copy("post")}
-          className="inline-flex items-center justify-center gap-2 h-12 rounded-[6px] bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 font-medium text-[15px] whitespace-nowrap hover:bg-primary-strong active:border-b active:translate-y-[2px] transition-fast outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          className="inline-flex items-center justify-center gap-2 h-12 rounded-[6px] bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 font-medium text-[15px] whitespace-nowrap hover:brightness-[1.08] active:border-b active:translate-y-[2px] transition-fast outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
           <Smartphone size={16} strokeWidth={1.75} /> {copied === "post" ? "Copied · opening Base app" : "Copy post & open Base app"}
         </a>
