@@ -10,6 +10,8 @@ import type { PortfolioTemplate } from "@/domain/portfolio";
 import { formatUsd, bpsToPct, formatUsdCompact } from "@/lib/format";
 import { sortTemplatesByLiveness, templateLiveness } from "@/lib/templates";
 import { AssetLogo, PriceChange } from "@/components/common/display";
+import { Coin3D } from "@/components/common/Coin3D";
+import { hasCoin } from "@/lib/coins";
 import { AllocationBar } from "@/components/common/AllocationBar";
 import { LinkButton, Module, ModuleHeader, Skeleton, Stat, Badge } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
@@ -61,7 +63,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             <HeroStats items={ordered} total={priced.length} />
           </div>
           <div className="hidden lg:block">
-            <LiveNowPanel items={ordered} total={priced.length} />
+            <CoinCluster items={ordered} />
           </div>
         </div>
       </section>
@@ -112,7 +114,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
               {quick.map(({ asset, price }) => (
                 <Link key={asset.canonicalId} href={`/stocks/${asset.address}?trade=buy`} className="rail p-4 border-r border-b border-line md:border-b-0 [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:last:border-r-0 hover:bg-surface transition-fast">
                   <div className="flex items-center justify-between">
-                    <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={28} />
+                    <Coin3D underlying={asset.underlying} symbol={asset.symbol} fallbackSrc={asset.logoURI} size={40} />
                     <Sparkline points={sparks?.series[asset.canonicalId] ?? []} width={64} height={22} />
                   </div>
                   <div className="mt-3 font-medium">{asset.underlying}</div>
@@ -243,50 +245,6 @@ function MiniRow({ asset, price, spark }: { asset: AssetsResponse["assets"][numb
   );
 }
 
-/** Hero side panel: the stocks with a live onchain market right now, price and 24h move, then the count. */
-function LiveNowPanel({ items, total }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }>; total: number }) {
-  const live = items.filter((x) => {
-    const st = tradingStatus(x.asset, x.price).status;
-    return st === "tradable" || st === "thin";
-  });
-  const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
-  return (
-    <div className="border border-line rounded-[8px] bg-canvas/90 backdrop-blur-sm overflow-hidden">
-      <div className="flex items-center justify-between px-4 h-10 border-b border-line">
-        <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">
-          <span className="live-dot" /> Live on Base
-        </span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">
-          {live.length} of {total} issued
-        </span>
-      </div>
-      <ul className="divide-y divide-line">
-        {live.slice(0, 5).map(({ asset, price }) => (
-          <li key={asset.canonicalId}>
-            <Link href={`/stocks/${asset.address}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-fast">
-              <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={28} />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[14px] font-medium leading-tight">{asset.underlying}</span>
-                <span className="block text-[11px] text-ink-muted truncate">{asset.name}</span>
-              </span>
-              <span className="text-right">
-                <span className="block font-mono num text-[14px]">{formatUsd(price?.displayUsd)}</span>
-                <PriceChange value={price?.marketChange24hPct} className="text-[11px]" />
-              </span>
-            </Link>
-          </li>
-        ))}
-        {live.length === 0 && <li className="px-4 py-4 text-[13px] text-ink-secondary">No live market right now.</li>}
-      </ul>
-      <div className="px-4 py-2.5 border-t border-line flex items-center justify-between text-[11px] text-ink-muted">
-        <span>{liquidity > 0 ? `${formatUsdCompact(liquidity)} DEX liquidity` : "DEX liquidity n/a"}</span>
-        <Link href="/markets" className="text-primary font-medium">
-          All markets →
-        </Link>
-      </div>
-    </div>
-  );
-}
 
 /** Four live numbers under the headline: markets live, DEX liquidity, 24h volume, issued count. */
 function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }>; total: number }) {
@@ -311,5 +269,45 @@ function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["ass
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * The hero visual: the live markets as floating 3D coins, each a link to its stock page.
+ * Numbers live in the stats strip and the quick-buy tiles, so the coins only whisper the
+ * price on hover instead of repeating a list.
+ */
+function CoinCluster({ items }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }> }) {
+  const live = items
+    .filter((x) => {
+      const st = tradingStatus(x.asset, x.price).status;
+      return (st === "tradable" || st === "thin") && hasCoin(x.asset.underlying);
+    })
+    .slice(0, 6);
+  if (live.length === 0) return null;
+  const layout = [
+    { size: 156, left: "2%", top: "26%", delay: 0 },
+    { size: 118, left: "46%", top: "2%", delay: 900 },
+    { size: 132, left: "62%", top: "44%", delay: 1700 },
+    { size: 92, left: "30%", top: "64%", delay: 2600 },
+    { size: 80, left: "78%", top: "8%", delay: 3300 },
+    { size: 68, left: "6%", top: "0%", delay: 4100 },
+  ];
+  return (
+    <div className="relative h-[360px] select-none">
+      {live.map((x, i) => {
+        const l = layout[i];
+        const pct = x.price?.marketChange24hPct;
+        return (
+          <Link key={x.asset.canonicalId} href={`/stocks/${x.asset.address}`} aria-label={`${x.asset.underlying} on Base`} className="coin-link" style={{ left: l.left, top: l.top }}>
+            <Coin3D underlying={x.asset.underlying} symbol={x.asset.symbol} fallbackSrc={x.asset.logoURI} size={l.size} float delay={l.delay} />
+            <span className="coin-label num">
+              {x.asset.underlying} {formatUsd(x.price?.displayUsd)}
+              {pct !== null && pct !== undefined ? ` · ${pct > 0 ? "+" : ""}${pct.toFixed(2)}%` : ""}
+            </span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }

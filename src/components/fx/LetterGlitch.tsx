@@ -116,7 +116,8 @@ export function LetterGlitch({ colors, glitchSpeed = 60, smooth = true, centerVi
       ctx.font = font();
       ctx.textBaseline = "top";
       for (const i of dirty) {
-        const c = cells[i]!;
+        const c = cells[i];
+        if (!c) continue; // grid was rebuilt smaller (resize) while this index was still queued
         if (smooth && c.t < 1) {
           c.t = Math.min(1, c.t + 0.12);
           const mix = (j: 0 | 1 | 2) => Math.round(c.color[j] + (c.target[j] - c.color[j]) * c.t);

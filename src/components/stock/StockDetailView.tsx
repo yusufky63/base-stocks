@@ -13,6 +13,7 @@ import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { formatUsd } from "@/lib/format";
 import { AssetLogo, PriceChange } from "@/components/common/display";
+import { Coin3D } from "@/components/common/Coin3D";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { Badge, Button, Module, cx } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
@@ -81,8 +82,8 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
         <div className="flex flex-col gap-5 min-w-0">
           <Module ticks>
             <div className="p-4 md:p-5 flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={48} />
+              <div className="flex items-center gap-4 min-w-0">
+                <Coin3D underlying={asset.underlying} symbol={asset.symbol} fallbackSrc={asset.logoURI} size={64} float muted={BigInt(asset.totalSupply ?? "0") === 0n} />
                 <div className="min-w-0">
                   <div className="eyebrow mb-1">
                     {asset.underlying} · Coinbase Tokenized Stock

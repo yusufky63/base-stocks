@@ -430,7 +430,9 @@ html[data-motion="off"] *::after {
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
-html[data-motion="off"] .tape-track {
+html[data-motion="off"] .tape-track,
+html[data-motion="off"] .coin-float,
+html[data-motion="off"] .coin-float .coin-shadow {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -441,7 +443,9 @@ html[data-motion="off"] .tape-track {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  html[data-motion="system"] .tape-track {
+  html[data-motion="system"] .tape-track,
+  html[data-motion="system"] .coin-float,
+  html[data-motion="system"] .coin-float .coin-shadow {
     animation: none;
   }
 }
@@ -457,4 +461,95 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/* ---------- 3D coins: idle float on the wrapper, pointer tilt on the image, soft ground shadow ---------- */
+.coin {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  perspective: 600px;
+  touch-action: pan-y;
+}
+.coin-img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition: transform var(--dur-slow) var(--ease), filter var(--dur-base) var(--ease);
+  will-change: transform;
+  filter: drop-shadow(0 6px 10px rgba(10, 11, 13, 0.18));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.coin:hover .coin-img {
+  filter: drop-shadow(0 10px 16px rgba(10, 11, 13, 0.24));
+}
+.coin-shadow {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: -9%;
+  height: 12%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(10, 11, 13, 0.32), rgba(10, 11, 13, 0) 70%);
+  pointer-events: none;
+}
+.coin-float {
+  animation: coin-float 5.5s ease-in-out infinite;
+}
+.coin-float .coin-shadow {
+  animation: coin-shadow 5.5s ease-in-out infinite;
+}
+.coin-muted .coin-img {
+  filter: grayscale(1) drop-shadow(0 6px 10px rgba(10, 11, 13, 0.12));
+  opacity: 0.55;
+}
+.coin-link {
+  position: absolute;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  outline-offset: 6px;
+}
+.coin-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 9px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+  pointer-events: none;
+}
+.coin-link:hover .coin-label,
+.coin-link:focus-visible .coin-label {
+  opacity: 1;
+  transform: translateY(0);
+}
+@keyframes coin-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7%);
+  }
+}
+@keyframes coin-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleX(0.78);
+    opacity: 0.3;
+  }
 }
