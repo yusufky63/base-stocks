@@ -25,6 +25,7 @@ import { RegionNotice } from "@/components/common/RegionNotice";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { TradeReviewSheet } from "./TradeReviewSheet";
+import { LimitOrderSheet } from "./LimitOrderSheet";
 import { RouteCompare, PROVIDER_LABEL } from "./RouteCompare";
 import { TRADE_ERROR_COPY } from "@/lib/errors";
 
@@ -43,6 +44,7 @@ interface Props {
 export function TradePanel({ asset, price, initialSide = "buy", onTraded, className }: Props) {
   const { address, isConnected } = useAccount();
   const [side, setSide] = useState<TradeSide>(initialSide);
+  const [limitOpen, setLimitOpen] = useState(false);
   const [usd, setUsd] = useState<string>("25");
   const [shares, setShares] = useState<string>("");
   const [pct, setPctState] = useState<number>(0);
@@ -258,6 +260,11 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         )}
 
         {s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
+        {isConnected && !restricted && !recipient && (
+          <button type="button" onClick={() => setLimitOpen(true)} className="self-start text-[13px] text-primary font-medium hover:underline min-h-[32px]">
+            Or set your own price: limit order →
+          </button>
+        )}
         <Collapsible title="Execution details">
           <KeyValue k="Market price" v={displayPrice !== null ? formatUsd(displayPrice, { precise: true }) : "—"} />
           <KeyValue k="Reference (Chainlink)" v={price?.referenceUsd !== null && price?.referenceUsd !== undefined ? `${formatUsd(price.referenceUsd, { precise: true })}${price.referenceStale ? " · stale" : ""}${price.referencePaused ? " · paused" : ""}` : "—"} />
@@ -269,6 +276,8 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           <KeyValue k="Sell amount (raw units)" v={sellAmount.toString()} />
         </Collapsible>
       </div>
+
+      <LimitOrderSheet open={limitOpen} onClose={() => setLimitOpen(false)} side={side} asset={asset} priceUsd={displayPrice} rawStockBalance={balances.raw} usdcBalance={balances.usdc} onPlaced={() => onTraded?.()} />
 
       {view && (
         <TradeReviewSheet

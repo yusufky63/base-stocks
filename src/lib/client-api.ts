@@ -1,6 +1,6 @@
 import type { B20AssetDTO } from "@/domain/asset";
 import type { Candle, PriceView, Timeframe, TokenMarketData } from "@/domain/market";
-import type { ExecutableQuoteDTO, TradeErrorCode, TradeProviderId, TradeQuoteSummary, TradeSide } from "@/domain/trade";
+import type { ExecutableQuoteDTO, OrderView, SignedOrderRequest, TradeErrorCode, TradeProviderId, TradeQuoteSummary, TradeSide } from "@/domain/trade";
 import type { ResolvedRecipient } from "@/domain/gift";
 import type { PortfolioExecution, PortfolioPlan, PortfolioSnapshot, PortfolioTemplate, Allocation } from "@/domain/portfolio";
 import type { EarnOpportunity } from "@/domain/earn";
@@ -228,4 +228,4 @@ export interface IntentResponse {
   errors?: string[];
 }
 
-export type { TradeQuoteSummary, ExecutableQuoteDTO, PortfolioSnapshot, PortfolioTemplate, PortfolioExecution, ActivityItem, GiftRecord, Hash };
+export type { TradeQuoteSummary, ExecutableQuoteDTO, OrderView, SignedOrderRequest, PortfolioSnapshot, PortfolioTemplate, PortfolioExecution, ActivityItem, GiftRecord, Hash };

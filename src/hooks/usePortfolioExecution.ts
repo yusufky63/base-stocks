@@ -45,7 +45,7 @@ export function usePortfolioExecution() {
         try {
           const result = await executeTrade(
             { address, chainId, walletClient, publicClient },
-            { side, assetAddress: step.assetAddress, sellAmount: amount, usdValue: step.targetUsd },
+            { side, assetAddress: step.assetAddress, sellAmount: amount, usdValue: step.targetUsd, orders: false },
             {
               onState: (s) => {
                 if (s === "GETTING_FIRM_QUOTE") commit(updateStep(latest.current!, step.id, { status: "quoted" }), false);

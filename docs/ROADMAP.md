@@ -4,7 +4,7 @@ Gap analysis against the two source documents (the Integration Guide "Base Token
 
 ## Where we stand (2026-09-03)
 
-Done and live at https://basestocks.finance: 13 B20 stocks by canonical address with onchain discovery (`B20Created` + Chainlink directory + admin verification), keyless market data (DexScreener → GeckoTerminal, CoinGecko optional), Chainlink reference with staleness, five parallel trade providers scored on net output after gas (KyberSwap, Velora, Uniswap Trading API, Aerodrome direct, OKX DEX v6; 0x when the asset is authorized), B20Guard (policies, pauses, oracle), simulation on the sequential path, atomic batches + paymaster + ERC-8021 Builder Code on Base Account, Flashblocks preconfirmation, portfolio with scaled balances / partial fills / rebalance, baskets + AI drafts, gifts with `transferWithMemo` and Basenames, USDC Earn (Morpho, Aave, Compound) with runtime discovery, LP position tracking, SIWE sessions, geoblock attest/block, status page, Vercel cron. 51 unit tests, typecheck clean.
+Done and live at https://basestocks.finance: 13 B20 stocks by canonical address with onchain discovery (`B20Created` + Chainlink directory + admin verification), keyless market data (DexScreener → GeckoTerminal, CoinGecko optional), Chainlink reference with staleness, six parallel trade routes scored on net output after gas (KyberSwap, Velora, Uniswap Trading API, Aerodrome direct, OKX DEX v6, CoW Protocol signed orders; 0x when the asset is authorized), limit orders through CoW, B20Guard (policies, pauses, oracle), simulation on the sequential path, atomic batches + paymaster + ERC-8021 Builder Code on Base Account, Flashblocks preconfirmation, portfolio with scaled balances / partial fills / rebalance, baskets + AI drafts, gifts with `transferWithMemo` and Basenames, USDC Earn (Morpho, Aave, Compound) with runtime discovery, LP position tracking, SIWE sessions, geoblock attest/block, status page, Vercel cron. 51 unit tests, typecheck clean.
 
 Deployment findings: `/api/health` ok, `/api/status` was degraded only because of OKX (50125); resolved the same day with a new key and the v6 API. Locally `AUTH_SECRET`, `ADMIN_API_TOKEN` and `GEOBLOCK_MODE` are unset; confirm they are set on Vercel (without `AUTH_SECRET` sessions reset on every cold start; without `ADMIN_API_TOKEN` `/admin` is unusable).
 
@@ -21,8 +21,7 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 
 ## Phase B — Execution depth
 
-- **CoW Protocol provider** (deferred 2026-09-03): keyless on Base, quotes B20 both ways (tested). Signed-order flow: approve the GPv2 vault relayer, EIP-712 order (EIP-1271 for Base Account), post, poll settlement, expiry. Surface as "Best execution" for orders above a size threshold and for gasless trades.
-- **Limit orders** (Integration Guide §30): KyberSwap Limit Order API — order creation, signing, listing and cancel; needs a "Your orders" module on the stock page and in Portfolio.
+- **CoW Protocol** shipped 2026-09-03 as the sixth route (signed orders, solver-paid gas) plus limit orders and a "Your orders" module. Still open: ETH Flow (pay with native ETH through CoW), permit-based approvals via CoW hooks so a buy needs no transaction at all, and a "best execution" size threshold that prefers CoW automatically for large orders.
 - **Quote scoring**: include the 0x integrator fee and price impact in `netUsd`, not only the network fee; show "Best price found" with the provider behind a disclosure.
 - **Trade API tests**: schema tests for Kyber, Velora, Uniswap responses like the existing 0x ones.
 

@@ -24,6 +24,7 @@ import {
   type LpPositionDTO,
 } from "@/lib/client-api";
 import type { Timeframe } from "@/domain/market";
+import type { OrderView } from "@/domain/trade";
 
 export const qk = {
   config: ["config"] as const,
@@ -37,6 +38,8 @@ export const qk = {
   resolve: (i: string) => ["resolve", i.trim().toLowerCase()] as const,
   activity: (o: string) => ["activity", o.toLowerCase()] as const,
   tx: (h: string) => ["tx", h.toLowerCase()] as const,
+  order: (uid: string) => ["order", uid.toLowerCase()] as const,
+  orders: (o: string) => ["orders", o.toLowerCase()] as const,
   watchlist: (o: string) => ["watchlist", o.toLowerCase()] as const,
   executions: (o: string) => ["executions", o.toLowerCase()] as const,
   gifts: (o: string) => ["gifts", o.toLowerCase()] as const,
@@ -167,6 +170,30 @@ export function useGifts(owner?: Address) {
 }
 
 /** Poll transaction status until terminal (Submitted → Preconfirmed → Confirmed). */
+/** One signed order, polled while it is open (CoW solvers usually fill within a minute). */
+export function useOrderStatus(uid?: string) {
+  return useQuery({
+    queryKey: qk.order(uid ?? ""),
+    queryFn: () => apiGet<{ order: OrderView }>(`/api/trade/orders/${uid}`).then((r) => r.order),
+    enabled: !!uid,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "open" || s === "presignaturePending" || s === undefined ? 3_000 : false;
+    },
+  });
+}
+
+/** The wallet's recent orders; refreshed while any is still open. */
+export function useOrders(owner?: Address) {
+  return useQuery({
+    queryKey: qk.orders(owner ?? ""),
+    queryFn: () => apiGet<{ orders: OrderView[] }>(`/api/trade/orders?owner=${owner}`).then((r) => r.orders),
+    enabled: !!owner,
+    staleTime: 10_000,
+    refetchInterval: (q) => (q.state.data?.some((o) => o.status === "open") ? 8_000 : 60_000),
+  });
+}
+
 export function useTxStatus(hash?: Hash) {
   return useQuery({
     queryKey: qk.tx(hash ?? ""),

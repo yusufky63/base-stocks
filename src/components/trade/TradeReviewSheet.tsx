@@ -54,6 +54,7 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
   const tokenAmount = buy ? summary.buyAmount : summary.sellAmount;
   const locked = trade.isBusy;
   const doneReported = useRef(false);
+  const signed = trade.mode === "order" || (trade.mode === null && summary.provider === "cow");
 
   const handleClose = () => {
     trade.reset();
@@ -166,8 +167,14 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
           <KeyValue k={`Price impact${summary.priceImpactBasis ? ` vs ${summary.priceImpactBasis}` : ""}`} v={summary.priceImpactPct !== null ? formatPct(summary.priceImpactPct, { sign: true }) : "—"} />
           <KeyValue k="Network" v="Base" />
           <KeyValue k="Provider" v={`${PROVIDER_LABEL[summary.provider] ?? summary.provider}${strictProvider ? " · your choice" : " · best net"}`} />
-          <KeyValue k="Est. network fee" v={summary.estimatedNetworkFeeUsd !== null ? formatUsd(summary.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
+          <KeyValue k="Est. network fee" v={summary.provider === "cow" ? "Paid by the solver · included in the price" : summary.estimatedNetworkFeeUsd !== null ? formatUsd(summary.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
         </div>
+
+        {summary.provider === "cow" && trade.state === "IDLE" && (
+          <InfoBanner>
+            You sign an order instead of sending a transaction. CoW Protocol solvers compete to fill it within about 30 minutes and pay the gas; if nobody can, it expires and nothing moves. A one-time approval for this amount is still a transaction{trade.sponsored ? " (sponsored)" : ""}.
+          </InfoBanner>
+        )}
 
         {summary.warnings.length > 0 && (
           <InfoBanner tone="warning">
@@ -181,8 +188,13 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
 
         {(trade.state !== "IDLE" && trade.state !== "FAILED") && (
           <div className="border border-line rounded-[8px] p-3 flex flex-col gap-2">
-            <div className="text-[13px] text-ink-secondary">{STATE_COPY[trade.state]}</div>
-            {(trade.state === "SUBMITTED" || trade.state === "PRECONFIRMED" || trade.state === "CONFIRMED") && <TxProgress state={trade.state} txHash={trade.txHash} />}
+            <div className="text-[13px] text-ink-secondary">{signed ? (ORDER_STATE_COPY[trade.state] ?? STATE_COPY[trade.state]) : STATE_COPY[trade.state]}</div>
+            {(trade.state === "SUBMITTED" || trade.state === "PRECONFIRMED" || trade.state === "CONFIRMED") && <TxProgress state={trade.state} txHash={trade.txHash} order={signed} />}
+            {trade.order && (
+              <a href={trade.order.explorerUrl} target="_blank" rel="noreferrer" className="text-[12px] text-primary font-medium">
+                View order on CoW Explorer ↗
+              </a>
+            )}
           </div>
         )}
 
@@ -194,7 +206,8 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
           <KeyValue k="Slippage tolerance" v={`${(slippageBps / 100).toFixed(2)}%`} />
           <KeyValue k="Approval" v={summary.allowanceRequired ? "Required (scoped to this amount)" : "Not required"} />
           <KeyValue k="Spender" v={summary.allowanceSpender ?? "—"} />
-          <KeyValue k="Execution mode" v={trade.mode === "batched" ? `Atomic batch${trade.sponsored ? " · sponsored gas" : ""}` : trade.mode === "sequential" ? "Sequential" : "—"} />
+          <KeyValue k="Execution mode" v={trade.mode === "order" ? `Signed order · gasless${trade.sponsored ? " · approval sponsored" : ""}` : trade.mode === "batched" ? `Atomic batch${trade.sponsored ? " · sponsored gas" : ""}` : trade.mode === "sequential" ? "Sequential" : "—"} />
+          {trade.orderUid && <KeyValue k="Order uid" v={`${trade.orderUid.slice(0, 10)}…${trade.orderUid.slice(-6)}`} />}
           <KeyValue k="Quote fetched" v={new Date(summary.fetchedAt).toLocaleTimeString()} />
           {trade.approvalHash && <KeyValue k="Approval tx" v={trade.approvalHash} />}
           {trade.quote?.quoteId && <KeyValue k="Quote id" v={trade.quote.quoteId} />}
@@ -203,6 +216,14 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
     </Sheet>
   );
 }
+
+const ORDER_STATE_COPY: Record<string, string> = {
+  APPROVAL_REQUIRED: "Approval needed for this amount",
+  AWAITING_WALLET: "Sign in your wallet…",
+  SUBMITTED: "Order placed. Solvers are filling it, usually within a minute…",
+  PRECONFIRMED: "Partially filled, waiting for the rest…",
+  CONFIRMED: "Filled",
+};
 
 const STATE_COPY: Record<string, string> = {
   IDLE: "",

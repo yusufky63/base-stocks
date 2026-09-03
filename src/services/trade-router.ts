@@ -25,6 +25,8 @@ export interface TradeRequest {
   provider?: TradeProviderId;
   /** Manual choice from the comparison: use exactly this provider, no fallback. */
   strictProvider?: boolean;
+  /** Allow signed-order providers (CoW). Basket legs set false: each leg must be a transaction with a hash. */
+  orders?: boolean;
 }
 
 /** Hedge delay before the fallback provider is started in parallel. */
@@ -136,8 +138,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * the estimated network fee. The losers are returned as alternatives so the UI can show the
  * comparison. Falls back to a single hedged race only if nothing answers.
  */
-async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide): Promise<{ best: IndicativeQuote; alternatives: TradeQuoteAlternative[] }> {
-  const providers = getTradeProviders();
+async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide, orders: boolean): Promise<{ best: IndicativeQuote; alternatives: TradeQuoteAlternative[] }> {
+  const providers = getTradeProviders({ orders });
   const [md, ethUsd] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd()]);
   const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
   const tokenUsd = view.displayUsd ?? asset.oracle?.priceUsd ?? null;
@@ -175,7 +177,7 @@ export class TradeRouter {
     validateAmount(req, asset, asset.oracle?.priceUsd ?? null, req.payWith === "ETH" ? await getEthUsd() : null);
     const intent = buildIntent(req, asset);
     const started = Date.now();
-    const { best, alternatives } = await compareProviders(intent, asset, req.side);
+    const { best, alternatives } = await compareProviders(intent, asset, req.side, req.orders !== false);
     metrics.count(`trade.price.${best.provider}`);
     const summary = await summarize(req, asset, best, warnings);
     metrics.count("trade.price.latency", true, String(Date.now() - started));
@@ -190,7 +192,7 @@ export class TradeRouter {
     const intent = buildIntent(req, asset);
     // The provider that won the comparison goes first and the hedged chain still covers failures;
     // a manual choice (strictProvider) is honoured exactly so the user signs what they picked.
-    const all = getTradeProviders();
+    const all = getTradeProviders({ orders: req.orders !== false });
     const strict = req.strictProvider && req.provider ? all.filter((p) => p.id === req.provider) : [];
     if (req.strictProvider && req.provider && strict.length === 0) throw new AppError("PROVIDER_UNAVAILABLE", "The provider you picked is not available right now. Switch back to the best route.", 503);
     const ordered = strict.length ? strict : [...all].sort((a, b) => Number(b.id === req.provider) - Number(a.id === req.provider));
@@ -199,13 +201,16 @@ export class TradeRouter {
     const summary = await summarize(req, asset, q, warnings);
     return {
       ...summary,
-      transaction: {
-        to: q.transaction.to,
-        data: q.transaction.data,
-        value: q.transaction.value.toString(),
-        gas: q.transaction.gas?.toString() ?? null,
-        gasPrice: q.transaction.gasPrice?.toString() ?? null,
-      },
+      transaction: q.transaction
+        ? {
+            to: q.transaction.to,
+            data: q.transaction.data,
+            value: q.transaction.value.toString(),
+            gas: q.transaction.gas?.toString() ?? null,
+            gasPrice: q.transaction.gasPrice?.toString() ?? null,
+          }
+        : null,
+      order: q.order,
       quoteId: q.quoteId,
       expiresAt: q.expiresAt,
     };

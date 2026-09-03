@@ -1,7 +1,7 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hash, Hex } from "viem";
 
 export type TradeSide = "buy" | "sell";
-export type TradeProviderId = "zeroX" | "kyber" | "okx" | "uniswap" | "velora" | "aerodrome";
+export type TradeProviderId = "zeroX" | "kyber" | "okx" | "uniswap" | "velora" | "aerodrome" | "cow";
 
 /** App-owned trade request. Always exact-in. */
 export interface TradeIntent {
@@ -53,14 +53,51 @@ export interface IndicativeQuote {
   fetchedAt: number;
 }
 
+/**
+ * A CoW Protocol intent: the user signs this EIP-712 message instead of sending a transaction;
+ * solvers execute it and pay the gas. `appData` is the full JSON document whose keccak256 is the
+ * bytes32 in the message; the order book validates the pair.
+ */
+export interface SignedOrderRequest {
+  provider: "cow";
+  orderClass: "market" | "limit";
+  typedData: {
+    domain: { name: string; version: string; chainId: number; verifyingContract: Address };
+    types: Record<string, Array<{ name: string; type: string }>>;
+    primaryType: "Order";
+    message: {
+      sellToken: Address;
+      buyToken: Address;
+      receiver: Address;
+      sellAmount: string;
+      buyAmount: string;
+      validTo: number;
+      appData: Hex;
+      feeAmount: string;
+      kind: "sell" | "buy";
+      partiallyFillable: boolean;
+      sellTokenBalance: "erc20";
+      buyTokenBalance: "erc20";
+    };
+  };
+  appData: string;
+  appDataHash: Hex;
+  quoteId: number | null;
+  /** Spender to approve for the sell token (GPv2VaultRelayer). */
+  allowanceTarget: Address;
+}
+
 export interface ExecutableQuote extends IndicativeQuote {
+  /** Calldata to send; null for signed-order providers (see `order`). */
   transaction: {
     to: Address;
     data: Hex;
     value: bigint;
     gas: bigint | null;
     gasPrice: bigint | null;
-  };
+  } | null;
+  /** Present for signed-order providers (CoW): what the wallet signs and how it is submitted. */
+  order?: SignedOrderRequest;
   /** Opaque provider quote id for observability. */
   quoteId: string | null;
   /** Unix ms after which the client must refetch. */
@@ -122,9 +159,32 @@ export interface ExecutableQuoteDTO extends TradeQuoteSummary {
     value: string;
     gas: string | null;
     gasPrice: string | null;
-  };
+  } | null;
+  order?: SignedOrderRequest;
   quoteId: string | null;
   expiresAt: number;
+}
+
+/** Normalized CoW order as shown in "Your orders" and polled after submission. */
+export interface OrderView {
+  uid: string;
+  provider: "cow";
+  status: "open" | "fulfilled" | "cancelled" | "expired" | "presignaturePending";
+  orderClass: "market" | "limit" | "liquidity";
+  side: TradeSide;
+  assetAddress: Address | null;
+  sellToken: Address;
+  buyToken: Address;
+  sellAmount: string;
+  buyAmount: string;
+  executedSellAmount: string;
+  executedBuyAmount: string;
+  partiallyFillable: boolean;
+  validTo: number;
+  createdAt: number;
+  /** Settlement transaction once (partly) filled. */
+  txHash: Hash | null;
+  explorerUrl: string;
 }
 
 export type TradeErrorCode =

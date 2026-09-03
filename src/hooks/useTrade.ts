@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import type { Address, Hash } from "viem";
-import { apiPatch, ApiError, type ExecutableQuoteDTO } from "@/lib/client-api";
+import { apiPatch, ApiError, type ExecutableQuoteDTO, type OrderView } from "@/lib/client-api";
 import type { TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { executeTrade } from "@/lib/trade/execute";
-import { useTxStatus } from "./queries";
+import { executeTrade, type ExecutionMode } from "@/lib/trade/execute";
+import { useOrderStatus, useTxStatus } from "./queries";
 
 export interface TradeExecParams {
   side: TradeSide;
@@ -30,8 +30,11 @@ export interface TradeRun {
   quote: ExecutableQuoteDTO | null;
   txHash?: Hash;
   approvalHash?: Hash;
-  mode: "sequential" | "batched" | null;
+  mode: ExecutionMode | null;
   sponsored: boolean;
+  /** Signed order (CoW) being filled; `order` is its polled state. */
+  orderUid?: string;
+  order: OrderView | null;
   execute: (params: TradeExecParams) => Promise<void>;
   reset: () => void;
   isBusy: boolean;
@@ -42,6 +45,7 @@ const BUSY: TradeState[] = ["GETTING_FIRM_QUOTE", "APPROVAL_REQUIRED", "AWAITING
 /**
  * Trade sheet state machine (spec §47) on top of the shared executor.
  * Chain confirmation state is derived from the polled status, never set from an effect.
+ * Signed orders derive it from the order book instead: open → filled (with the settlement hash).
  */
 export function useTrade(): TradeRun {
   const { address, chainId } = useAccount();
@@ -55,31 +59,48 @@ export function useTrade(): TradeRun {
   const [approvalHash, setApprovalHash] = useState<Hash | undefined>();
   const [mode, setMode] = useState<TradeRun["mode"]>(null);
   const [sponsored, setSponsored] = useState(false);
+  const [orderUid, setOrderUid] = useState<string | undefined>();
   const recordId = useRef<string | null>(null);
   const reported = useRef<string | null>(null);
   const status = useTxStatus(txHash);
+  const orderStatus = useOrderStatus(orderUid);
+  const order = orderUid ? (orderStatus.data ?? null) : null;
   const chain = txHash ? status.data?.status : undefined;
 
   // Derived state: Submitted → Preconfirmed → Confirmed / Failed.
   let state: TradeState = machine;
   let error: HumanError | null = localError;
   if (machine === "SUBMITTED" || machine === "PRECONFIRMED") {
-    if (chain === "preconfirmed") state = "PRECONFIRMED";
+    if (order) {
+      if (order.status === "fulfilled") state = "CONFIRMED";
+      else if (order.status === "expired") {
+        state = "FAILED";
+        error = { code: "QUOTE_EXPIRED", message: "No solver filled the order before it expired. Your funds were not moved; try again or use a swap route." };
+      } else if (order.status === "cancelled") {
+        state = "FAILED";
+        error = { code: "USER_REJECTED", message: "The order was cancelled. Your funds were not moved." };
+      } else if (BigInt(order.executedBuyAmount) > 0n) state = "PRECONFIRMED";
+    } else if (chain === "preconfirmed") state = "PRECONFIRMED";
     else if (chain === "confirmed") state = "CONFIRMED";
     else if (chain === "failed") {
       state = "FAILED";
       error = { code: "SIMULATION_FAILED", message: "The transaction reverted onchain. Your funds were not moved.", detail: txHash };
     }
   }
+  const settledHash = txHash ?? order?.txHash ?? undefined;
 
   // Side effects only (record status); no state updates inside effects.
   useEffect(() => {
-    if (!recordId.current || !txHash) return;
-    if ((chain === "confirmed" || chain === "failed") && reported.current !== `${txHash}:${chain}`) {
+    if (!recordId.current) return;
+    if (txHash && (chain === "confirmed" || chain === "failed") && reported.current !== `${txHash}:${chain}`) {
       reported.current = `${txHash}:${chain}`;
       void apiPatch(`/api/trades/${recordId.current}`, { status: chain }).catch(() => undefined);
     }
-  }, [chain, txHash]);
+    if (order && (order.status === "fulfilled" || order.status === "expired" || order.status === "cancelled") && reported.current !== `${order.uid}:${order.status}`) {
+      reported.current = `${order.uid}:${order.status}`;
+      void apiPatch(`/api/trades/${recordId.current}`, order.status === "fulfilled" ? { status: "confirmed", txHash: order.txHash ?? undefined } : { status: "failed" }).catch(() => undefined);
+    }
+  }, [chain, txHash, order]);
 
   const reset = useCallback(() => {
     setMachine("IDLE");
@@ -89,6 +110,7 @@ export function useTrade(): TradeRun {
     setApprovalHash(undefined);
     setMode(null);
     setSponsored(false);
+    setOrderUid(undefined);
     recordId.current = null;
     reported.current = null;
   }, []);
@@ -98,6 +120,7 @@ export function useTrade(): TradeRun {
       setLocalError(null);
       setTxHash(undefined);
       setApprovalHash(undefined);
+      setOrderUid(undefined);
       if (!address || !walletClient || !publicClient) {
         setLocalError({ code: "WALLET_NOT_CONNECTED", message: TRADE_ERROR_COPY.WALLET_NOT_CONNECTED });
         setMachine("FAILED");
@@ -115,8 +138,9 @@ export function useTrade(): TradeRun {
               setMode(m);
               setSponsored(s);
             },
-            onSubmitted: (_hash, id) => {
+            onSubmitted: (_hash, id, uid) => {
               recordId.current = id;
+              if (uid) setOrderUid(uid);
             },
           },
         );
@@ -131,5 +155,5 @@ export function useTrade(): TradeRun {
     [address, chainId, walletClient, publicClient],
   );
 
-  return { state, error, quote, txHash, approvalHash, mode, sponsored, execute, reset, isBusy: BUSY.includes(state) };
+  return { state, error, quote, txHash: settledHash, approvalHash, mode, sponsored, orderUid, order, execute, reset, isBusy: BUSY.includes(state) };
 }

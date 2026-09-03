@@ -8,13 +8,14 @@ import { USDC_DECIMALS } from "@/config/chain";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
 
-export const PROVIDER_LABEL: Record<TradeProviderId, string> = { zeroX: "0x", kyber: "KyberSwap", okx: "OKX", uniswap: "Uniswap", velora: "Velora", aerodrome: "Aerodrome direct" };
+export const PROVIDER_LABEL: Record<TradeProviderId, string> = { zeroX: "0x", kyber: "KyberSwap", okx: "OKX", uniswap: "Uniswap", velora: "Velora", aerodrome: "Aerodrome direct", cow: "CoW Protocol · gasless" };
 
 /** Short, honest reason when a provider returned nothing. */
 export function failureLabel(a: TradeQuoteAlternative): string {
   const e = a.error ?? "";
   if (a.provider === "zeroX" && /not authorized|not enabled/i.test(e)) return "opt-in pending";
   if (a.provider === "okx" && /no access|50125|entitle/i.test(e)) return "key not entitled";
+  if (a.provider === "cow" && /native ETH/i.test(e)) return "USDC only";
   if (/timeout|timed out/i.test(e)) return "timed out";
   if (/liquidity|no route|route not found/i.test(e)) return "no route";
   if (/rate|429/i.test(e)) return "rate limited";

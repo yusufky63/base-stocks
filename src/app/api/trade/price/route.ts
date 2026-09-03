@@ -15,7 +15,9 @@ const bodySchema = z.object({
   recipient: addressSchema.optional(),
   slippageBps: z.number().int().min(1).max(5000).optional(),
   chainId: z.number().int().optional(),
-  provider: z.enum(["zeroX", "kyber", "okx", "uniswap", "velora", "aerodrome"]).optional(),
+  provider: z.enum(["zeroX", "kyber", "okx", "uniswap", "velora", "aerodrome", "cow"]).optional(),
+  /** false = transactions only (no signed orders); basket legs need a transaction hash per leg. */
+  orders: z.boolean().optional(),
 });
 
 /** Indicative price. Browser → this route → 0x/Kyber (keys stay server-side). */

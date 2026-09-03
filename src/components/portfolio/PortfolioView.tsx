@@ -23,6 +23,7 @@ import { GiftInbox } from "@/components/gift/GiftInbox";
 import { AutomationCard } from "./AutomationCard";
 import { PortfolioDigestCard } from "./PortfolioDigestCard";
 import { LpPositionsModule } from "@/components/earn/LpPositionsModule";
+import { OrdersModule } from "@/components/trade/OrdersModule";
 import { FundWallet } from "@/components/common/FundWallet";
 
 type Tab = "overview" | "rebalance" | "activity" | "profile";
@@ -186,6 +187,9 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
           <div className="flex flex-col gap-6">
             <AutomationCard />
             <HistoryModule address={address} />
+            <Module>
+              <OrdersModule owner={address} showEmpty />
+            </Module>
             <Module>
               <ModuleHeader title="Earn" action={<Link href="/earn" className="text-[13px] text-primary font-medium">Manage →</Link>} />
               {data && data.earnPositions.length > 0 ? (

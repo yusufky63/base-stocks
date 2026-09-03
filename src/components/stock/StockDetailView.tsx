@@ -23,6 +23,7 @@ import { ChartModule } from "./ChartModule";
 import { AssetDetails } from "./AssetDetails";
 import { PositionModule, type LpSummary } from "./PositionModule";
 import { TradesModule } from "./TradesModule";
+import { OrdersModule } from "@/components/trade/OrdersModule";
 import { CorporateActionsModule } from "./CorporateActionsModule";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { SendSheet } from "@/components/gift/SendSheet";
@@ -162,6 +163,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 onSend={() => setSendOpen(true)}
                 lp={lp}
               />
+              <OrdersModule owner={user} assetAddress={asset.address as Address} />
               <TradesModule asset={asset} user={user} />
               </>
             )}

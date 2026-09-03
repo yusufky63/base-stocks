@@ -1,7 +1,7 @@
 import { isNativeEth } from "@/config/chain";
 import { encodeFunctionData, erc20Abi, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
 import { base } from "viem/chains";
-import { apiGet, apiPost, ApiError, type ExecutableQuoteDTO, type TxStatusResponse } from "@/lib/client-api";
+import { apiDelete, apiGet, apiPost, ApiError, type ExecutableQuoteDTO, type SignedOrderRequest, type TxStatusResponse } from "@/lib/client-api";
 import type { TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY } from "@/lib/errors";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
@@ -22,6 +22,8 @@ export interface ExecuteTradeParams {
   recipient?: Address;
   slippageBps?: number;
   usdValue?: number | null;
+  /** false = transactions only; signed-order providers (CoW) are left out. Basket legs need a hash per leg. */
+  orders?: boolean;
 }
 
 export interface ExecuteTradeContext {
@@ -31,25 +33,41 @@ export interface ExecuteTradeContext {
   publicClient: PublicClient;
 }
 
+export type ExecutionMode = "sequential" | "batched" | "order";
+
 export interface ExecuteTradeHooks {
   onState?: (state: TradeState) => void;
   onQuote?: (quote: ExecutableQuoteDTO) => void;
   onApproval?: (hash: Hash) => void;
-  onMode?: (mode: "sequential" | "batched", sponsored: boolean) => void;
-  onSubmitted?: (hash: Hash | undefined, recordId: string) => void;
+  onMode?: (mode: ExecutionMode, sponsored: boolean) => void;
+  /** `orderUid` is set for signed orders, which have no transaction hash until a solver fills them. */
+  onSubmitted?: (hash: Hash | undefined, recordId: string, orderUid?: string) => void;
 }
 
 export interface ExecuteTradeResult {
   txHash: Hash | undefined;
   recordId: string;
   quote: ExecutableQuoteDTO;
-  mode: "sequential" | "batched";
+  mode: ExecutionMode;
+  /** CoW order uid; poll /api/trade/orders/[uid] for the fill. */
+  orderUid?: string;
+}
+
+/** Wallet capabilities that change how we submit: atomic batches and sponsored gas (Base Account). */
+async function walletCapabilities(walletClient: WalletClient, address: Address): Promise<{ atomic: boolean; paymaster: boolean }> {
+  try {
+    const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
+    return { atomic: caps.atomic?.status === "supported" || caps.atomic?.status === "ready", paymaster: !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported };
+  } catch {
+    return { atomic: false, paymaster: false };
+  }
 }
 
 /**
  * Shared trade executor used by the trade sheet and by multi-leg portfolio execution.
  * Fresh executable quote → allowance (scoped approval of the provider's spender only) →
  * simulation → submit with Builder Code suffix. Base Account batches approve + swap atomically.
+ * A CoW quote has no transaction: the wallet signs the order instead (see executeSignedOrder).
  */
 export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTradeParams, hooks: ExecuteTradeHooks = {}): Promise<ExecuteTradeResult> {
   const { address, walletClient, publicClient } = ctx;
@@ -64,6 +82,7 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
       payWith: params.payWith,
       provider: params.provider,
       strictProvider: params.strictProvider,
+      orders: params.orders,
       taker: address,
       recipient: params.recipient,
       slippageBps: params.slippageBps,
@@ -75,27 +94,6 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
 
   let q = await fetchQuote();
   if (q.balanceInsufficient) throw new ApiError("INSUFFICIENT_BALANCE", TRADE_ERROR_COPY.INSUFFICIENT_BALANCE, 400);
-
-  // Native ETH is sent as tx value: no ERC-20 allowance step.
-  const nativeSell = isNativeEth(q.sellToken);
-  const spender = nativeSell ? null : q.allowanceSpender;
-  let needsApproval = !nativeSell && q.allowanceRequired;
-  if (spender && !needsApproval) {
-    const current = await publicClient.readContract({ address: q.sellToken, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
-    needsApproval = current < BigInt(q.sellAmount);
-  }
-  if (needsApproval && !spender) throw new ApiError("ROUTE_UNAVAILABLE", "The provider did not return an approval target.", 502);
-  const approveData = spender ? encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, BigInt(q.sellAmount)] }) : null;
-
-  let atomic = false;
-  let paymaster = false;
-  try {
-    const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-    atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-    paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-  } catch {
-    atomic = false;
-  }
 
   // The activity record is created only once something was actually submitted to the wallet,
   // so a cancelled review never shows up in Activity.
@@ -114,64 +112,204 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
       txHash,
     }).catch(() => undefined);
 
+  if (q.order) {
+    const { orderUid } = await executeSignedOrder(ctx, q.order, {
+      onState: hooks.onState,
+      onApproval: hooks.onApproval,
+      onMode: hooks.onMode,
+    });
+    hooks.onSubmitted?.(undefined, recordId, orderUid);
+    void record(q);
+    return { txHash: undefined, recordId, quote: q, mode: "order", orderUid };
+  }
+  if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The provider returned neither a transaction nor an order.", 502);
+
+  // Native ETH is sent as tx value: no ERC-20 allowance step.
+  const nativeSell = isNativeEth(q.sellToken);
+  const spender = nativeSell ? null : q.allowanceSpender;
+  let needsApproval = !nativeSell && q.allowanceRequired;
+  if (spender && !needsApproval) {
+    const current = await publicClient.readContract({ address: q.sellToken, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
+    needsApproval = current < BigInt(q.sellAmount);
+  }
+  if (needsApproval && !spender) throw new ApiError("ROUTE_UNAVAILABLE", "The provider did not return an approval target.", 502);
+  const approveData = spender ? encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, BigInt(q.sellAmount)] }) : null;
+
+  const { atomic, paymaster } = await walletCapabilities(walletClient, address);
+
+  if (needsApproval && atomic && approveData) {
+    hooks.onMode?.("batched", paymaster);
+    hooks.onState?.("AWAITING_WALLET");
+    const { id } = await walletClient.sendCalls({
+      account: address,
+      chain: base,
+      forceAtomic: true,
+      calls: [
+        { to: q.sellToken, data: withAttribution(approveData) },
+        { to: q.transaction.to, data: withAttribution(q.transaction.data), value: BigInt(q.transaction.value) },
+      ],
+      capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
+    });
+    hooks.onState?.("SUBMITTED");
+    hooks.onSubmitted?.(undefined, recordId);
+    const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
+    const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
+    if (result.status === "failure") throw new Error("Batched transaction failed");
+    if (hash) void record(q, hash);
+    return { txHash: hash, recordId, quote: q, mode: "batched" };
+  }
+
+  hooks.onMode?.("sequential", false);
+  if (needsApproval && approveData) {
+    hooks.onState?.("APPROVAL_REQUIRED");
+    hooks.onState?.("AWAITING_WALLET");
+    const ah = await walletClient.sendTransaction({ account: address, chain: base, to: q.sellToken, data: withAttribution(approveData) });
+    hooks.onApproval?.(ah);
+    await publicClient.waitForTransactionReceipt({ hash: ah });
+    q = await fetchQuote(); // spec §19.4: refresh after approval
+    if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
+  }
+  if (Date.now() > q.expiresAt) {
+    q = await fetchQuote();
+    if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
+  }
+
   try {
-    if (needsApproval && atomic && approveData) {
-      hooks.onMode?.("batched", paymaster);
-      hooks.onState?.("AWAITING_WALLET");
+    await publicClient.call({ account: address, to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) });
+  } catch (simErr) {
+    const h = humanizeError(simErr);
+    if (h.code === "QUOTE_EXPIRED" || h.code === "SLIPPAGE") {
+      q = await fetchQuote();
+      if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
+    } else throw simErr;
+  }
+
+  hooks.onState?.("AWAITING_WALLET");
+  const hash = await walletClient.sendTransaction({
+    account: address,
+    chain: base,
+    to: q.transaction.to,
+    data: withAttribution(q.transaction.data),
+    value: BigInt(q.transaction.value),
+  });
+  hooks.onState?.("SUBMITTED");
+  hooks.onSubmitted?.(hash, recordId);
+  void record(q, hash);
+  return { txHash: hash, recordId, quote: q, mode: "sequential" };
+}
+
+/* ---------- signed orders (CoW Protocol) ---------- */
+
+const ERC6492_SUFFIX = "6492649264926492649264926492649264926492649264926492649264926492";
+
+/** Smart accounts sign with ERC-1271; CoW verifies onchain. EOAs sign plain EIP-712. */
+export async function signingSchemeFor(publicClient: PublicClient, address: Address): Promise<"eip712" | "eip1271"> {
+  const code = await publicClient.getCode({ address }).catch(() => undefined);
+  return code && code !== "0x" ? "eip1271" : "eip712";
+}
+
+export interface SignedOrderHooks {
+  onState?: (state: TradeState) => void;
+  onApproval?: (hash: Hash) => void;
+  onMode?: (mode: ExecutionMode, sponsored: boolean) => void;
+}
+
+/**
+ * Approve the vault relayer for exactly the sell amount (a transaction, sponsored on Base Account
+ * when a paymaster is configured), sign the order, hand it to the order book. Gas for the swap
+ * itself is paid by the solver. Returns the order uid to poll.
+ */
+export async function executeSignedOrder(ctx: ExecuteTradeContext, order: SignedOrderRequest, hooks: SignedOrderHooks = {}): Promise<{ orderUid: string; approvalHash?: Hash }> {
+  const { address, walletClient, publicClient } = ctx;
+  if (ctx.chainId !== BASE_CHAIN_ID) throw new ApiError("WRONG_NETWORK", TRADE_ERROR_COPY.WRONG_NETWORK, 400);
+  const m = order.typedData.message;
+  const sellAmount = BigInt(m.sellAmount);
+
+  const { paymaster, atomic } = await walletCapabilities(walletClient, address);
+  hooks.onMode?.("order", paymaster);
+
+  const balance = await publicClient.readContract({ address: m.sellToken, abi: erc20Abi, functionName: "balanceOf", args: [address] });
+  if (balance < sellAmount) throw new ApiError("INSUFFICIENT_BALANCE", TRADE_ERROR_COPY.INSUFFICIENT_BALANCE, 400);
+
+  let approvalHash: Hash | undefined;
+  const allowance = await publicClient.readContract({ address: m.sellToken, abi: erc20Abi, functionName: "allowance", args: [address, order.allowanceTarget] });
+  if (allowance < sellAmount) {
+    const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [order.allowanceTarget, sellAmount] });
+    hooks.onState?.("APPROVAL_REQUIRED");
+    hooks.onState?.("AWAITING_WALLET");
+    if (atomic) {
       const { id } = await walletClient.sendCalls({
         account: address,
         chain: base,
-        forceAtomic: true,
-        calls: [
-          { to: q.sellToken, data: withAttribution(approveData) },
-          { to: q.transaction.to, data: withAttribution(q.transaction.data), value: BigInt(q.transaction.value) },
-        ],
+        calls: [{ to: m.sellToken, data: withAttribution(approveData) }],
         capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
       });
-      hooks.onState?.("SUBMITTED");
-      hooks.onSubmitted?.(undefined, recordId);
       const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
-      const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
-      if (result.status === "failure") throw new Error("Batched transaction failed");
-      if (hash) void record(q, hash);
-      return { txHash: hash, recordId, quote: q, mode: "batched" };
+      if (result.status === "failure") throw new Error("Approval failed");
+      approvalHash = result.receipts?.[0]?.transactionHash;
+    } else {
+      approvalHash = await walletClient.sendTransaction({ account: address, chain: base, to: m.sellToken, data: withAttribution(approveData) });
+      await publicClient.waitForTransactionReceipt({ hash: approvalHash });
     }
-
-    hooks.onMode?.("sequential", false);
-    if (needsApproval && approveData) {
-      hooks.onState?.("APPROVAL_REQUIRED");
-      hooks.onState?.("AWAITING_WALLET");
-      const ah = await walletClient.sendTransaction({ account: address, chain: base, to: q.sellToken, data: withAttribution(approveData) });
-      hooks.onApproval?.(ah);
-      await publicClient.waitForTransactionReceipt({ hash: ah });
-      q = await fetchQuote(); // spec §19.4: refresh after approval
-    }
-    if (Date.now() > q.expiresAt) q = await fetchQuote();
-
-    try {
-      await publicClient.call({ account: address, to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) });
-    } catch (simErr) {
-      const h = humanizeError(simErr);
-      if (h.code === "QUOTE_EXPIRED" || h.code === "SLIPPAGE") q = await fetchQuote();
-      else throw simErr;
-    }
-
-    hooks.onState?.("AWAITING_WALLET");
-    const hash = await walletClient.sendTransaction({
-      account: address,
-      chain: base,
-      to: q.transaction.to,
-      data: withAttribution(q.transaction.data),
-      value: BigInt(q.transaction.value),
-    });
-    hooks.onState?.("SUBMITTED");
-    hooks.onSubmitted?.(hash, recordId);
-    void record(q, hash);
-    return { txHash: hash, recordId, quote: q, mode: "sequential" };
-  } catch (err) {
-    // Nothing was submitted (or the wallet rejected): no record exists, nothing to mark.
-    throw err;
+    if (approvalHash) hooks.onApproval?.(approvalHash);
   }
+
+  // Decided after the approval: a fresh Base Account is deployed by its first transaction.
+  const signingScheme = await signingSchemeFor(publicClient, address);
+  hooks.onState?.("AWAITING_WALLET");
+  const signature = await walletClient.signTypedData({
+    account: address,
+    domain: order.typedData.domain,
+    types: order.typedData.types,
+    primaryType: "Order",
+    message: {
+      sellToken: m.sellToken,
+      buyToken: m.buyToken,
+      receiver: m.receiver,
+      sellAmount,
+      buyAmount: BigInt(m.buyAmount),
+      validTo: m.validTo,
+      appData: m.appData,
+      feeAmount: 0n,
+      kind: m.kind,
+      partiallyFillable: m.partiallyFillable,
+      sellTokenBalance: m.sellTokenBalance,
+      buyTokenBalance: m.buyTokenBalance,
+    },
+  });
+  if (signature.toLowerCase().endsWith(ERC6492_SUFFIX)) {
+    throw new ApiError("SIMULATION_FAILED", "This smart wallet is not deployed yet, so CoW Protocol cannot verify its signature. Make any one transaction with it first (an approval or a swap), then place the order.", 400);
+  }
+
+  const { uid } = await apiPost<{ uid: string }>("/api/trade/orders", { from: address, signature, signingScheme, order });
+  hooks.onState?.("SUBMITTED");
+  return { orderUid: uid, approvalHash };
+}
+
+const SETTLEMENT_ABI = [{ type: "function", name: "invalidateOrder", stateMutability: "nonpayable", inputs: [{ name: "orderUid", type: "bytes" }], outputs: [] }] as const;
+
+/**
+ * Cancel an open order. EOAs sign an offchain cancellation (free, instant); smart accounts
+ * invalidate onchain, which is a small transaction on the settlement contract.
+ */
+export async function cancelSignedOrder(ctx: ExecuteTradeContext, order: { uid: string; domain: SignedOrderRequest["typedData"]["domain"] }): Promise<{ txHash?: Hash }> {
+  const { address, walletClient, publicClient } = ctx;
+  const scheme = await signingSchemeFor(publicClient, address);
+  if (scheme === "eip712") {
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: order.domain,
+      types: { OrderCancellations: [{ name: "orderUids", type: "bytes[]" }] },
+      primaryType: "OrderCancellations",
+      message: { orderUids: [order.uid as Hex] },
+    });
+    await apiDelete(`/api/trade/orders/${order.uid}`, { signature, signingScheme: "eip712" });
+    return {};
+  }
+  const data = encodeFunctionData({ abi: SETTLEMENT_ABI, functionName: "invalidateOrder", args: [order.uid as Hex] });
+  const txHash = await walletClient.sendTransaction({ account: address, chain: base, to: order.domain.verifyingContract, data: withAttribution(data) });
+  await publicClient.waitForTransactionReceipt({ hash: txHash });
+  return { txHash };
 }
 
 /** Poll our status route until confirmed/failed (Flashblocks-aware with receipt fallback). */

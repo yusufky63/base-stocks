@@ -13,12 +13,19 @@ const STEPS: Array<{ id: "SUBMITTED" | "PRECONFIRMED" | "CONFIRMED"; label: stri
 const ORDER: Record<string, number> = { SUBMITTED: 0, PRECONFIRMED: 1, CONFIRMED: 2 };
 
 /** Submitted → Preconfirmed → Confirmed. Never shows "confirmed" before the status says so. */
-export function TxProgress({ state, txHash }: { state: TradeState; txHash?: string }) {
+const ORDER_STEPS: typeof STEPS = [
+  { id: "SUBMITTED", label: "Order placed" },
+  { id: "PRECONFIRMED", label: "Matching" },
+  { id: "CONFIRMED", label: "Filled" },
+];
+
+export function TxProgress({ state, txHash, order }: { state: TradeState; txHash?: string; order?: boolean }) {
   const idx = ORDER[state] ?? -1;
+  const steps = order ? ORDER_STEPS : STEPS;
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
       <ol className="grid grid-cols-3 gap-1">
-        {STEPS.map((s, i) => {
+        {steps.map((s, i) => {
           const done = idx >= i;
           const active = idx === i && state !== "CONFIRMED";
           return (
