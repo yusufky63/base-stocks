@@ -229,6 +229,11 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
             Not issued onchain yet: Coinbase has not minted {asset.underlying} on Base, so no pool exists and no route can fill an order. The contract is live and unpaused; trading opens automatically once supply appears. Add it to your watchlist meanwhile.
           </p>
         )}
+        {price?.deviationPct !== null && price?.deviationPct !== undefined && Math.abs(price.deviationPct) >= 15 && !price.referenceStale && !price.referencePaused && (
+          <p className="text-[12px] border border-dashed border-warning-fg/60 text-warning-fg rounded-[6px] px-3 py-2">
+            {`${asset.underlying} trades ${price.deviationPct > 0 ? `${price.deviationPct.toFixed(0)}% above` : `${Math.abs(price.deviationPct).toFixed(0)}% below`} its Chainlink reference (${formatUsd(price.referenceUsd ?? 0)}). You ${side === "buy" ? "buy" : "sell"} at the pool price, not the stock price${price.deviationPct > 0 ? " — a premium this large can collapse toward the reference at any time" : ""}.`}
+          </p>
+        )}
         {price?.liquidityUsd !== null && price?.liquidityUsd !== undefined && price.liquidityUsd < 50_000 && (
           <p className="text-[12px] text-ink-muted border border-dashed border-line rounded-[6px] px-3 py-2">
             Thin market: about {formatUsd(price.liquidityUsd)} of DEX liquidity for {asset.underlying}. Orders above roughly {formatUsd(Math.max(1, price.liquidityUsd * 0.1))} may fail or move the price a lot.
