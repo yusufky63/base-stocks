@@ -140,7 +140,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* Sized so the natural glyph width fills the box; lengthAdjust="spacing" only trims the
                 rounding drift, so the letterforms keep their true proportions. */}
             <text x="0" y="286" textLength="1200" lengthAdjust="spacing" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="288" letterSpacing="-8.6">
-              BSTOCKS
+              {"BSTOCKS".split("").map((ch, i) => (
+                <tspan key={i}>{ch}</tspan>
+              ))}
             </text>
           </svg>
         </div>

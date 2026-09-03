@@ -554,16 +554,17 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-/* Footer wordmark: quiet by default, brand blue under the pointer. */
-.footer-wordmark text {
-  fill: var(--surface-muted);
-  transition: fill 0.3s ease;
+/* Footer wordmark: ink letters with a brand-blue B, each letter lighting up under the pointer. */
+.footer-wordmark tspan {
+  fill: var(--text);
+  transition: fill 0.25s ease;
 }
-.footer-wordmark:hover text {
+.footer-wordmark tspan:first-child,
+.footer-wordmark tspan:hover {
   fill: var(--primary);
 }
 @media (prefers-reduced-motion: reduce) {
-  .footer-wordmark text {
+  .footer-wordmark tspan {
     transition: none;
   }
 }

@@ -33,7 +33,7 @@ export function Wordmark({ className, size = 22 }: { className?: string; size?: 
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/logo-mark-transparent-128.png" alt="" width={size + 8} height={size + 8} className="shrink-0" style={{ width: size + 8, height: size + 8 }} />
       <span className="display tracking-[-0.045em] leading-none" style={{ fontSize: size * 0.95 }}>
-        B<span className="text-primary">Stocks</span>
+        <span className="text-primary">B</span>Stocks
       </span>
     </span>
   );
