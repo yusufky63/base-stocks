@@ -1,27 +1,48 @@
 {
-  "name": "base-stocks",
+  "name": "bstocks",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify": "node scripts/verify-b20.mjs",
+    "db:apply": "node scripts/db-apply.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "@base-org/account": "^2.5.10",
+    "@reown/appkit": "^1.8.23",
+    "@reown/appkit-adapter-wagmi": "^1.8.23",
+    "@supabase/supabase-js": "^2.114.0",
+    "@tanstack/react-query": "^5.102.8",
+    "lightweight-charts": "^5.2.1",
+    "lucide-react": "^1.39.0",
     "next": "16.3.4",
+    "ox": "^1.7.4",
+    "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "viem": "^2.56.3",
+    "wagmi": "^3.7.7",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   },
   "packageManager": "pnpm@9.15.4"
 }

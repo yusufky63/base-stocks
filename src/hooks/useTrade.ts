@@ -1,0 +1,135 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import type { Address, Hash } from "viem";
+import { apiPatch, ApiError, type ExecutableQuoteDTO } from "@/lib/client-api";
+import type { TradeSide, TradeState } from "@/domain/trade";
+import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
+import { BASE_CHAIN_ID } from "@/config/chain";
+import { executeTrade } from "@/lib/trade/execute";
+import { useTxStatus } from "./queries";
+
+export interface TradeExecParams {
+  side: TradeSide;
+  assetAddress: Address;
+  sellAmount: bigint;
+  /** Buys: pay with USDC (default) or native ETH. */
+  payWith?: "USDC" | "ETH";
+  provider?: import("@/domain/trade").TradeProviderId;
+  strictProvider?: boolean;
+  recipient?: Address;
+  slippageBps?: number;
+  /** For the activity record only. */
+  usdValue?: number | null;
+}
+
+export interface TradeRun {
+  state: TradeState;
+  error: HumanError | null;
+  quote: ExecutableQuoteDTO | null;
+  txHash?: Hash;
+  approvalHash?: Hash;
+  mode: "sequential" | "batched" | null;
+  sponsored: boolean;
+  execute: (params: TradeExecParams) => Promise<void>;
+  reset: () => void;
+  isBusy: boolean;
+}
+
+const BUSY: TradeState[] = ["GETTING_FIRM_QUOTE", "APPROVAL_REQUIRED", "AWAITING_WALLET", "SUBMITTED", "PRECONFIRMED"];
+
+/**
+ * Trade sheet state machine (spec §47) on top of the shared executor.
+ * Chain confirmation state is derived from the polled status, never set from an effect.
+ */
+export function useTrade(): TradeRun {
+  const { address, chainId } = useAccount();
+  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+  const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+
+  const [machine, setMachine] = useState<TradeState>("IDLE");
+  const [localError, setLocalError] = useState<HumanError | null>(null);
+  const [quote, setQuote] = useState<ExecutableQuoteDTO | null>(null);
+  const [txHash, setTxHash] = useState<Hash | undefined>();
+  const [approvalHash, setApprovalHash] = useState<Hash | undefined>();
+  const [mode, setMode] = useState<TradeRun["mode"]>(null);
+  const [sponsored, setSponsored] = useState(false);
+  const recordId = useRef<string | null>(null);
+  const reported = useRef<string | null>(null);
+  const status = useTxStatus(txHash);
+  const chain = txHash ? status.data?.status : undefined;
+
+  // Derived state: Submitted → Preconfirmed → Confirmed / Failed.
+  let state: TradeState = machine;
+  let error: HumanError | null = localError;
+  if (machine === "SUBMITTED" || machine === "PRECONFIRMED") {
+    if (chain === "preconfirmed") state = "PRECONFIRMED";
+    else if (chain === "confirmed") state = "CONFIRMED";
+    else if (chain === "failed") {
+      state = "FAILED";
+      error = { code: "SIMULATION_FAILED", message: "The transaction reverted onchain. Your funds were not moved.", detail: txHash };
+    }
+  }
+
+  // Side effects only (record status); no state updates inside effects.
+  useEffect(() => {
+    if (!recordId.current || !txHash) return;
+    if ((chain === "confirmed" || chain === "failed") && reported.current !== `${txHash}:${chain}`) {
+      reported.current = `${txHash}:${chain}`;
+      void apiPatch(`/api/trades/${recordId.current}`, { status: chain }).catch(() => undefined);
+    }
+  }, [chain, txHash]);
+
+  const reset = useCallback(() => {
+    setMachine("IDLE");
+    setLocalError(null);
+    setQuote(null);
+    setTxHash(undefined);
+    setApprovalHash(undefined);
+    setMode(null);
+    setSponsored(false);
+    recordId.current = null;
+    reported.current = null;
+  }, []);
+
+  const execute = useCallback(
+    async (params: TradeExecParams) => {
+      setLocalError(null);
+      setTxHash(undefined);
+      setApprovalHash(undefined);
+      if (!address || !walletClient || !publicClient) {
+        setLocalError({ code: "WALLET_NOT_CONNECTED", message: TRADE_ERROR_COPY.WALLET_NOT_CONNECTED });
+        setMachine("FAILED");
+        return;
+      }
+      try {
+        const result = await executeTrade(
+          { address, chainId, walletClient, publicClient },
+          params,
+          {
+            onState: setMachine,
+            onQuote: setQuote,
+            onApproval: setApprovalHash,
+            onMode: (m, s) => {
+              setMode(m);
+              setSponsored(s);
+            },
+            onSubmitted: (_hash, id) => {
+              recordId.current = id;
+            },
+          },
+        );
+        if (result.txHash) setTxHash(result.txHash);
+        setMachine("SUBMITTED");
+      } catch (err) {
+        const h = err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message, detail: err.code } : humanizeError(err);
+        setLocalError(h);
+        setMachine("FAILED");
+      }
+    },
+    [address, chainId, walletClient, publicClient],
+  );
+
+  return { state, error, quote, txHash, approvalHash, mode, sponsored, execute, reset, isBusy: BUSY.includes(state) };
+}

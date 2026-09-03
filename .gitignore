@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# keep the placeholder example committed
+!.env.example
+
+# local tool config (machine-specific)
+.mcp.json
+.claude/settings.local.json

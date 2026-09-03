@@ -1,0 +1,190 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { ArrowUpRight, Search, Star } from "lucide-react";
+import { useAccount } from "wagmi";
+import type { Address } from "viem";
+import { useAssets, useRegion, useSparklines, useWatchlist } from "@/hooks/queries";
+import type { AssetsResponse } from "@/lib/client-api";
+import type { MarketTag } from "@/domain/asset";
+import { formatUsd } from "@/lib/format";
+import { sortByTradingStatus, tradingStatus, type TradingStatusView } from "@/lib/trading-status";
+import { AssetLogo, PriceChange } from "@/components/common/display";
+import { TimeAgo } from "@/components/common/TimeAgo";
+import { RegionNotice } from "@/components/common/RegionNotice";
+import { Chip, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
+import { assetColor } from "@/lib/colors";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { Sparkline } from "@/components/ui/Sparkline";
+
+type Filter = "all" | "watchlist" | "movers" | MarketTag;
+
+const FILTERS: Array<{ id: Filter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "technology", label: "Technology" },
+  { id: "ai", label: "AI" },
+  { id: "finance", label: "Finance" },
+  { id: "crypto", label: "Crypto" },
+  { id: "movers", label: "Top movers" },
+  { id: "watchlist", label: "Watchlist" },
+];
+
+const DOT: Record<TradingStatusView["tone"], string> = { positive: "bg-positive-fg", warning: "bg-warning-fg", neutral: "bg-ink-muted", danger: "bg-danger-fg" };
+const TEXT: Record<TradingStatusView["tone"], string> = { positive: "text-positive-fg", warning: "text-warning-fg", neutral: "text-ink-muted", danger: "text-danger-fg" };
+
+/** Compact status chip: dot + label, detail on hover. Same component on the row and on mobile cards. */
+export function StatusChip({ view, className }: { view: TradingStatusView; className?: string }) {
+  return (
+    <span title={view.detail} className={cx("inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em]", TEXT[view.tone], className)}>
+      <span className={cx("inline-block w-1.5 h-1.5 rounded-full", DOT[view.tone])} aria-hidden />
+      {view.label}
+      {view.status === "tradable" || view.status === "thin" ? <span className="text-ink-muted normal-case tracking-normal">· {view.detail.split(" ·")[0]}</span> : null}
+    </span>
+  );
+}
+
+export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
+  const { data, isLoading, isError } = useAssets(initialData);
+  const { data: sparks } = useSparklines();
+  const { address } = useAccount();
+  const watchlist = useWatchlist(address);
+  const region = useRegion();
+  const restricted = region.data?.restricted === true;
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+
+  const all = useMemo(() => (data ? sortByTradingStatus(data.assets.map((a) => ({ asset: a, price: data.prices[a.canonicalId] })), (x) => x) : []), [data]);
+  const liveCount = useMemo(() => all.filter((x) => tradingStatus(x.asset, x.price).status === "tradable").length, [all]);
+  const notIssued = useMemo(() => all.filter((x) => tradingStatus(x.asset, x.price).status === "not-issued").length, [all]);
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = all;
+    if (q) list = list.filter(({ asset }) => asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q) || asset.underlying.toLowerCase().includes(q));
+    if (filter === "watchlist") list = list.filter(({ asset }) => watchlist.has(asset.address));
+    else if (filter === "movers") list = [...list].filter(({ price }) => price?.marketChange24hPct !== null && price?.marketChange24hPct !== undefined).sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0));
+    else if (filter !== "all") list = list.filter(({ asset }) => asset.tags.includes(filter));
+    return list;
+  }, [all, query, filter, watchlist]);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageTitle
+        index="02 — Markets"
+        title="Markets"
+        lead={
+          <span className="inline-flex items-center gap-2 flex-wrap">
+            <span className="live-dot" /> Live · {data ? <>updated <TimeAgo value={data.readAt} placeholder="just now" /></> : "loading"} ·{" "}
+            {data ? (
+              <>
+                {liveCount} market{liveCount === 1 ? "" : "s"} live{notIssued > 0 ? `, ${notIssued} not issued yet` : ""} of {data.assets.length} Coinbase Tokenized Stocks
+              </>
+            ) : (
+              "Coinbase Tokenized Stocks on Base"
+            )}
+          </span>
+        }
+        action={
+          <label className="flex items-center h-11 w-full md:w-[320px] rounded-[6px] border border-line-strong bg-canvas px-3 gap-2 focus-within:border-primary transition-fast">
+            <Search size={16} strokeWidth={1.75} className="text-ink-muted" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search stocks" aria-label="Search stocks" className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-ink-muted" />
+          </label>
+        }
+      />
+
+      <div className="flex gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0">
+        {FILTERS.map((f) => (
+          <Chip key={f.id} active={filter === f.id} onClick={() => setFilter(f.id)} disabled={f.id === "watchlist" && !address} title={f.id === "watchlist" && !address ? "Connect to use a watchlist" : undefined}>
+            {f.label}
+          </Chip>
+        ))}
+      </div>
+
+      {restricted && region.data && <RegionNotice region={region.data} compact />}
+      <div className="border border-line rounded-[8px] overflow-hidden bg-canvas ticks">
+        <div className="hidden md:grid grid-cols-[1fr_110px_140px_110px_120px_150px] px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
+          <span>Stock</span>
+          <span className="text-right">7d</span>
+          <span className="text-right">Price</span>
+          <span className="text-right">24h</span>
+          <span className="text-right">Reference</span>
+          <span />
+        </div>
+        {isLoading && !data && (
+          <div className="p-4 flex flex-col gap-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-12" />
+            ))}
+          </div>
+        )}
+        {isError && !data && <p className="p-4 text-[14px] text-ink-secondary">Markets are temporarily unavailable. Please try again.</p>}
+        {rows.map(({ asset, price }) => (
+          <MarketRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} watched={watchlist.has(asset.address)} onToggleWatch={address ? () => watchlist.toggle(asset.address as Address) : undefined} restricted={restricted} />
+        ))}
+        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{filter === "watchlist" ? "Your watchlist is empty. Star a stock to add it." : "No stocks match."}</p>}
+      </div>
+      <p className="text-[12px] text-ink-muted">Live = a DEX pool with $100k+ liquidity; Thin = $10k–100k; Not issued yet = the contract exists but Coinbase has not minted tokens on Base. Price is the DEX market price when a pool exists, otherwise the Chainlink reference (marked). Executable prices come from a live quote when you trade.</p>
+    </div>
+  );
+}
+
+function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: { asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string]; spark?: number[]; watched: boolean; onToggleWatch?: () => void; restricted: boolean }) {
+  const display = price?.displayUsd ?? null;
+  const view = tradingStatus(asset, price);
+  const tradable = view.status === "tradable" || view.status === "thin";
+  const muted = view.status === "not-issued" || view.status === "paused";
+  return (
+    <div className={cx("rail grid grid-cols-[1fr_auto] md:grid-cols-[1fr_110px_140px_110px_120px_150px] items-center px-4 py-3 border-b border-line last:border-b-0 gap-3 hover:bg-surface transition-fast", muted && "opacity-75 hover:opacity-100")}>
+      <Link href={`/stocks/${asset.address}`} className="flex items-center gap-3 min-w-0">
+        <span className="w-1 self-stretch rounded-full" style={{ background: assetColor(asset.address) }} aria-hidden />
+        <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={36} />
+        <span className="min-w-0">
+          <span className="block font-medium text-[15px] leading-tight">
+            {asset.underlying} <span className="text-ink-muted font-mono text-[11px]">{asset.symbol}</span>
+          </span>
+          <span className="block text-[13px] text-ink-secondary truncate">{asset.name}</span>
+          <StatusChip view={view} className="mt-0.5" />
+        </span>
+      </Link>
+      <div className="md:hidden text-right">
+        <div className="display num text-[16px]">
+          <AnimatedNumber value={display} format={(v) => formatUsd(v)} />
+        </div>
+        <PriceChange value={price?.marketChange24hPct} className="text-[12px]" />
+      </div>
+      <div className="hidden md:flex justify-end">
+        <Sparkline points={spark ?? []} width={84} height={26} />
+      </div>
+      <div className="hidden md:block text-right display num text-[16px]">
+        <AnimatedNumber value={display} format={(v) => formatUsd(v)} />
+        {price?.displaySource === "reference" && <span className="block text-[10px] font-mono text-ink-muted uppercase">reference</span>}
+      </div>
+      <div className="hidden md:block text-right">
+        <PriceChange value={price?.marketChange24hPct} />
+      </div>
+      <div className="hidden md:block text-right font-mono num text-[13px] text-ink-secondary">
+        {formatUsd(price?.referenceUsd)}
+        {price?.referenceFreshness === "stale" && <span className="block text-[10px] uppercase text-ink-muted">stale</span>}
+        {price?.referenceFreshness === "last-close" && <span className="block text-[10px] uppercase text-ink-muted">last close</span>}
+        {price?.referenceFreshness === "frozen" && <span className="block text-[10px] uppercase text-warning-fg">frozen</span>}
+      </div>
+      <div className="hidden md:flex items-center justify-end gap-1.5">
+        {onToggleWatch && (
+          <button type="button" aria-label={watched ? "Remove from watchlist" : "Add to watchlist"} aria-pressed={watched} onClick={onToggleWatch} className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border transition-fast", watched ? "text-primary border-primary bg-primary-soft" : "text-ink-muted border-transparent hover:border-line hover:text-ink")}>
+            <Star size={15} strokeWidth={1.75} fill={watched ? "currentColor" : "none"} />
+          </button>
+        )}
+        {tradable && !restricted ? (
+          <Link href={`/stocks/${asset.address}?trade=buy`} className="inline-flex items-center justify-center gap-1 h-9 min-w-[88px] px-3 rounded-[6px] text-[13px] font-medium bg-primary text-primary-contrast hover:bg-primary-strong transition-fast">
+            Buy <ArrowUpRight size={14} strokeWidth={1.75} />
+          </Link>
+        ) : (
+          <Link href={`/stocks/${asset.address}`} title={restricted && tradable ? "Trading is not available in your region" : undefined} className="inline-flex items-center justify-center h-9 min-w-[88px] px-3 rounded-[6px] text-[13px] font-medium border border-line text-ink-secondary hover:text-ink hover:border-ink transition-fast">
+            {restricted && tradable ? "Unavailable" : view.status === "paused" ? "Paused" : view.status === "not-issued" ? "Watch" : "Details"}
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}

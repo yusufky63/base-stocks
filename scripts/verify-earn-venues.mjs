@@ -1,0 +1,21 @@
+import { createPublicClient, http, fallback, parseAbi } from 'viem';
+import { base } from 'viem/chains';
+const client = createPublicClient({ chain: base, transport: fallback([http('https://base-rpc.publicnode.com'), http('https://mainnet.base.org')]) });
+const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const COMET_USDC = '0xb125E6687d4313864e53df431d5425969c15Eb2F';
+const MOONWELL_MUSDC = '0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22';
+const AAVE_DATA = '0x0F43731EB8d45A581f4a36DD74F5f358bc90C73A';
+const comet = parseAbi(['function baseToken() view returns (address)','function getUtilization() view returns (uint256)','function getSupplyRate(uint256 utilization) view returns (uint64)','function totalSupply() view returns (uint256)']);
+const mtoken = parseAbi(['function underlying() view returns (address)','function supplyRatePerTimestamp() view returns (uint256)','function exchangeRateStored() view returns (uint256)','function totalSupply() view returns (uint256)','function symbol() view returns (string)']);
+const aave = parseAbi(['function getReserveTokensAddresses(address asset) view returns (address aTokenAddress, address stableDebtTokenAddress, address variableDebtTokenAddress)']);
+const t = async (l, f) => { try { const r = await f(); console.log('OK  ', l, '=>', typeof r === 'bigint' ? r.toString() : JSON.stringify(r, (k,v)=>typeof v==='bigint'?v.toString():v)); return r; } catch (e) { console.log('FAIL', l, (e.shortMessage||e.message).split('\n')[0]); } };
+const bt = await t('comet.baseToken', () => client.readContract({ address: COMET_USDC, abi: comet, functionName: 'baseToken' }));
+const util = await t('comet.getUtilization', () => client.readContract({ address: COMET_USDC, abi: comet, functionName: 'getUtilization' }));
+if (util !== undefined) { const r = await t('comet.getSupplyRate', () => client.readContract({ address: COMET_USDC, abi: comet, functionName: 'getSupplyRate', args: [util] })); if (r) console.log('   comet supply APR % =', (Number(r) / 1e18 * 31536000 * 100).toFixed(2)); }
+await t('comet.totalSupply', () => client.readContract({ address: COMET_USDC, abi: comet, functionName: 'totalSupply' }));
+await t('mUSDC.underlying', () => client.readContract({ address: MOONWELL_MUSDC, abi: mtoken, functionName: 'underlying' }));
+const sr = await t('mUSDC.supplyRatePerTimestamp', () => client.readContract({ address: MOONWELL_MUSDC, abi: mtoken, functionName: 'supplyRatePerTimestamp' }));
+if (sr) console.log('   moonwell supply APR % =', (Number(sr) / 1e18 * 31536000 * 100).toFixed(2));
+await t('mUSDC.symbol', () => client.readContract({ address: MOONWELL_MUSDC, abi: mtoken, functionName: 'symbol' }));
+await t('aave.getReserveTokensAddresses(USDC)', () => client.readContract({ address: AAVE_DATA, abi: aave, functionName: 'getReserveTokensAddresses', args: [USDC] }));
+console.log('baseToken is USDC?', bt && bt.toLowerCase() === USDC.toLowerCase());
