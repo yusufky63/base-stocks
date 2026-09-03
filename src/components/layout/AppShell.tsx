@@ -10,6 +10,7 @@ import { cx } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
 import { Wordmark } from "@/components/brand/Logo";
 import { TopTicker } from "./TopTicker";
+import { IntegrationsStrip } from "@/components/common/Integrations";
 
 const X_URL = "https://x.com/BaseOnStocks";
 
@@ -122,6 +123,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="font-mono text-[12px]">@BaseOnStocks</span>
             </a>
           </div>
+          <IntegrationsStrip />
           <div className="hidden md:block text-[12px] text-ink-muted leading-relaxed">
             <LegalNotice compact />
           </div>
