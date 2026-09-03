@@ -27,7 +27,7 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 
 ## Phase C — Liquidity and Earn
 
-- **LP Phase 2, manage half shipped 2026-09-03**: collect fees and withdraw 25–100% (decrease + collect, atomic on Base Account, simulated, 1% min-out guard) run in-app on both managers. Still open: `mint` from a USD price range (needs the inverse "amounts for a range" math) and `increaseLiquidity`; Uniswap v4 stays on the venue.
+- **LP Phase 2 shipped 2026-09-03**: collect fees and withdraw 25–100% (decrease + collect) plus in-app `mint` from a USD-per-share range (±5/10/25% or full, inverse amounts-for-range math with tests, exact approvals, simulated bundle, 1% minimums) on USDC-quoted Uniswap v3 and Slipstream pools — all atomic on Base Account. Still open: `increaseLiquidity` (near-free now), WETH-quoted pools, Uniswap v4 stays on the venue.
 - **LP Phase 3**: stake Slipstream positions in the gauge for AERO emissions; unstake before removing.
 - **KyberSwap Earn / Zap**: single-token entry into concentrated pools.
 - **Beefy and Euler discovery** for the Earn scan if they ever list tokenized stocks.
