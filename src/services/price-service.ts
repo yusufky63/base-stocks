@@ -22,17 +22,30 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
   const referenceUsable = referenceUsd !== null && asset.oracle !== undefined && !asset.oracle.paused && !asset.oracle.stale;
   const marketUsd = market?.priceUsd ?? null;
 
+  const deviationPct = marketUsd !== null && referenceUsd !== null && referenceUsd > 0 ? ((marketUsd - referenceUsd) / referenceUsd) * 100 : null;
+
+  // Trust gate for the display price: a "market" price read off a dust pool (a few dollars of
+  // liquidity, 2-25x away from a usable reference) is noise, not a market. Keep marketUsd itself
+  // for transparency, but display the reference until real liquidity shows up.
+  const marketTrusted =
+    marketUsd !== null &&
+    (!referenceUsable ||
+      (market?.liquidityUsd ?? 0) >= 20_000 ||
+      deviationPct === null ||
+      Math.abs(deviationPct) <= 20);
+
   let displayUsd: number | null = null;
   let displaySource: PriceView["displaySource"] = "none";
-  if (marketUsd !== null) {
+  if (marketUsd !== null && marketTrusted) {
     displayUsd = marketUsd;
     displaySource = "market";
   } else if (referenceUsd !== null) {
     displayUsd = referenceUsd;
     displaySource = "reference";
+  } else if (marketUsd !== null) {
+    displayUsd = marketUsd;
+    displaySource = "market";
   }
-
-  const deviationPct = marketUsd !== null && referenceUsd !== null && referenceUsd > 0 ? ((marketUsd - referenceUsd) / referenceUsd) * 100 : null;
 
   return {
     address: asset.address,

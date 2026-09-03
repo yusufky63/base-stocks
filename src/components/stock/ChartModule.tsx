@@ -11,7 +11,7 @@ import { timeAgo } from "@/lib/format";
 
 const PriceChart = dynamic(() => import("./PriceChart"), { ssr: false, loading: () => <Skeleton className="h-[320px]" /> });
 
-export function ChartModule({ address, marketUpdatedAt, referenceUpdatedAt }: { address: string; marketUpdatedAt?: number | null; referenceUpdatedAt?: number | null }) {
+export function ChartModule({ address, marketUpdatedAt, referenceUpdatedAt, marketUntrusted = false }: { address: string; marketUpdatedAt?: number | null; referenceUpdatedAt?: number | null; marketUntrusted?: boolean }) {
   const [tf, setTf] = useState<Timeframe>("1M");
   const { style, setStyle } = useChartStyle();
   const { data, isLoading, isError } = useChart(address, tf);
@@ -19,6 +19,9 @@ export function ChartModule({ address, marketUpdatedAt, referenceUpdatedAt }: { 
   const hasVolume = candles.some((c) => c.volume > 0);
   return (
     <div className="flex flex-col">
+      {marketUntrusted && data?.source === "market" && (
+        <p className="px-4 py-2 border-b border-line text-[12px] text-warning-fg">Chart shows raw DEX pool trades. Liquidity is too thin to trust as a market, so the price shown above is the Chainlink reference — the two can differ a lot until real liquidity arrives.</p>
+      )}
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-line">
         <div className="flex gap-1" role="tablist" aria-label="Timeframe">
           {TIMEFRAMES.map((t) => (

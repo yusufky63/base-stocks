@@ -131,7 +131,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
               </span>
             </div>
             <div className="border-t border-line">
-              <ChartModule address={asset.address} marketUpdatedAt={price?.marketUpdatedAt} referenceUpdatedAt={price?.referenceUpdatedAt} />
+              <ChartModule address={asset.address} marketUpdatedAt={price?.marketUpdatedAt} referenceUpdatedAt={price?.referenceUpdatedAt} marketUntrusted={price?.marketUsd !== null && price?.marketUsd !== undefined && price?.displaySource === "reference"} />
             </div>
           </Module>
 
