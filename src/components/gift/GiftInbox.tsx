@@ -11,7 +11,7 @@ import { counterpartyLabel } from "@/components/activity/ActivityList";
 import { Avatar } from "@/components/common/RecipientCard";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { ShareButton } from "@/components/common/ShareSheet";
-import { Button } from "@/components/ui/primitives";
+
 
 const KEY = "bstocks.gifts.seen";
 
@@ -36,7 +36,7 @@ function writeSeen(seen: Set<string>) {
  * not been dismissed on this device. Each gift is a card with the coin, the sender (Basename or
  * address), value, message and a link to the receipt page.
  */
-export function GiftInbox({ address, onOpenActivity }: { address: Address; onOpenActivity?: () => void }) {
+export function GiftInbox({ address }: { address: Address }) {
   const { data } = useActivity(address);
   const [seen, setSeen] = useState<Set<string>>(() => readSeen());
   if (!data) return null;
@@ -66,11 +66,9 @@ export function GiftInbox({ address, onOpenActivity }: { address: Address; onOpe
           {received.length === 1 ? "You received a gift" : `You received ${received.length} gifts`}
         </div>
         <div className="flex items-center gap-1">
-          {onOpenActivity && (
-            <Button variant="ghost" size="sm" onClick={onOpenActivity}>
-              All activity
-            </Button>
-          )}
+          <Link href="/gifts" className="inline-flex items-center h-8 px-2.5 rounded-[6px] text-[12px] font-medium text-primary hover:bg-primary-soft transition-fast">
+            All gifts →
+          </Link>
           <button type="button" aria-label="Dismiss all" title="Dismiss all" onClick={dismiss} className="h-8 w-8 inline-flex items-center justify-center rounded-[6px] text-ink-muted hover:text-ink">
             <X size={14} strokeWidth={2} />
           </button>

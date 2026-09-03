@@ -39,6 +39,7 @@ const FOOTER_LINKS = [
   ["/markets", "Markets"],
   ["/build", "Strategies"],
   ["/earn", "Earn"],
+  ["/gifts", "Gifts"],
   ["/portfolio", "Portfolio"],
   ["/news", "News"],
   ["/how-it-works", "How it works"],

@@ -114,7 +114,7 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
         ))}
       </div>
 
-      {tab === "overview" && <GiftInbox address={address} onOpenActivity={() => setTab("activity")} />}
+      {tab === "overview" && <GiftInbox address={address} />}
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start">
           <div className="flex flex-col gap-6">

@@ -1,0 +1,216 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { encodeFunctionData, erc20Abi, formatUnits, type Hash } from "viem";
+import { base } from "viem/chains";
+import { Check, Copy, TriangleAlert } from "lucide-react";
+import type { B20AssetDTO } from "@/domain/asset";
+import type { GiftRecord } from "@/domain/gift";
+import { BASE_CHAIN_ID } from "@/config/chain";
+import { publicEnv } from "@/config/env";
+import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
+import { attributionCapabilities, withAttribution } from "@/lib/attribution";
+import { claimPath, GIFT_ESCROW_ADDRESS, giftEscrowAbi, makeClaimSecret } from "@/lib/escrow";
+import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
+import { parseAmountSafe, toRaw } from "@/lib/b20/math";
+import { formatTokenAmount, formatUsd } from "@/lib/format";
+import { AmountInput, Input } from "@/components/ui/Input";
+import { Button, Chip, KeyValue } from "@/components/ui/primitives";
+import { ErrorBanner, InfoBanner } from "@/components/common/display";
+
+const COUNTS = [2, 3, 5, 10];
+const EXPIRY_DAYS: Array<[number, string]> = [
+  [7, "7 days"],
+  [30, "30 days"],
+];
+
+interface MadeLink {
+  giftId: string;
+  url: string;
+}
+
+/**
+ * Several claim links in one go — e.g. ten equal gifts for an event. One approval for the total
+ * plus one escrow lock per link, batched atomically on Base Account (a plain wallet confirms
+ * each transaction). Every link gets its own ephemeral key; none of them touches a server.
+ */
+export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset: B20AssetDTO; raw: bigint; scaled: bigint; priceUsd: number | null; onSent?: () => void }) {
+  const { address, chainId } = useAccount();
+  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+  const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+
+  const [count, setCount] = useState(3);
+  const [sharesPer, setSharesPer] = useState("");
+  const [days, setDays] = useState(7);
+  const [message, setMessage] = useState("");
+  const [phase, setPhase] = useState<"form" | "working" | "ready">("form");
+  const [error, setError] = useState<HumanError | null>(null);
+  const [links, setLinks] = useState<MadeLink[]>([]);
+  const [txHash, setTxHash] = useState<Hash | undefined>();
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const multiplier = BigInt(asset.multiplier);
+  const wad = BigInt(asset.wadPrecision);
+  const rawPer = useMemo(() => {
+    const s = parseAmountSafe(sharesPer, asset.decimals);
+    return s === 0n ? 0n : toRaw(s, multiplier, wad);
+  }, [sharesPer, asset.decimals, multiplier, wad]);
+  const totalRaw = rawPer * BigInt(count);
+  const insufficient = totalRaw > raw;
+  const perLabel = `${formatTokenAmount((rawPer * multiplier) / wad, asset.decimals)} ${asset.underlying}`;
+  const totalUsd = priceUsd !== null ? Number(formatUnits(totalRaw, asset.decimals)) * priceUsd : null;
+
+  const copy = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1400);
+    } catch {
+      /* clipboard blocked; the links stay visible */
+    }
+  };
+
+  const create = async () => {
+    if (!address || !walletClient || !publicClient) return;
+    if (chainId !== BASE_CHAIN_ID) {
+      setError({ code: "WRONG_NETWORK", message: TRADE_ERROR_COPY.WRONG_NETWORK });
+      return;
+    }
+    setError(null);
+    setPhase("working");
+    try {
+      const expiresAt = Date.now() + days * 24 * 3600 * 1000;
+      const expiry = BigInt(Math.floor(expiresAt / 1000));
+      const made: Array<{ record: GiftRecord; createData: `0x${string}`; url: string }> = [];
+      for (let i = 0; i < count; i++) {
+        const secret = makeClaimSecret();
+        const { gift: record } = await apiPost<{ gift: GiftRecord }>("/api/gifts", {
+          kind: "claim-link",
+          sender: address,
+          assetAddress: asset.address,
+          rawAmount: rawPer.toString(),
+          message: message.trim() || undefined,
+          escrowId: secret.escrowId,
+          expiresAt,
+        });
+        made.push({
+          record,
+          createData: encodeFunctionData({ abi: giftEscrowAbi, functionName: "create", args: [asset.address, rawPer, secret.claimKey, expiry, record.memo] }),
+          url: `${window.location.origin}${claimPath(record.id, secret.privateKey)}`,
+        });
+      }
+      const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_ESCROW_ADDRESS, totalRaw] });
+
+      let atomic = false;
+      let paymaster = false;
+      try {
+        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
+        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
+        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
+      } catch {
+        atomic = false;
+      }
+
+      let hash: Hash | undefined;
+      if (atomic) {
+        const { id } = await walletClient.sendCalls({
+          account: address,
+          chain: base,
+          forceAtomic: true,
+          calls: [{ to: asset.address, data: withAttribution(approveData) }, ...made.map((m) => ({ to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) }))],
+          capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
+        });
+        const result = await walletClient.waitForCallsStatus({ id, timeout: 240_000 });
+        if (result.status === "failure") throw new Error("Batched transaction failed");
+        hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
+      } else {
+        const ah = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(approveData) });
+        await publicClient.waitForTransactionReceipt({ hash: ah });
+        for (const m of made) {
+          hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) });
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+      }
+      for (const m of made) void apiPatch(`/api/gifts/${m.record.id}`, { txHash: hash, status: "submitted" }).catch(() => undefined);
+      setTxHash(hash);
+      setLinks(made.map((m) => ({ giftId: m.record.id, url: m.url })));
+      setPhase("ready");
+      onSent?.();
+    } catch (err) {
+      setError(err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message } : humanizeError(err));
+      setPhase("form");
+    }
+  };
+
+  if (phase === "ready" && links.length > 0) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="border border-line rounded-[8px] p-4 bg-surface">
+          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Locked in escrow</div>
+          <div className="display num text-[22px]">{`${links.length} links · ${perLabel} each`}</div>
+        </div>
+        <InfoBanner tone="warning">
+          <span className="inline-flex items-start gap-2">
+            <TriangleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-0.5 text-warning-fg" />
+            <span>Each link IS its gift — whoever opens it first claims it. Shown once, stored nowhere; copy them now.</span>
+          </span>
+        </InfoBanner>
+        <ul className="border border-line rounded-[8px] overflow-hidden">
+          {links.map((l, i) => (
+            <li key={l.giftId} className="flex items-center gap-3 px-3 py-2.5 border-b border-line last:border-b-0">
+              <span className="font-mono text-[11px] text-ink-muted w-6 shrink-0">{`#${i + 1}`}</span>
+              <span className="font-mono text-[12px] truncate flex-1">{l.url.replace(/^https?:\/\//, "")}</span>
+              <Button size="sm" variant="secondary" onClick={() => void copy(l.giftId, l.url)}>
+                {copied === l.giftId ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={2} />} {copied === l.giftId ? "Copied" : "Copy"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <Button full onClick={() => void copy("all", links.map((l, i) => `Gift ${i + 1}: ${l.url}`).join("\n"))}>
+          {copied === "all" ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={2} />} {copied === "all" ? "All links copied" : "Copy all links"}
+        </Button>
+        {txHash && <KeyValue k="Escrow tx" v={txHash} />}
+        <p className="text-[12px] text-ink-muted">Unclaimed links can be cancelled one by one from Gift history; the stock comes straight back.</p>
+      </div>
+    );
+  }
+
+  const busy = phase === "working";
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[13px] text-ink-secondary">Equal gifts for a group — every link claimable by whoever opens it, each with its own key.</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[12px] text-ink-secondary mr-1">How many</span>
+        {COUNTS.map((c) => (
+          <Chip key={c} active={count === c} onClick={() => setCount(c)} className="h-8 min-h-[32px] px-3 text-[12px] num">
+            {c}
+          </Chip>
+        ))}
+      </div>
+      <AmountInput value={sharesPer} onChange={setSharesPer} unit={`${asset.underlying} each`} ariaLabel={`Amount of ${asset.underlying} per link`} />
+      <div className="flex items-center justify-between text-[13px] text-ink-secondary">
+        <span>Total</span>
+        <span className="font-mono num">
+          {formatTokenAmount((totalRaw * multiplier) / wad, asset.decimals)} {asset.underlying}
+          {totalUsd !== null && totalRaw > 0n ? ` · ${formatUsd(totalUsd)}` : ""} · available {formatTokenAmount(scaled, asset.decimals)}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[12px] text-ink-secondary mr-1">Claimable for</span>
+        {EXPIRY_DAYS.map(([d, label]) => (
+          <Chip key={d} active={days === d} onClick={() => setDays(d)} className="h-8 min-h-[32px] px-2.5 text-[12px]">
+            {label}
+          </Chip>
+        ))}
+      </div>
+      <Input label="Message on every link (optional)" placeholder="Thanks for coming!" value={message} maxLength={280} onChange={(e) => setMessage(e.target.value)} />
+      {insufficient && <p className="text-[13px] text-danger-fg">{TRADE_ERROR_COPY.INSUFFICIENT_BALANCE}</p>}
+      {error && <ErrorBanner message={error.message} detail={error.detail} />}
+      <Button full size="lg" loading={busy} disabled={rawPer === 0n || insufficient} onClick={() => void create()}>
+        {busy ? "Locking in escrow…" : `Create ${count} links${rawPer > 0n ? ` · ${perLabel} each` : ""}`}
+      </Button>
+      <p className="text-[12px] text-ink-muted">On Base Account this is one confirmation (approval + all locks, atomic). Other wallets confirm the approval and then each link separately.</p>
+    </div>
+  );
+}
