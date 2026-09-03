@@ -8,7 +8,6 @@ import { AddressLabel } from "@/components/common/display";
 import { formatUsd, formatPct, formatTokenAmount } from "@/lib/format";
 import { Collapsible } from "@/components/ui/Collapsible";
 import { TimeAgo } from "@/components/common/TimeAgo";
-import { PoolsModule } from "./PoolsModule";
 
 /** Deterministic (SSR-safe) timestamp: locale formatting would differ between server and browser. */
 const utcStamp = (unixSeconds: number) => `${new Date(unixSeconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -76,9 +75,6 @@ export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: Pric
         {oracle && <KeyValue k="Feed" v={<AddressLabel address={oracle.feed} explorer />} />}
         {oracle && <KeyValue k="Stale after" v={`${(oracle.staleAfterSeconds / 3600).toFixed(0)} h (feed heartbeat is 24 h; it also updates on a 0.5% move during US market hours)`} />}
         <p className="text-[12px] text-ink-muted pt-2">The reference feed reports a total-return price per token (multiplier already applied), updates during US market hours and holds its last close off-hours. It freezes during corporate actions and is never used as an executable price.</p>
-      </Collapsible>
-      <Collapsible title="Liquidity pools" defaultOpen>
-        <PoolsModule address={asset.address as `0x${string}`} />
       </Collapsible>
     </div>
   );

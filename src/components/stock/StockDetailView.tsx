@@ -24,6 +24,7 @@ import { AssetDetails } from "./AssetDetails";
 import { PositionModule, type LpSummary } from "./PositionModule";
 import { TradesModule } from "./TradesModule";
 import { OrdersModule } from "@/components/trade/OrdersModule";
+import { PoolsModule } from "./PoolsModule";
 import { CorporateActionsModule } from "./CorporateActionsModule";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { SendSheet } from "@/components/gift/SendSheet";
@@ -168,7 +169,15 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
             {tab === "trades" && !user && <p className="px-4 py-4 text-[14px] text-ink-secondary">Connect a wallet to see your trades for this stock.</p>}
             {tab === "orders" && <OrdersModule owner={user} assetAddress={asset.address as Address} title="Your orders" showEmpty />}
             {tab === "orders" && !user && <p className="px-4 py-4 text-[14px] text-ink-secondary">Connect a wallet to see your limit orders for this stock.</p>}
-            {tab === "earn" && <EarnModule assetAddress={asset.address as Address} user={user} symbol={asset.underlying} showEmpty />}
+            {tab === "earn" && (
+              <>
+                <EarnModule assetAddress={asset.address as Address} user={user} symbol={asset.underlying} showEmpty />
+                <div className="border-t border-line px-4 py-3">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-2">Liquidity pools</div>
+                  <PoolsModule address={asset.address as Address} />
+                </div>
+              </>
+            )}
             {tab === "details" && (
               <>
                 <div className="p-4 border-b border-line [&:empty]:hidden">
