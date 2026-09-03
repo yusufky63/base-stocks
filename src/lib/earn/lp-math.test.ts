@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountsForLiquidity, inRange, sqrtPriceX96ToSqrtPrice, tickToPrice, tickToSqrtPrice } from "./lp-math";
+import { alignTick, amountsForLiquidity, amountsForOneSide, inRange, priceToTick, sqrtPriceX96ToSqrtPrice, tickToPrice, tickToSqrtPrice } from "./lp-math";
 
 describe("concentrated-liquidity math", () => {
   it("tick 0 is price 1 (same decimals) and sqrt price 1", () => {
@@ -52,5 +52,39 @@ describe("concentrated-liquidity math", () => {
     expect(inRange(999, -1000, 1000)).toBe(true);
     expect(inRange(1000, -1000, 1000)).toBe(false);
     expect(inRange(-1001, -1000, 1000)).toBe(false);
+  });
+
+  it("priceToTick inverts tickToPrice and alignTick snaps to spacing", () => {
+    for (const t of [-5000, -60, 0, 60, 12345]) {
+      expect(priceToTick(Math.pow(1.0001, t))).toBeCloseTo(t, 6);
+    }
+    expect(alignTick(123, 60, "down")).toBe(120);
+    expect(alignTick(123, 60, "up")).toBe(180);
+    expect(alignTick(-123, 60, "down")).toBe(-180);
+    expect(alignTick(-123, 60, "up")).toBe(-120);
+    expect(alignTick(9_999_999, 200, "up")).toBe(Math.floor(887272 / 200) * 200);
+  });
+
+  it("amountsForOneSide round-trips with amountsForLiquidity in range", () => {
+    const sqrtP = tickToSqrtPrice(50);
+    const r = amountsForOneSide(sqrtP, -1000, 1000, { amount0: 5_000_000 });
+    expect(r.amount0).toBeCloseTo(5_000_000, 3);
+    const check = amountsForLiquidity(BigInt(Math.round(r.liquidity)), sqrtP, -1000, 1000);
+    expect(check.amount0).toBeCloseTo(r.amount0, 0);
+    expect(check.amount1).toBeCloseTo(r.amount1, 0);
+    // Deriving from the counterpart amount lands on the same liquidity.
+    const back = amountsForOneSide(sqrtP, -1000, 1000, { amount1: r.amount1 });
+    expect(back.liquidity / r.liquidity).toBeCloseTo(1, 9);
+    expect(back.amount0).toBeCloseTo(r.amount0, 3);
+  });
+
+  it("one-sided ranges need only one token", () => {
+    const sqrtP = tickToSqrtPrice(0);
+    const above = amountsForOneSide(sqrtP, 100, 2000, { amount0: 1_000_000 }); // range above price → token0 only
+    expect(above.amount1).toBe(0);
+    expect(above.amount0).toBeCloseTo(1_000_000, 3);
+    const below = amountsForOneSide(sqrtP, -2000, -100, { amount1: 1_000_000 }); // range below price → token1 only
+    expect(below.amount0).toBe(0);
+    expect(below.amount1).toBeCloseTo(1_000_000, 3);
   });
 });

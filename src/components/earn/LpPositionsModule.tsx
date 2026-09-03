@@ -71,6 +71,7 @@ export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
                 })()}
               </div>
             )}
+            {!p.inRange && <p className="text-[12px] text-warning-fg">Out of range: the position sits in one token and earns no fees until the price re-enters the range.</p>}
             <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-ink-secondary font-mono">
               <span>
                 {fmtAmt(p.amount0)} {p.token0.symbol} · {fmtAmt(p.amount1)} {p.token1.symbol}

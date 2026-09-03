@@ -12,6 +12,7 @@ import { Badge, Button, cx } from "@/components/ui/primitives";
 import { Sheet } from "@/components/ui/Sheet";
 import { formatPct, formatUsdCompact } from "@/lib/format";
 import { EarnDepositSheet } from "./EarnDepositSheet";
+import { LpMintSheet, lpMintTarget } from "./LpMintSheet";
 import { ProtocolLogo } from "@/components/common/ProtocolLogo";
 
 export const PROVIDER_LABEL: Record<EarnOpportunity["provider"], string> = { morpho: "Morpho", aave: "Aave", aerodrome: "Aerodrome", compound: "Compound", uniswap: "Uniswap" };
@@ -36,11 +37,25 @@ export function VenueSheet({ o, symbol, onClose, showStockLink = false }: Props)
   const { address } = useAccount();
   const balances = useTokenBalances(address, (o?.assetAddress ?? USDC_ADDRESS) as Address);
   const [deposit, setDeposit] = useState(false);
+  const [minting, setMinting] = useState(false);
+  const mintTarget = o ? lpMintTarget(o) : null;
   return (
     <>
-      <Sheet open={!!o && !deposit} onClose={onClose} title={o ? `${PROVIDER_LABEL[o.provider]} · ${TYPE_LABEL[o.type]}` : ""}>
-        {o && <VenueDetail o={o} symbol={symbol} connected={!!address} onDeposit={() => setDeposit(true)} showStockLink={showStockLink} />}
+      <Sheet open={!!o && !deposit && !minting} onClose={onClose} title={o ? `${PROVIDER_LABEL[o.provider]} · ${TYPE_LABEL[o.type]}` : ""}>
+        {o && <VenueDetail o={o} symbol={symbol} connected={!!address} onDeposit={() => setDeposit(true)} onMint={mintTarget ? () => setMinting(true) : undefined} showStockLink={showStockLink} />}
       </Sheet>
+      {o && mintTarget && (
+        <LpMintSheet
+          open={minting}
+          onClose={() => {
+            setMinting(false);
+            onClose();
+          }}
+          opportunity={o}
+          target={mintTarget}
+          symbol={symbol}
+        />
+      )}
       {o && deposit && (
         <EarnDepositSheet
           open
@@ -58,7 +73,7 @@ export function VenueSheet({ o, symbol, onClose, showStockLink = false }: Props)
   );
 }
 
-function VenueDetail({ o, symbol, connected, onDeposit, showStockLink }: { o: EarnOpportunity; symbol: string; connected: boolean; onDeposit: () => void; showStockLink: boolean }) {
+function VenueDetail({ o, symbol, connected, onDeposit, onMint, showStockLink }: { o: EarnOpportunity; symbol: string; connected: boolean; onDeposit: () => void; onMint?: () => void; showStockLink: boolean }) {
   const venue = PROVIDER_LABEL[o.provider];
   return (
     <div className="flex flex-col gap-4">
@@ -100,14 +115,29 @@ function VenueDetail({ o, symbol, connected, onDeposit, showStockLink }: { o: Ea
         </>
       ) : (
         <>
+          {onMint && (
+            <Button size="lg" full onClick={onMint} disabled={!connected}>
+              Add liquidity from here <ArrowUpRight size={16} strokeWidth={1.75} />
+            </Button>
+          )}
           {o.url && (
-            <a href={o.url} target="_blank" rel="noreferrer noopener" className={cx("inline-flex items-center justify-center gap-2 h-12 rounded-[6px] bg-primary text-primary-contrast font-medium")}>
-              Open on {venue} <ExternalLink size={16} strokeWidth={1.75} />
+            <a
+              href={o.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={cx(
+                "inline-flex items-center gap-2",
+                onMint ? "text-[13px] text-ink-secondary hover:text-ink font-medium" : "justify-center h-12 rounded-[6px] bg-primary text-primary-contrast font-medium",
+              )}
+            >
+              {onMint ? `or open on ${venue}` : `Open on ${venue}`} <ExternalLink size={onMint ? 13 : 16} strokeWidth={1.75} />
             </a>
           )}
           <p className="text-[12px] text-ink-muted">
             {o.type === "liquidity"
-              ? `Adding or removing liquidity happens in ${venue}'s interface for now; the position, its range and uncollected fees are tracked here under Liquidity positions once it exists.`
+              ? onMint
+                ? `Pick a USD-per-share range and both deposit amounts here; the position, its range and uncollected fees then live under Liquidity positions, where collect and withdraw also happen in-app.`
+                : `Adding or removing liquidity happens in ${venue}'s interface for now; the position, its range and uncollected fees are tracked here under Liquidity positions once it exists.`
               : o.type === "borrow"
                 ? `Supplying ${symbol} as collateral and borrowing happen in ${venue}'s interface; loan health is your responsibility and liquidation is possible.`
                 : `You will complete the deposit in ${venue}'s own interface with your wallet.`}{" "}

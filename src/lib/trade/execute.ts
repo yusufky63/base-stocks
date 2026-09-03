@@ -207,7 +207,7 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
 }
 
 /** eth_simulateV1 bundle check; unsupported RPCs and transport hiccups skip rather than block. */
-async function simulateBundle(publicClient: PublicClient, account: Address, calls: Array<{ to: Address; data: Hex; value?: bigint }>): Promise<void> {
+export async function simulateBundle(publicClient: PublicClient, account: Address, calls: Array<{ to: Address; data: Hex; value?: bigint }>): Promise<void> {
   try {
     const { results } = await publicClient.simulateCalls({ account, calls });
     const failed = results.find((r) => r.status === "failure");

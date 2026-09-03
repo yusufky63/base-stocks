@@ -201,6 +201,18 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                       </span>
                     </li>
                   ))}
+                  {(() => {
+                    const rated = data.earnPositions.filter((p) => p.variableApy !== undefined && p.valueUsd > 0);
+                    const total = rated.reduce((a, p) => a + p.valueUsd, 0);
+                    if (rated.length < 2 || total <= 0) return null;
+                    const blended = rated.reduce((a, p) => a + p.valueUsd * p.variableApy!, 0) / total;
+                    return (
+                      <li className="px-4 py-2 text-[12px] text-ink-secondary flex items-center justify-between">
+                        <span>Blended rate across positions</span>
+                        <span className="num font-mono">{`≈ ${formatPct(blended, { sign: false })} variable`}</span>
+                      </li>
+                    );
+                  })()}
                 </ul>
               ) : (
                 <div className="p-4 flex items-baseline justify-between">

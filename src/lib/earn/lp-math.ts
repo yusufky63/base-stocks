@@ -32,3 +32,40 @@ export function amountsForLiquidity(liquidity: bigint, sqrtPrice: number, tickLo
 export function inRange(tick: number, tickLower: number, tickUpper: number): boolean {
   return tick >= tickLower && tick < tickUpper;
 }
+
+/* ---------------- Mint-side helpers (inverse math) ---------------- */
+
+/** Tick whose price equals `rawPrice` (token1 per token0, raw units). Not yet spacing-aligned. */
+export function priceToTick(rawPrice: number): number {
+  return Math.log(rawPrice) / Math.log(1.0001);
+}
+
+/** Nearest usable tick at or beyond `tick` in the given direction, clamped to the pool's absolute bounds. */
+export function alignTick(tick: number, spacing: number, mode: "down" | "up"): number {
+  const q = tick / spacing;
+  const aligned = (mode === "down" ? Math.floor(q) : Math.ceil(q)) * spacing;
+  const bound = Math.floor(887272 / spacing) * spacing;
+  return Math.max(-bound, Math.min(bound, aligned));
+}
+
+/**
+ * Liquidity that `amount0` raw token0 (or `amount1` raw token1) buys between two ticks at the
+ * current sqrt price, plus the counterpart amount. Exactly one side must be given; a range fully
+ * above the price needs only token1, fully below only token0.
+ */
+export function amountsForOneSide(sqrtPrice: number, tickLower: number, tickUpper: number, given: { amount0: number } | { amount1: number }): { liquidity: number; amount0: number; amount1: number } {
+  const sqrtA = tickToSqrtPrice(tickLower);
+  const sqrtB = tickToSqrtPrice(tickUpper);
+  const p = Math.min(Math.max(sqrtPrice, sqrtA), sqrtB);
+  let liquidity: number;
+  if ("amount0" in given) {
+    const denom = 1 / p - 1 / sqrtB;
+    liquidity = denom > 0 ? given.amount0 / denom : 0; // p == sqrtB → token0 buys nothing here
+  } else {
+    const denom = p - sqrtA;
+    liquidity = denom > 0 ? given.amount1 / denom : 0;
+  }
+  const amount0 = liquidity * Math.max(0, 1 / p - 1 / sqrtB);
+  const amount1 = liquidity * Math.max(0, p - sqrtA);
+  return { liquidity, amount0, amount1 };
+}

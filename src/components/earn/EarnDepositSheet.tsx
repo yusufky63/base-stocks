@@ -175,6 +175,9 @@ export function EarnDepositSheet({ open, onClose, opportunity, action, available
         </div>
         <div className="font-medium">{opportunity.title}</div>
         <AmountInput value={max ? formatUnits(available, decimals) : amount} onChange={(v) => { setMax(false); setAmount(v); }} unit="USDC" ariaLabel={`${action} amount in USDC`} />
+        {action === "deposit" && opportunity.variableApy !== undefined && parsed > 0n && (
+          <p className="text-[12px] text-ink-muted num -mt-2">{`≈ ${formatUsd(Number(formatUnits(parsed, decimals)) * opportunity.variableApy)} per year at the current variable rate — it moves with the market.`}</p>
+        )}
         <div className="flex gap-2">
           {[25, 50, 100].map((p) => (
             <Chip key={p} active={p === 100 ? max : false} onClick={() => { if (p === 100) setMax(true); else { setMax(false); setAmount(formatUnits((available * BigInt(p)) / 100n, decimals)); } }} disabled={available === 0n}>
