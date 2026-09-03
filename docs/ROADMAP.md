@@ -11,10 +11,10 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 ## Phase A — Production hardening (next)
 
 - **Vercel env check**: `AUTH_SECRET`, `ADMIN_API_TOKEN`, `CRON_SECRET`, `NEXT_PUBLIC_APP_URL=https://basestocks.finance`, `GEOBLOCK_MODE`. 0x reports "enabled for tokenized stocks" in production; the 0x opt-in terms require blocking US traffic, so either set `GEOBLOCK_MODE=block` or keep 0x off for US requests.
-- **Durable rate limiting and quotas**: `src/lib/rate-limit.ts` and the AI quota are per-instance memory; on serverless they reset per cold start. Move to Supabase (or Upstash) counters.
-- **Cron cadence**: `vercel.json` runs discovery + status once a day (05:00). The guide asks for discovery every 10–30 min; on a paid Vercel plan raise the schedule, or split status probes to their own cron.
-- **Spec gaps in the trade flow**: show the firm quote in the review sheet (not only the indicative), run simulation on the batched (`sendCalls`) path too, surface MINT/BURN pause on the stock page.
-- **E2E smoke tests** (Playwright against `next dev`): anonymous browse, connect, price → review, build a basket, send to Basename, Earn hidden when unsupported, mobile trade sheet. Also unit tests for `trade-router` scoring and the Earn adapters.
+- **Durable rate limiting** shipped 2026-09-03: write/model routes layer a shared Supabase window counter (reusing the atomic `ai_usage` increment) over the in-memory bucket; the daily cron sweeps expired rows. (The AI quota was already durable.) Read-heavy routes stay memory-only by design.
+- **Discovery cadence** solved without a paid cron 2026-09-03: `/api/assets` schedules a light `B20Created` scan after the response (Next `after()`), at most every 30 min per instance; the daily cron keeps the deep scan.
+- **Trade-flow spec gaps** closed 2026-09-03: the review sheet fetches, shows and signs the firm quote, and the batched path runs an `eth_simulateV1` bundle check. Still open: surface MINT/BURN pause on the stock page.
+- **Tests** landed 2026-09-03: `pnpm e2e` runs an 8-test anonymous Playwright smoke; vitest covers trade-router scoring and LP math; the escrow has 4 fuzz properties. Still open: wallet-connected e2e flows and provider schema tests for Kyber/Velora/Uniswap.
 - **Error monitoring** beyond `/status`: Sentry or Vercel Observability on API routes, with provider latency/fallback counters exported.
 - **Base app submission**: sign `accountAssociation` and set `baseBuilder.allowedAddresses` in `public/.well-known/farcaster.json`.
 - **Legal**: choose a license file; legal review of the eligibility notice and issuer disclosures before promotion.
@@ -27,7 +27,7 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 
 ## Phase C — Liquidity and Earn
 
-- **LP Phase 2: add and manage liquidity in-app** (deferred 2026-09-03). Aerodrome Slipstream and Uniswap v3 position managers: exact approvals for both tokens, `mint` from a USD price range (tick math in `src/lib/earn/lp-math.ts`; missing the inverse "amounts for a range"), `increaseLiquidity`, `decreaseLiquidity` + `collect`. Preview shows range in USD per share, both amounts, position value; simulate before signing. Uniswap v4 stays on the venue.
+- **LP Phase 2, manage half shipped 2026-09-03**: collect fees and withdraw 25–100% (decrease + collect, atomic on Base Account, simulated, 1% min-out guard) run in-app on both managers. Still open: `mint` from a USD price range (needs the inverse "amounts for a range" math) and `increaseLiquidity`; Uniswap v4 stays on the venue.
 - **LP Phase 3**: stake Slipstream positions in the gauge for AERO emissions; unstake before removing.
 - **KyberSwap Earn / Zap**: single-token entry into concentrated pools.
 - **Beefy and Euler discovery** for the Earn scan if they ever list tokenized stocks.
