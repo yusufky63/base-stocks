@@ -7,7 +7,7 @@ import { parseUnits, type Address } from "viem";
 import type { PortfolioSnapshot, RebalanceSuggestion } from "@/domain/portfolio";
 import { USDC_DECIMALS, MIN_TRADE_USD } from "@/config/chain";
 import { usePortfolioExecution } from "@/hooks/usePortfolioExecution";
-import { qk } from "@/hooks/queries";
+import { qk, useAssets } from "@/hooks/queries";
 import type { CustomLeg } from "@/lib/execution/portfolio-execution";
 import { formatUsd } from "@/lib/format";
 import { Button } from "@/components/ui/primitives";
@@ -22,7 +22,10 @@ export function RebalanceExecutor({ snapshot, suggestions, templateName }: { sna
   const { address } = useAccount();
   const qc = useQueryClient();
   const exec = usePortfolioExecution();
+  const { data: assetsData } = useAssets();
   const [confirming, setConfirming] = useState(false);
+  const issued = (addr: string) => BigInt(assetsData?.assets.find((a) => a.canonicalId === addr.toLowerCase())?.totalSupply ?? "1") > 0n;
+  const skipped: string[] = [];
 
   useEffect(() => {
     if (exec.execution?.status === "COMPLETE" || exec.execution?.status === "PARTIALLY_FILLED") {
@@ -44,6 +47,10 @@ export function RebalanceExecutor({ snapshot, suggestions, templateName }: { sna
       const wanted = parseUnits((usd / holding.priceUsd).toFixed(holding.decimals), holding.decimals);
       legs.push({ side: "sell", assetAddress: holding.assetAddress, symbol: holding.symbol, targetUsd: usd, amount: wanted > raw ? raw : wanted });
     } else {
+      if (!issued(s.assetAddress as string)) {
+        skipped.push(s.symbol);
+        continue;
+      }
       legs.push({ side: "buy", assetAddress: s.assetAddress as Address, symbol: s.symbol, targetUsd: usd, amount: parseUnits(usd.toFixed(USDC_DECIMALS), USDC_DECIMALS) });
     }
   }
@@ -68,6 +75,7 @@ export function RebalanceExecutor({ snapshot, suggestions, templateName }: { sna
           <p className="text-[13px] text-ink-secondary">
             {legs.filter((l) => l.side === "sell").length > 0 && `Sell ${formatUsd(sellsUsd)} first, then `}buy {formatUsd(buysUsd)}. Each trade gets a fresh quote and a wallet confirmation.
           </p>
+          {skipped.length > 0 && <InfoBanner>{skipped.join(", ")}: not issued on Base yet, so the target keeps that share as USDC until Coinbase mints {skipped.length === 1 ? "it" : "them"}.</InfoBanner>}
           {shortfall > 0 && <InfoBanner tone="warning">About {formatUsd(shortfall)} of the buys may exceed your USDC after the sells; those legs will fail honestly and can be retried after topping up.</InfoBanner>}
           <div className="flex gap-2">
             <Button variant="secondary" full onClick={() => setConfirming(false)}>

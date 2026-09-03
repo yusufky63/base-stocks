@@ -7,7 +7,7 @@ import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from
 import { useAssets, useActivity, usePortfolio, useTemplates, useWatchlist, useSparklines } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
 import type { PortfolioTemplate } from "@/domain/portfolio";
-import { formatUsd, bpsToPct } from "@/lib/format";
+import { formatUsd, bpsToPct, formatUsdCompact } from "@/lib/format";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar } from "@/components/common/AllocationBar";
 import { LinkButton, Module, ModuleHeader, Skeleton, Stat, Badge } from "@/components/ui/primitives";
@@ -15,8 +15,6 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ActivityList } from "@/components/activity/ActivityList";
 import { LetterGlitch } from "@/components/fx/LetterGlitch";
-import { CircularText } from "@/components/fx/CircularText";
-import { LogoMark } from "@/components/brand/Logo";
 import { NewsModule } from "@/components/news/NewsModule";
 import { FundWallet } from "@/components/common/FundWallet";
 
@@ -60,10 +58,8 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
               </LinkButton>
             </div>
           </div>
-          <div className="hidden lg:flex items-center justify-center">
-            <CircularText text="BSTOCKS • BUILT ON BASE • SELF-CUSTODIAL • " size={220} spinDuration={24}>
-              <LogoMark size={72} solid />
-            </CircularText>
+          <div className="hidden lg:block">
+            <LiveNowPanel items={ordered} total={priced.length} />
           </div>
         </div>
       </section>
@@ -236,5 +232,50 @@ function MiniRow({ asset, price, spark }: { asset: AssetsResponse["assets"][numb
         <PriceChange value={price?.marketChange24hPct} className="text-[12px]" />
       </span>
     </Link>
+  );
+}
+
+/** Hero side panel: the stocks with a live onchain market right now, price and 24h move, then the count. */
+function LiveNowPanel({ items, total }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }>; total: number }) {
+  const live = items.filter((x) => {
+    const st = tradingStatus(x.asset, x.price).status;
+    return st === "tradable" || st === "thin";
+  });
+  const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
+  return (
+    <div className="border border-line rounded-[8px] bg-canvas/90 backdrop-blur-sm overflow-hidden">
+      <div className="flex items-center justify-between px-4 h-10 border-b border-line">
+        <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">
+          <span className="live-dot" /> Live on Base
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">
+          {live.length} of {total} issued
+        </span>
+      </div>
+      <ul className="divide-y divide-line">
+        {live.slice(0, 5).map(({ asset, price }) => (
+          <li key={asset.canonicalId}>
+            <Link href={`/stocks/${asset.address}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-fast">
+              <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={28} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-medium leading-tight">{asset.underlying}</span>
+                <span className="block text-[11px] text-ink-muted truncate">{asset.name}</span>
+              </span>
+              <span className="text-right">
+                <span className="block font-mono num text-[14px]">{formatUsd(price?.displayUsd)}</span>
+                <PriceChange value={price?.marketChange24hPct} className="text-[11px]" />
+              </span>
+            </Link>
+          </li>
+        ))}
+        {live.length === 0 && <li className="px-4 py-4 text-[13px] text-ink-secondary">No live market right now.</li>}
+      </ul>
+      <div className="px-4 py-2.5 border-t border-line flex items-center justify-between text-[11px] text-ink-muted">
+        <span>{liquidity > 0 ? `${formatUsdCompact(liquidity)} DEX liquidity` : "DEX liquidity n/a"}</span>
+        <Link href="/markets" className="text-primary font-medium">
+          All markets →
+        </Link>
+      </div>
+    </div>
   );
 }

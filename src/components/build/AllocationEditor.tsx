@@ -54,7 +54,7 @@ export function AllocationEditor({ assets, value, onChange }: Props) {
   };
 
   const options = [
-    ...[...available].sort((a, b) => Number(BigInt(a.totalSupply ?? "0") === 0n) - Number(BigInt(b.totalSupply ?? "0") === 0n)).map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}`, description: BigInt(a.totalSupply ?? "0") === 0n ? "not issued yet · cannot be bought until Coinbase mints it" : a.tags.join(" · ") })),
+    ...[...available].sort((a, b) => Number(BigInt(a.totalSupply ?? "0") === 0n) - Number(BigInt(b.totalSupply ?? "0") === 0n)).map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}`, description: BigInt(a.totalSupply ?? "0") === 0n ? "not issued yet · cannot be bought until Coinbase mints it" : a.tags.join(" · "), disabled: BigInt(a.totalSupply ?? "0") === 0n })),
     ...(hasUsdc ? [] : [{ value: USDC_ALLOCATION_KEY as string, label: "USDC cash", description: "Kept as cash for later buys" }]),
   ];
 
@@ -65,15 +65,19 @@ export function AllocationEditor({ assets, value, onChange }: Props) {
         {value.map((a, i) => {
           const key = keyOf(a);
           const asset = a.assetAddress === USDC_ALLOCATION_KEY ? null : byId.get(a.assetAddress.toLowerCase());
+          const notIssued = asset ? BigInt(asset.totalSupply ?? "0") === 0n : false;
           return (
-            <div key={key} className="grid grid-cols-[1fr_44px] md:grid-cols-[220px_1fr_112px_44px] items-center gap-3 px-3 py-3 border-b border-line last:border-b-0">
+            <div key={key} className={cx("grid grid-cols-[1fr_44px] md:grid-cols-[220px_1fr_112px_44px] items-center gap-3 px-3 py-3 border-b border-line last:border-b-0", notIssued && "opacity-70")}>
               <div className="flex items-center gap-3 min-w-0">
                 <span className="font-mono text-[11px] text-ink-muted w-5">{String(i + 1).padStart(2, "0")}</span>
                 <ColorDot k={key} />
                 {asset ? <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={32} /> : <span className="inline-flex items-center justify-center h-8 w-8 rounded-[6px] border border-line font-mono text-[10px]">USDC</span>}
                 <div className="min-w-0">
-                  <div className="font-medium text-[14px] truncate">{asset ? asset.underlying : "USDC cash"}</div>
-                  <div className="text-[12px] text-ink-secondary truncate">{asset ? asset.name : "Kept as cash"}</div>
+                  <div className="font-medium text-[14px] truncate">
+                    {asset ? asset.underlying : "USDC cash"}
+                    {notIssued && <span className="ml-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-warning-fg">not issued</span>}
+                  </div>
+                  <div className="text-[12px] text-ink-secondary truncate">{asset ? (notIssued ? "Kept as USDC until Coinbase mints it" : asset.name) : "Kept as cash"}</div>
                 </div>
               </div>
               <div className="md:hidden row-start-2 col-span-2">
