@@ -136,8 +136,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </details>
 
           {/* Wordmark at architectural scale, base.org style: quiet, edge to edge, decorative only. */}
-          <svg viewBox="0 0 1200 175" aria-hidden className="mt-4 w-full h-auto select-none pointer-events-none" role="presentation">
-            <text x="0" y="150" textLength="1200" lengthAdjust="spacingAndGlyphs" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="180" letterSpacing="-6" fill="var(--surface-muted)">
+          <svg viewBox="0 0 1200 298" aria-hidden className="mt-4 w-full h-auto select-none pointer-events-none" role="presentation">
+            {/* Sized so the natural glyph width fills the box; lengthAdjust="spacing" only trims the
+                rounding drift, so the letterforms keep their true proportions. */}
+            <text x="0" y="286" textLength="1200" lengthAdjust="spacing" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="288" letterSpacing="-8.6" fill="var(--surface-muted)">
               BSTOCKS
             </text>
           </svg>
