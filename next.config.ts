@@ -26,6 +26,11 @@ const optionalX402 = [
 ];
 
 const nextConfig: NextConfig = {
+  /** Share cards read fonts and brand PNGs from disk at request time; make sure the serverless bundles carry them. */
+  outputFileTracingIncludes: {
+    "/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
+    "/stocks/[address]/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
+  },
   reactStrictMode: true,
   poweredByHeader: false,
   // Keep the wallet SDK's Node entry (which statically imports the CDP SDK) out of server bundles;
