@@ -16,6 +16,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Next 16 route/layout helper types (LayoutProps, PageProps) are generated, not shipped.
+      - run: pnpm exec next typegen
       - run: pnpm exec tsc --noEmit -p tsconfig.json
       - run: pnpm exec eslint src
       - run: pnpm exec vitest run
