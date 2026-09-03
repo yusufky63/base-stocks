@@ -67,6 +67,7 @@ pnpm exec vitest run
 3. Vercel supplies `x-vercel-ip-country`, which the proxy uses for the eligibility notice; set `GEOBLOCK_MODE=block` if you later enable 0x for US traffic.
 4. Set `NEXT_PUBLIC_APP_URL` to the deployed origin (wallet modal metadata and share links) and `CRON_SECRET` to a random 32+ character string: `vercel.json` schedules `/api/cron/refresh` (light discovery scan + status probes) because in-process timers do not survive on serverless.
 5. The in-process cache is per instance; that is fine for a single region. Persistent state (records, briefs, quotas, discovered assets) lives in Supabase.
+6. Base app: `public/.well-known/farcaster.json` is the mini app manifest (icon and splash are generated PNG routes, share card is `/opengraph-image`). Add your Base Build account address to `baseBuilder.allowedAddresses` and sign `accountAssociation` from Base Build before submitting.
 
 ## Safety model
 

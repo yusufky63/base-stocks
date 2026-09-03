@@ -9,11 +9,27 @@ const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["40
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", weight: ["500", "700"], display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"], display: "swap" });
 
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://base-stocks.vercel.app").replace(/\/$/, "");
+
+/** Base app / mini app embed: a launch button when a link to the site is shared inside the Base app. */
+const miniAppEmbed = JSON.stringify({
+  version: "1",
+  imageUrl: `${APP_URL}/opengraph-image`,
+  button: { title: "Open BStocks", action: { type: "launch_miniapp", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/api/brand/splash`, splashBackgroundColor: "#0000ff" } },
+});
+const frameEmbed = JSON.stringify({
+  version: "1",
+  imageUrl: `${APP_URL}/opengraph-image`,
+  button: { title: "Open BStocks", action: { type: "launch_frame", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/api/brand/splash`, splashBackgroundColor: "#0000ff" } },
+});
+
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: { default: "BStocks — Stocks, built for onchain", template: "%s · BStocks" },
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BStocks",
   icons: { icon: "/icon.svg" },
+  other: { "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
 };
 
 export const viewport: Viewport = {
