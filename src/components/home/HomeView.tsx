@@ -4,7 +4,7 @@ import Link from "next/link";
 import { sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
 import { useAccount } from "wagmi";
 import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from "lucide-react";
-import { useAssets, useActivity, usePortfolio, useTemplates, useWatchlist, useSparklines } from "@/hooks/queries";
+import { useAssets, useActivity, useCommunityPulse, usePortfolio, useTemplates, useWatchlist, useSparklines } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
 import type { PortfolioTemplate } from "@/domain/portfolio";
 import { formatUsd, bpsToPct, formatUsdCompact } from "@/lib/format";
@@ -183,10 +183,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             </Module>
           )}
 
-          <Module>
-            <ModuleHeader title="Community" action={<Link href="/community" className="text-[13px] text-primary font-medium">Open</Link>} />
-            <p className="px-4 py-3 text-[13px] text-ink-secondary">Most bought and sold this week, baskets published by other users, votes and clones.</p>
-          </Module>
+          <CommunityPulseModule />
         </div>
       </div>
 
@@ -311,5 +308,56 @@ function CoinCluster({ items }: { items: Array<{ asset: AssetsResponse["assets"]
         );
       })}
     </div>
+  );
+}
+
+/** Live 7-day community pulse: most bought stocks, the top basket, trader count. */
+function CommunityPulseModule() {
+  const { data: pulse } = useCommunityPulse();
+  const bought = pulse?.mostBought ?? [];
+  const basket = pulse?.topBaskets?.[0];
+  return (
+    <Module>
+      <ModuleHeader title="Community" action={<Link href="/community" className="text-[13px] text-primary font-medium">Open</Link>} />
+      {!pulse ? (
+        <div className="p-4">
+          <Skeleton className="h-12" />
+        </div>
+      ) : bought.length === 0 && !basket ? (
+        <p className="px-4 py-3 text-[13px] text-ink-secondary">Quiet week so far. Trades and published baskets from every user show up here.</p>
+      ) : (
+        <>
+          {bought.length > 0 && (
+            <div className="px-4 pt-3 pb-1">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-1.5">Most bought · 7d</div>
+              <ul className="flex flex-col">
+                {bought.slice(0, 3).map((b, i) => (
+                  <li key={b.assetAddress}>
+                    <Link href={`/stocks/${b.assetAddress}`} className="flex items-center gap-2 py-1.5 hover:text-primary transition-fast">
+                      <span className="font-mono text-[11px] text-ink-muted w-4">{i + 1}</span>
+                      <span className="font-medium text-[14px]">{b.symbol}</span>
+                      <span className="ml-auto font-mono num text-[12px] text-ink-secondary">
+                        {b.trades} buy{b.trades === 1 ? "" : "s"}
+                        {b.usd > 0 ? ` · ${formatUsdCompact(b.usd)}` : ""}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {basket && (
+            <Link href={`/baskets/${basket.id}`} className="block border-t border-line px-4 py-3 hover:bg-surface transition-fast">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-1">Top basket</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-[14px] truncate">{basket.name}</span>
+                <span className="font-mono num text-[12px] text-ink-secondary shrink-0">{basket.votes} votes · {basket.clones} clones</span>
+              </div>
+            </Link>
+          )}
+          <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">{pulse.traders} wallet{pulse.traders === 1 ? "" : "s"} traded this week · templates, not recommendations.</p>
+        </>
+      )}
+    </Module>
   );
 }

@@ -25,6 +25,7 @@ import {
 } from "@/lib/client-api";
 import type { Timeframe } from "@/domain/market";
 import type { OrderView } from "@/domain/trade";
+import type { CommunityPulse } from "@/domain/community";
 
 export const qk = {
   config: ["config"] as const,
@@ -191,6 +192,15 @@ export function useOrders(owner?: Address) {
     enabled: !!owner,
     staleTime: 10_000,
     refetchInterval: (q) => (q.state.data?.some((o) => o.status === "open") ? 8_000 : 60_000),
+  });
+}
+
+/** Anonymous 7-day community aggregates for the home module. */
+export function useCommunityPulse() {
+  return useQuery({
+    queryKey: ["community", "pulse"],
+    queryFn: () => apiGet<CommunityPulse>("/api/community/pulse"),
+    staleTime: 60_000,
   });
 }
 
