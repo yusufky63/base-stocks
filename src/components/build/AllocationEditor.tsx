@@ -36,7 +36,15 @@ export function AllocationEditor({ assets, value, onChange }: Props) {
   const remove = (key: string) => onChange(value.filter((a) => keyOf(a) !== key));
   const add = (target: string) => {
     if (!target) return;
-    onChange([...value, { assetAddress: target === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : (target as Address), weightBps: remaining }]);
+    const next: Allocation = { assetAddress: target === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : (target as Address), weightBps: remaining };
+    if (remaining > 0) return onChange([...value, next]);
+    // Basket already at 100%: take an equal share from the largest slice so the new asset never starts at 0%.
+    const share = Math.floor(TOTAL_BPS / (value.length + 1));
+    const idx = value.reduce((best, a, i) => (a.weightBps > value[best]!.weightBps ? i : best), 0);
+    const largest = value[idx]!;
+    const taken = Math.min(share, Math.max(0, largest.weightBps - 1));
+    if (taken <= 0) return onChange([...value, { ...next, weightBps: 1 }]);
+    onChange([...value.map((a, i) => (i === idx ? { ...a, weightBps: a.weightBps - taken } : a)), { ...next, weightBps: taken }]);
   };
   const equalize = () => {
     if (value.length === 0) return;

@@ -3,7 +3,7 @@ import { formatUnits, parseUnits, type Address } from "viem";
 import { MIN_TRADE_USD, USDC_DECIMALS } from "@/config/chain";
 import type { B20Asset } from "@/domain/asset";
 import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation, type PortfolioHolding, type PortfolioIntent, type PortfolioPlan, type PortfolioPlanLeg, type PortfolioSnapshot, type RebalanceSuggestion } from "@/domain/portfolio";
-import { isCuratedAsset, findCuratedAsset } from "@/lib/b20/registry";
+import { isCuratedAsset, findCuratedAsset, allAssetEntries } from "@/lib/b20/registry";
 import { rawValueUsd, splitByWeights } from "@/lib/b20/math";
 import { AppError } from "@/lib/errors";
 import { getAssets, getBalances, getUsdcBalance } from "./b20-asset-service";
@@ -23,6 +23,11 @@ export interface AllocationValidation {
   normalized: Allocation[];
 }
 
+function symbolFor(key: string): string {
+  const entry = allAssetEntries().find((e) => e.address.toLowerCase() === key);
+  return entry?.underlying ?? `${key.slice(0, 6)}…${key.slice(-4)}`;
+}
+
 /** Shared client+server validation: sums to 10,000 bps, unique canonical assets, positive weights. */
 export function validateAllocations(input: Allocation[], opts?: { allowedAssets?: Set<string> }): AllocationValidation {
   const errors: string[] = [];
@@ -31,7 +36,8 @@ export function validateAllocations(input: Allocation[], opts?: { allowedAssets?
   for (const a of input) {
     const key = a.assetAddress === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : a.assetAddress.toLowerCase();
     if (!Number.isInteger(a.weightBps) || a.weightBps <= 0 || a.weightBps > TOTAL_BPS) {
-      errors.push(`Invalid weight for ${key}.`);
+      const label = key === USDC_ALLOCATION_KEY ? "USDC" : symbolFor(key);
+      errors.push(a.weightBps <= 0 ? `${label} has no weight yet: give it a share above 0% or remove it.` : `${label} needs a weight between 0.01% and 100%.`);
       continue;
     }
     if (seen.has(key)) {
