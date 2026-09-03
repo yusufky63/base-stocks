@@ -42,7 +42,7 @@ export function giftMemo(id: string): `0x${string}` {
  * Create a gift record. Runs the B20 guard (canonical, transfer state, sender+recipient policy)
  * and resolves the recipient so the client can show the exact address in review.
  */
-export const POST = route({ rateLimit: { key: "gifts.write", limit: 30, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "gifts.write", limit: 30, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
   if (body.kind === "claim-link") {
     if (body.expiresAt <= Date.now() || body.expiresAt > Date.now() + 90 * 24 * 3600 * 1000) throw new AppError("BAD_REQUEST", "Expiry must be within the next 90 days.", 400);

@@ -17,7 +17,7 @@ export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key
 const actionSchema = z.object({ action: z.enum(["vote", "clone"]) });
 
 /** Vote (toggle, one per signed-in wallet) or count a clone. */
-export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "baskets.action", limit: 60, windowMs: 60_000 } }, async (req, { params }) => {
+export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "baskets.action", limit: 60, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const { action } = await parseBody(req, actionSchema);
   const repos = getRepos();

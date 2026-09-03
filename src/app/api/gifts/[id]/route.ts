@@ -22,7 +22,7 @@ export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key
   return json({ receipt }, { cacheSeconds: 30, staleSeconds: 300 });
 });
 
-export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "gifts.write", limit: 60, windowMs: 60_000 } }, async (req, { params }) => {
+export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "gifts.write", limit: 60, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const body = await parseBody(req, patchSchema);
   const patch: Partial<GiftRecord> = { txHash: body.txHash as Hash | undefined, status: body.status };

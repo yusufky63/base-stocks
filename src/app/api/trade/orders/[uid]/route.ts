@@ -14,7 +14,7 @@ export const GET = route<{ params: Promise<{ uid: string }> }>({ rateLimit: { ke
 });
 
 /** Offchain cancellation (EOA signature). Smart wallets invalidate onchain from the client instead. */
-export const DELETE = route<{ params: Promise<{ uid: string }> }>({ rateLimit: { key: "orders.submit", limit: 20, windowMs: 60_000 } }, async (req, { params }) => {
+export const DELETE = route<{ params: Promise<{ uid: string }> }>({ rateLimit: { key: "orders.submit", limit: 20, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { uid } = await params;
   const parsed = uidSchema.safeParse(uid);
   if (!parsed.success) throw new AppError("BAD_REQUEST", "Invalid order uid", 400);

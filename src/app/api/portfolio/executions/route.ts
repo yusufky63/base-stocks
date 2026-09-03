@@ -27,7 +27,7 @@ const createSchema = z.object({
 });
 
 /** Persist a multi-leg execution so partial fills are never lost (spec §25). */
-export const POST = route({ rateLimit: { key: "exec.write", limit: 30, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "exec.write", limit: 30, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
   const now = Date.now();
   const exec: PortfolioExecution = {

@@ -21,7 +21,7 @@ const createSchema = z.object({
  * App-side trade records (activity source #1). These are NOT proof of execution; the
  * activity service verifies them against onchain events.
  */
-export const POST = route({ rateLimit: { key: "trades.write", limit: 60, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "trades.write", limit: 60, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
   const record: TradeRecord = { ...body, txHash: body.txHash as Hash | undefined, status: body.txHash ? "submitted" : "submitted", createdAt: Date.now() };
   await getRepos().trades.create(record);

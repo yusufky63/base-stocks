@@ -3,6 +3,7 @@ import { serverEnv } from "@/config/env";
 import { AppError } from "@/lib/errors";
 import { syncDiscoveredAssets } from "@/services/b20-asset-service";
 import { getStatusReport } from "@/services/status-service";
+import { getSupabaseAdmin } from "@/db/supabase";
 
 export const maxDuration = 60;
 
@@ -20,5 +21,13 @@ export const GET = route({}, async (req) => {
   const started = Date.now();
   const discovery = await syncDiscoveredAssets({ lookbackBlocks: 120_000n }).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }));
   const status = await getStatusReport().catch(() => null);
+  // Durable rate-limit windows (key "rl:*") accumulate one row per window; sweep anything older than two days.
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const cutoff = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    await sb.from("ai_usage").delete().like("key", "rl:%").lt("day", cutoff).then(({ error }) => {
+      if (error) console.warn("[cron] rl sweep:", error.message);
+    });
+  }
   return json({ ok: true, ms: Date.now() - started, discovery, status: status ? { overall: status.overall, checks: status.checks.length } : null });
 });

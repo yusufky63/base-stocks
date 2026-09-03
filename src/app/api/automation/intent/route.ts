@@ -62,7 +62,7 @@ Rules:
 - Output exactly the JSON schema.`;
 }
 
-export const POST = route({ rateLimit: { key: "automation.intent", limit: 12, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "automation.intent", limit: 12, windowMs: 60_000, durable: true } }, async (req) => {
   const cfg = aiConfigFromEnv();
   if (!cfg) throw new AppError("PROVIDER_UNAVAILABLE", "AI assistance is not enabled on this deployment.", 503);
   const body = await parseBody(req, bodySchema);

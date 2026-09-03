@@ -1,4 +1,7 @@
 import { AppError } from "@/lib/errors";
+import { getSupabaseAdmin } from "@/db/supabase";
+import { hashIp } from "@/lib/ai-quota";
+import { metrics } from "@/lib/http";
 
 interface Bucket {
   tokens: number;
@@ -38,5 +41,30 @@ export function enforceRateLimit(req: Request, route: string, opts: RateLimitOpt
 
   if (buckets.size > 10_000) {
     for (const [k, v] of buckets) if (now - v.updatedAt > opts.windowMs * 2) buckets.delete(k);
+  }
+}
+
+/**
+ * Durable fixed-window limit on top of the memory bucket, for write/expensive routes only.
+ * Serverless instances share nothing, so the in-memory bucket resets on every cold start; the
+ * shared counter in Supabase (`ai_usage` + its atomic increment RPC, window index folded into the
+ * key) survives instances. Storage being down fails open: the memory bucket has already run.
+ */
+export async function enforceDurableRateLimit(req: Request, route: string, opts: RateLimitOptions): Promise<void> {
+  enforceRateLimit(req, route, opts);
+  const sb = getSupabaseAdmin();
+  if (!sb) return;
+  const windowIdx = Math.floor(Date.now() / opts.windowMs);
+  const key = `rl:${route}:${hashIp(clientKey(req))}:${windowIdx}`;
+  try {
+    const { data, error } = await sb.rpc("ai_usage_increment", { p_key: key, p_day: new Date().toISOString().slice(0, 10) });
+    if (error || typeof data !== "number") {
+      metrics.count("ratelimit.db", false, error?.message ?? "bad rpc result");
+      return;
+    }
+    if (data > opts.limit) throw new AppError("RATE_LIMITED", "Too many requests. Please slow down.", 429);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    metrics.count("ratelimit.db", false, err instanceof Error ? err.message : String(err));
   }
 }

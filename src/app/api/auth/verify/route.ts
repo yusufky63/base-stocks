@@ -18,7 +18,7 @@ const bodySchema = z.object({
  * Verify a SIWE message (EOA signatures and ERC-1271 / ERC-6492 smart-account signatures such
  * as Base Account) and set the session cookie.
  */
-export const POST = route({ rateLimit: { key: "auth.verify", limit: 20, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "auth.verify", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   const { message, signature } = await parseBody(req, bodySchema);
   const parsed = parseSiweMessage(message);
   const nonce = readCookie(req, NONCE_COOKIE);

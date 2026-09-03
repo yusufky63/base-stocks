@@ -18,7 +18,7 @@ export const GET = route({ rateLimit: { key: "baskets.read", limit: 120, windowM
 });
 
 /** Publish a community basket (requires sign-in). Public by design for now. */
-export const POST = route({ rateLimit: { key: "baskets.write", limit: 10, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "baskets.write", limit: 10, windowMs: 60_000, durable: true } }, async (req) => {
   const owner = requireSession(req);
   const body = await parseBody(req, createSchema);
   const basket = await publishBasket(owner, { name: body.name, description: body.description, allocations: body.allocations as Allocation[] });

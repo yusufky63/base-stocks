@@ -17,7 +17,7 @@ export const GET = route({}, async (req) => {
  * Generate the signed-in wallet's brief for today, or return the one already generated. One model
  * call per wallet per UTC day at most; counted against the AI quota and monthly budget.
  */
-export const POST = route({ rateLimit: { key: "portfolio.digest", limit: 6, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "portfolio.digest", limit: 6, windowMs: 60_000, durable: true } }, async (req) => {
   const owner = requireSession(req);
   const result = await generatePortfolioDigest(owner, clientIp(req));
   if (!result.digest) return json({ ok: false, errors: [result.error ?? "No summary available."], quota: result.quota }, { status: 429 });

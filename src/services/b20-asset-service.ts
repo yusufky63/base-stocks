@@ -356,6 +356,23 @@ export async function loadDiscoveredRegistry(): Promise<number> {
  * registry + Coinbase naming; an admin "disabled" flag always wins) → refresh the live registry.
  * Runs at boot and every 30 minutes, so a new Coinbase listing appears without a deploy.
  */
+/** Traffic-driven light discovery: at most one scan per interval per instance, off the request path. */
+let lastOpportunisticScan = 0;
+let opportunisticInflight = false;
+export async function maybeScanInBackground(intervalMs = 30 * 60_000): Promise<void> {
+  const now = Date.now();
+  if (opportunisticInflight || now - lastOpportunisticScan < intervalMs) return;
+  opportunisticInflight = true;
+  lastOpportunisticScan = now;
+  try {
+    await syncDiscoveredAssets({ lookbackBlocks: 30_000n });
+  } catch {
+    /* logged inside; next window retries */
+  } finally {
+    opportunisticInflight = false;
+  }
+}
+
 export async function syncDiscoveredAssets(opts: { lookbackBlocks?: bigint } = {}): Promise<ReturnType<typeof discoveryStatus>> {
   const repos = getRepos();
   try {

@@ -9,7 +9,7 @@ const patchSchema = z.object({
   status: z.enum(["submitted", "confirmed", "failed"]).optional(),
 });
 
-export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "trades.write", limit: 60, windowMs: 60_000 } }, async (req, { params }) => {
+export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "trades.write", limit: 60, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const body = await parseBody(req, patchSchema);
   const updated = await getRepos().trades.update(id, { ...body, txHash: body.txHash as Hash | undefined });

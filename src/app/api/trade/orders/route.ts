@@ -44,7 +44,7 @@ const submitSchema = z.object({
  * Submit a signed CoW order. The browser signed exactly what /api/trade/quote (or /prepare) returned;
  * the order book re-validates signature, balance and allowance before accepting it.
  */
-export const POST = route({ rateLimit: { key: "orders.submit", limit: 20, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "orders.submit", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, submitSchema);
   const m = body.order.typedData.message;
   const buy = m.sellToken.toLowerCase() === USDC_ADDRESS.toLowerCase();

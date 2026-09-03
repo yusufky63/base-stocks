@@ -24,7 +24,7 @@ const patchSchema = z.object({
   steps: z.array(stepSchema).optional(),
 });
 
-export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "exec.write", limit: 120, windowMs: 60_000 } }, async (req, { params }) => {
+export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "exec.write", limit: 120, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const body = await parseBody(req, patchSchema);
   const updated = await getRepos().executions.update(id, {

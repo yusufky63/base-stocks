@@ -1,7 +1,7 @@
 import { touchActivity } from "@/lib/activity-pulse";
 import { z } from "zod";
 import { AppError, errorResponse } from "@/lib/errors";
-import { enforceRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
+import { enforceDurableRateLimit, enforceRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
 import { normalizeAddress } from "@/lib/address";
 import type { Address } from "viem";
 
@@ -20,7 +20,8 @@ export const hashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/, "Invalid trans
 type Handler<Ctx> = (req: Request, ctx: Ctx) => Promise<Response>;
 
 interface RouteOptions {
-  rateLimit?: RateLimitOptions & { key: string };
+  /** `durable: true` adds a shared Supabase window counter that survives serverless instances. */
+  rateLimit?: RateLimitOptions & { key: string; durable?: boolean };
 }
 
 /** Wrap a route handler with error mapping + optional rate limiting. */
@@ -28,7 +29,10 @@ export function route<Ctx = unknown>(opts: RouteOptions, handler: Handler<Ctx>):
   return async (req, ctx) => {
     touchActivity();
     try {
-      if (opts.rateLimit) enforceRateLimit(req, opts.rateLimit.key, opts.rateLimit);
+      if (opts.rateLimit) {
+        if (opts.rateLimit.durable) await enforceDurableRateLimit(req, opts.rateLimit.key, opts.rateLimit);
+        else enforceRateLimit(req, opts.rateLimit.key, opts.rateLimit);
+      }
       return await handler(req, ctx);
     } catch (err) {
       if (!(err instanceof AppError) || err.httpStatus >= 500) {

@@ -29,7 +29,7 @@ export const GET = route({}, async (req) => json(describe(req)));
  * eligible under the issuer's terms. Stored as an HttpOnly cookie on this device for 30 days; nothing
  * about the person is recorded. `confirm: false` withdraws it.
  */
-export const POST = route({ rateLimit: { key: "region.attest", limit: 20, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "region.attest", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, z.object({ confirm: z.boolean() }));
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   const cookie = body.confirm ? `${COOKIE}=confirmed; Path=/; Max-Age=${THIRTY_DAYS}; SameSite=Lax; HttpOnly${secure}` : `${COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure}`;

@@ -18,7 +18,7 @@ const createSchema = z.object({
  * App-side Earn records (activity source). Like trade records these are NOT proof of execution;
  * the activity service verifies them against the transaction receipt.
  */
-export const POST = route({ rateLimit: { key: "earn.record", limit: 60, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "earn.record", limit: 60, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
   const record: EarnActionRecord = { ...body, txHash: body.txHash as Hash | undefined, createdAt: Date.now() };
   await getRepos().earnActions.create(record);

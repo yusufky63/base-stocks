@@ -25,7 +25,7 @@ export const GET = route({}, async (req) => {
   return json({ rules: rules.map((r) => ({ ...r, due: isDue(r) })) });
 });
 
-export const POST = route({ rateLimit: { key: "automation.write", limit: 20, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "automation.write", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   const owner = requireSession(req);
   const body = await parseBody(req, createSchema);
   const rule = await createRule(owner, body);
@@ -34,7 +34,7 @@ export const POST = route({ rateLimit: { key: "automation.write", limit: 20, win
 
 const patchSchema = z.object({ id: z.string().min(4), action: z.enum(["ran", "pause", "resume", "delete"]) });
 
-export const PATCH = route({ rateLimit: { key: "automation.write", limit: 60, windowMs: 60_000 } }, async (req) => {
+export const PATCH = route({ rateLimit: { key: "automation.write", limit: 60, windowMs: 60_000, durable: true } }, async (req) => {
   const owner = requireSession(req);
   const { id, action } = await parseBody(req, patchSchema);
   const repos = getRepos();

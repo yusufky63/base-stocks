@@ -18,7 +18,7 @@ export const GET = route({}, async (req) => {
   return json({ profile: profile ?? { address, isPublic: true, createdAt: 0, updatedAt: 0 } });
 });
 
-export const PUT = route({ rateLimit: { key: "profiles.write", limit: 20, windowMs: 60_000 } }, async (req) => {
+export const PUT = route({ rateLimit: { key: "profiles.write", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   const address = requireSession(req);
   const body = await parseBody(req, patchSchema);
   return json({ profile: await updateProfile(address, body) });
