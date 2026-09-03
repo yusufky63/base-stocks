@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useAccount } from "wagmi";
 import { ExternalLink } from "lucide-react";
 import { useLpPositions } from "@/hooks/queries";
 import { formatUsd, timeAgo } from "@/lib/format";
 import { Module, ModuleHeader, Badge, Skeleton, cx } from "@/components/ui/primitives";
 import { ColorDot } from "@/components/common/AllocationBar";
+import { LpManageSheet } from "./LpManageSheet";
+import type { LpPositionDTO } from "@/lib/client-api";
 
 
 const fmtAmt = (n: number) => (n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : n.toLocaleString("en-US", { maximumFractionDigits: n >= 1 ? 4 : 6 }));
@@ -17,6 +20,7 @@ const fmtAmt = (n: number) => (n >= 1000 ? n.toLocaleString("en-US", { maximumFr
 export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
   const { address } = useAccount();
   const { data, isLoading, isError } = useLpPositions(address);
+  const [managing, setManaging] = useState<LpPositionDTO | null>(null);
   const positions = data?.positions ?? [];
   if (!address) return null;
   if (compact && !isLoading && positions.length === 0) return null;
@@ -75,14 +79,20 @@ export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
                 fees {fmtAmt(p.fees.amount0)} {p.token0.symbol} + {fmtAmt(p.fees.amount1)} {p.token1.symbol}
                 {p.fees.usd !== null ? ` (${formatUsd(p.fees.usd)})` : ""}
               </span>
-              <a href={p.manageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-primary font-medium">
-                Manage on {p.provider === "uniswap" ? "Uniswap" : "Aerodrome"} <ExternalLink size={12} strokeWidth={1.75} />
-              </a>
+              <span className="inline-flex items-center gap-3">
+                <button type="button" onClick={() => setManaging(p)} className="text-primary font-medium hover:underline">
+                  Collect / withdraw
+                </button>
+                <a href={p.manageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-ink-muted hover:text-ink">
+                  {p.provider === "uniswap" ? "Uniswap" : "Aerodrome"} <ExternalLink size={12} strokeWidth={1.75} />
+                </a>
+              </span>
             </div>
           </div>
         );
       })}
-      {positions.length > 0 && <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Values use current pool prices; fees are what a collect would pay right now. Adding or removing liquidity happens on the venue until in-app management ships.</p>}
+      {positions.length > 0 && <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Values use current pool prices; fees are what a collect would pay right now. Collect fees and withdraw right here; opening a new position still happens on the venue.</p>}
+      {managing && <LpManageSheet open onClose={() => setManaging(null)} position={managing} />}
     </Module>
   );
 }

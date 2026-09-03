@@ -10,27 +10,25 @@ import { getAssets } from "./b20-asset-service";
 import { getEthUsd, getPriceViews } from "./price-service";
 
 /**
- * Read-only view of a wallet's concentrated-liquidity positions that involve a tokenized stock.
- * Positions are ERC-721s on each protocol's position manager; nothing is written. Verified on Base
+ * A wallet's concentrated-liquidity positions that involve a tokenized stock. Reads only; the
+ * manage actions (collect, decreaseLiquidity) are built client-side against the same managers. Verified on Base
  * mainnet 2026-09-02: Uniswap v3 NPM 0x03a5…34f1 (factory 0x3312…FDfD); Aerodrome Slipstream NPM
  * 0xe1f8…8b53 (current factory 0xf8f2…61Ef, 4k+ mints on the NVDAc/USDC pool) and the legacy NPM
  * 0x8279…5b72 (factory 0x5e7B…809A).
  */
-export interface LpManager {
-  id: "uniswap-v3" | "aerodrome-cl" | "aerodrome-cl-legacy";
-  label: string;
-  provider: "uniswap" | "aerodrome";
-  kind: "v3" | "cl";
-  npm: Address;
-  factory: Address;
+import { LP_MANAGER_INFO, type LpManagerInfo } from "@/lib/earn/lp-managers";
+
+export interface LpManager extends LpManagerInfo {
   manageUrl: (tokenId: bigint) => string;
 }
 
-export const LP_MANAGERS: LpManager[] = [
-  { id: "aerodrome-cl", label: "Aerodrome Slipstream", provider: "aerodrome", kind: "cl", npm: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53", factory: "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef", manageUrl: () => "https://aerodrome.finance/dash" },
-  { id: "aerodrome-cl-legacy", label: "Aerodrome Slipstream (v1)", provider: "aerodrome", kind: "cl", npm: "0x827922686190790b37229fd06084350E74485b72", factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A", manageUrl: () => "https://aerodrome.finance/dash" },
-  { id: "uniswap-v3", label: "Uniswap v3", provider: "uniswap", kind: "v3", npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1", factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD", manageUrl: (id) => `https://app.uniswap.org/positions/v3/base/${id.toString()}` },
-];
+const MANAGE_URL: Record<LpManagerInfo["id"], (tokenId: bigint) => string> = {
+  "aerodrome-cl": () => "https://aerodrome.finance/dash",
+  "aerodrome-cl-legacy": () => "https://aerodrome.finance/dash",
+  "uniswap-v3": (id) => `https://app.uniswap.org/positions/v3/base/${id.toString()}`,
+};
+
+export const LP_MANAGERS: LpManager[] = LP_MANAGER_INFO.map((m) => ({ ...m, manageUrl: MANAGE_URL[m.id] }));
 
 export interface LpPosition {
   manager: LpManager["id"];
@@ -46,6 +44,8 @@ export interface LpPosition {
   tickUpper: number;
   currentTick: number;
   inRange: boolean;
+  /** Raw position liquidity, needed to build a decreaseLiquidity call. */
+  liquidity: string;
   /** Range expressed as USD per one stock token (when a B20 token is in the pair and priced). */
   rangeUsd: { lower: number; upper: number; current: number } | null;
   amount0: number;
@@ -153,6 +153,7 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
             token0: { address: t0.address, symbol: t0.symbol, decimals: t0.decimals },
             token1: { address: t1.address, symbol: t1.symbol, decimals: t1.decimals },
             feeOrTickSpacing: Number(p[4]),
+            liquidity: p[7].toString(),
             tickLower: Number(p[5]),
             tickUpper: Number(p[6]),
             currentTick: tick,

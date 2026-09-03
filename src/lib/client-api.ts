@@ -181,6 +181,8 @@ export interface LpPositionDTO {
   token0: { address: Address; symbol: string; decimals: number };
   token1: { address: Address; symbol: string; decimals: number };
   feeOrTickSpacing: number;
+  /** Raw position liquidity, needed to build a decreaseLiquidity call. */
+  liquidity: string;
   tickLower: number;
   tickUpper: number;
   currentTick: number;
