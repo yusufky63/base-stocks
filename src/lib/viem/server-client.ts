@@ -4,13 +4,18 @@ import { serverEnv } from "@/config/env";
 import { PUBLIC_BASE_RPC_URLS } from "@/config/chain";
 
 /**
- * Dedicated RPC first (2 retries), public endpoints behind it (1 retry each), tried in order.
- * A dedicated-RPC outage therefore degrades to public rate limits instead of failing reads;
- * with no dedicated URL the public chain alone carries the load.
+ * Dedicated RPC first (2 retries), then the CDP endpoint when one is configured, then the public
+ * endpoints (1 retry each), tried in order. The CDP paymaster URL doubles as a full Base JSON-RPC
+ * node; it only ever sees traffic while the dedicated RPC is down, so it costs nothing in normal
+ * operation but is far more reliable than the public endpoints during an outage.
  */
 function buildTransport(url: string | undefined, timeoutMs: number) {
-  const publics = PUBLIC_BASE_RPC_URLS.filter((u) => u !== url).map((u) => http(u, { timeout: timeoutMs, batch: true, retryCount: 1 }));
-  const chain = url ? [http(url, { timeout: timeoutMs, batch: true, retryCount: 2 }), ...publics] : publics;
+  const cdp = process.env.NEXT_PUBLIC_PAYMASTER_URL?.trim();
+  const chain = [
+    ...(url ? [http(url, { timeout: timeoutMs, batch: true, retryCount: 2 })] : []),
+    ...(cdp && cdp !== url ? [http(cdp, { timeout: timeoutMs, batch: true, retryCount: 1 })] : []),
+    ...PUBLIC_BASE_RPC_URLS.filter((u) => u !== url).map((u) => http(u, { timeout: timeoutMs, batch: true, retryCount: 1 })),
+  ];
   return fallback(chain, { rank: false });
 }
 
