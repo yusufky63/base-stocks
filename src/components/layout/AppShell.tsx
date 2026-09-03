@@ -11,6 +11,17 @@ import { LegalNotice } from "@/components/common/display";
 import { Wordmark } from "@/components/brand/Logo";
 import { TopTicker } from "./TopTicker";
 
+const X_URL = "https://x.com/BaseOnStocks";
+
+/** X (Twitter) mark, drawn to match the outline icon set's 14px size. */
+function XLogo() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
 /** Mobile bar: five destinations. Strategies groups Build, Community and Automate as tabs. */
 const NAV = [
   { href: "/", label: "Home", icon: Home },
@@ -106,6 +117,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </Link>
               ))}
             </nav>
+            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BStocks on X" title="@BaseOnStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
+              <XLogo />
+              <span className="font-mono text-[12px]">@BaseOnStocks</span>
+            </a>
           </div>
           <div className="hidden md:block text-[12px] text-ink-muted leading-relaxed">
             <LegalNotice compact />

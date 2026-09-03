@@ -30,6 +30,7 @@ export const metadata: Metadata = {
   title: { default: "BStocks — Stocks, built for onchain", template: "%s · BStocks" },
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BStocks",
+  twitter: { card: "summary_large_image", site: "@BaseOnStocks", creator: "@BaseOnStocks" },
   icons: { icon: [{ url: "/brand/logo-mark-transparent-128.png", type: "image/png" }, { url: "/icon.svg", type: "image/svg+xml" }], apple: "/brand/icon-1024.png" },
   other: { "base:app_id": BASE_APP_ID, "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
 };
