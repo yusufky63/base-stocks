@@ -110,7 +110,7 @@ Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market pr
 | Uniswap Trading API | `trade-api.gateway.uniswap.org` (`check_approval`, `quote`, `swap`), `routingPreference: BEST_PRICE`, `x-permit2-disabled` | `UNISWAP_API_KEY` | Covers v3 and v4 pools. |
 | Aerodrome direct | onchain quoter on the Slipstream pool | none | Reference route; no native ETH sells. |
 | 0x Swap API v2 (allowance-holder) | `api.0x.org/swap/allowance-holder/*` | `ZEROX_API_KEY` | Refuses B20 both directions (`*_TOKEN_NOT_AUTHORIZED_FOR_TRADE`) until a manual opt-in (email william@0xproject.com, "xStocks Opt-in"); refusal state is global and re-probed hourly. Requires `GEOBLOCK_MODE=block`. |
-| OKX DEX aggregator (Onchain OS) | `web3.okx.com/api/v5/dex/aggregator/{quote,swap,approve-transaction}` | `OKX_API_KEY` + `OKX_SECRET_KEY` + `OKX_PASSPHRASE` (HMAC-SHA256 headers) | The project must be entitled to the aggregator service; a `50125` answer marks the provider *no access* for an hour and the Status page says so. Candles worked with the current key; quote/swap/market price answered 50125 on 2026-09-03. |
+| OKX DEX aggregator (Onchain OS) | `web3.okx.com/api/v6/dex/aggregator/{quote,swap,approve-transaction}` | `OKX_API_KEY` + `OKX_SECRET_KEY` + `OKX_PASSPHRASE` (HMAC-SHA256 headers) | The project must be entitled to the aggregator service; a `50125` answer marks the provider *no access* for an hour and the Status page says so. v5 was deprecated (50050) on 2026-09-03; the adapter uses v6 (`slippagePercent`, no `chainId`). Quote, swap and approve-transaction verified with the current key on 2026-09-03. |
 
 ### 5.2 Flow
 
