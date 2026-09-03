@@ -26,10 +26,12 @@ export function LogoMark({ size = 24, className, solid = false }: { size?: numbe
   );
 }
 
+/** Header lockup: the raster mark from public/brand (trial logo) next to the wordmark text. */
 export function Wordmark({ className, size = 22 }: { className?: string; size?: number }) {
   return (
     <span className={cx("inline-flex items-center gap-2 select-none", className)}>
-      <LogoMark size={size} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/logo-mark-transparent-128.png" alt="" width={size + 8} height={size + 8} className="shrink-0" style={{ width: size + 8, height: size + 8 }} />
       <span className="display tracking-[-0.045em] leading-none" style={{ fontSize: size * 0.95 }}>
         B<span className="text-primary">Stocks</span>
       </span>

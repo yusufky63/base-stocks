@@ -15,12 +15,12 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://base-stocks.vercel.
 const miniAppEmbed = JSON.stringify({
   version: "1",
   imageUrl: `${APP_URL}/opengraph-image`,
-  button: { title: "Open BStocks", action: { type: "launch_miniapp", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/api/brand/splash`, splashBackgroundColor: "#0000ff" } },
+  button: { title: "Open BStocks", action: { type: "launch_miniapp", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0000ff" } },
 });
 const frameEmbed = JSON.stringify({
   version: "1",
   imageUrl: `${APP_URL}/opengraph-image`,
-  button: { title: "Open BStocks", action: { type: "launch_frame", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/api/brand/splash`, splashBackgroundColor: "#0000ff" } },
+  button: { title: "Open BStocks", action: { type: "launch_frame", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0000ff" } },
 });
 
 export const metadata: Metadata = {
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   title: { default: "BStocks — Stocks, built for onchain", template: "%s · BStocks" },
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BStocks",
-  icons: { icon: "/icon.svg" },
+  icons: { icon: [{ url: "/brand/logo-mark-transparent-128.png", type: "image/png" }, { url: "/icon.svg", type: "image/svg+xml" }], apple: "/brand/icon-1024.png" },
   other: { "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
 };
 

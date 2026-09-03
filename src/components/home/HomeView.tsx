@@ -57,6 +57,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
                 How it works
               </LinkButton>
             </div>
+            <HeroStats items={ordered} total={priced.length} />
           </div>
           <div className="hidden lg:block">
             <LiveNowPanel items={ordered} total={priced.length} />
@@ -277,5 +278,31 @@ function LiveNowPanel({ items, total }: { items: Array<{ asset: AssetsResponse["
         </Link>
       </div>
     </div>
+  );
+}
+
+/** Four live numbers under the headline: markets live, DEX liquidity, 24h volume, issued count. */
+function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }>; total: number }) {
+  const live = items.filter((x) => {
+    const st = tradingStatus(x.asset, x.price).status;
+    return st === "tradable" || st === "thin";
+  });
+  const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
+  const volume = live.reduce((sum, x) => sum + (x.price?.volume24hUsd ?? 0), 0);
+  const cells = [
+    { label: "Live markets", value: String(live.length) },
+    { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
+    { label: "24h volume", value: volume > 0 ? formatUsdCompact(volume) : "—" },
+    { label: "Issued", value: `${live.length} / ${total}` },
+  ];
+  return (
+    <dl className="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-px bg-line border border-line rounded-[8px] overflow-hidden max-w-[640px]">
+      {cells.map((c) => (
+        <div key={c.label} className="bg-canvas/85 px-3 py-2.5">
+          <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
+          <dd className="display num text-[20px] leading-none mt-1">{c.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

@@ -8,7 +8,7 @@ import type { Address } from "viem";
 import { useAssets, useRegion, useSparklines, useWatchlist } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
 import type { MarketTag } from "@/domain/asset";
-import { formatUsd } from "@/lib/format";
+import { formatUsd, formatUsdCompact } from "@/lib/format";
 import { sortByTradingStatus, tradingStatus, type TradingStatusView } from "@/lib/trading-status";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
@@ -102,12 +102,14 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
       </div>
 
       {restricted && region.data && <RegionNotice region={region.data} compact />}
+      {data && <MarketStats rows={all} />}
       <div className="border border-line rounded-[8px] overflow-hidden bg-canvas ticks">
-        <div className="hidden md:grid grid-cols-[1fr_110px_140px_110px_120px_150px] px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
+        <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
           <span>Stock</span>
           <span className="text-right">7d</span>
           <span className="text-right">Price</span>
           <span className="text-right">24h</span>
+          <span className="text-right">Liquidity · vol</span>
           <span className="text-right">Reference</span>
           <span />
         </div>
@@ -135,7 +137,7 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
   const tradable = view.status === "tradable" || view.status === "thin";
   const muted = view.status === "not-issued" || view.status === "paused";
   return (
-    <div className={cx("rail grid grid-cols-[1fr_auto] md:grid-cols-[1fr_110px_140px_110px_120px_150px] items-center px-4 py-3 border-b border-line last:border-b-0 gap-3 hover:bg-surface transition-fast", muted && "opacity-75 hover:opacity-100")}>
+    <div className={cx("rail grid grid-cols-[1fr_auto] md:grid-cols-[1fr_96px_130px_96px_130px_120px_150px] items-center px-4 py-3 border-b border-line last:border-b-0 gap-3 hover:bg-surface transition-fast", muted && "opacity-75 hover:opacity-100")}>
       <Link href={`/stocks/${asset.address}`} className="flex items-center gap-3 min-w-0">
         <span className="w-1 self-stretch rounded-full" style={{ background: assetColor(asset.address) }} aria-hidden />
         <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={36} />
@@ -163,6 +165,10 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
       <div className="hidden md:block text-right">
         <PriceChange value={price?.marketChange24hPct} />
       </div>
+      <div className="hidden md:block text-right font-mono num text-[12px]">
+        <span className="block">{price?.liquidityUsd ? formatUsdCompact(price.liquidityUsd) : "—"}</span>
+        <span className="block text-ink-muted">{price?.volume24hUsd ? `${formatUsdCompact(price.volume24hUsd)} vol` : muted ? "no market" : "no volume"}</span>
+      </div>
       <div className="hidden md:block text-right font-mono num text-[13px] text-ink-secondary">
         {formatUsd(price?.referenceUsd)}
         {price?.referenceFreshness === "stale" && <span className="block text-[10px] uppercase text-ink-muted">stale</span>}
@@ -186,5 +192,32 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
         )}
       </div>
     </div>
+  );
+}
+
+/** Totals across the live markets: how much of the list trades, and how deep it is today. */
+function MarketStats({ rows }: { rows: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }> }) {
+  const live = rows.filter((x) => {
+    const st = tradingStatus(x.asset, x.price).status;
+    return st === "tradable" || st === "thin";
+  });
+  const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
+  const volume = live.reduce((sum, x) => sum + (x.price?.volume24hUsd ?? 0), 0);
+  const up = live.filter((x) => (x.price?.marketChange24hPct ?? 0) > 0).length;
+  const cells = [
+    { label: "Live markets", value: `${live.length} of ${rows.length}` },
+    { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
+    { label: "24h volume", value: volume > 0 ? formatUsdCompact(volume) : "—" },
+    { label: "Up today", value: live.length ? `${up} / ${live.length}` : "—" },
+  ];
+  return (
+    <dl className="grid grid-cols-2 md:grid-cols-4 gap-px bg-line border border-line rounded-[8px] overflow-hidden">
+      {cells.map((c) => (
+        <div key={c.label} className="bg-canvas px-4 py-3">
+          <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
+          <dd className="display num text-[22px] leading-none mt-1">{c.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

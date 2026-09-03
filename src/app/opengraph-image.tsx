@@ -1,4 +1,6 @@
 import { ImageResponse } from "next/og";
+import fs from "node:fs";
+import path from "node:path";
 
 export const alt = "BStocks — Coinbase Tokenized Stocks on Base";
 export const size = { width: 1200, height: 630 };
@@ -6,15 +8,13 @@ export const contentType = "image/png";
 
 /** Site-wide share card (home, docs, manifest). Static: no data fetch, so it never fails. */
 export default function Image() {
+  const mark = `data:image/png;base64,${fs.readFileSync(path.join(process.cwd(), "public/brand/logo-mark-transparent-256.png")).toString("base64")}`;
   return new ImageResponse(
     (
       <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 64, background: "#ffffff", color: "#0a0b0d", fontFamily: "sans-serif", border: "16px solid #0000ff" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 28, fontWeight: 700 }}>
-          <div style={{ display: "flex", gap: 4 }}>
-            <div style={{ width: 14, height: 14, background: "#0a0b0d", opacity: 0.55, marginTop: 20 }} />
-            <div style={{ width: 14, height: 14, background: "#0a0b0d", opacity: 0.8, marginTop: 10 }} />
-            <div style={{ width: 14, height: 14, background: "#0000ff" }} />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={mark} alt="" width={56} height={56} style={{ width: 56, height: 56 }} />
           <span>B</span>
           <span style={{ color: "#0000ff", marginLeft: -12 }}>Stocks</span>
           <span style={{ fontSize: 20, fontWeight: 400, color: "#5b616e", marginLeft: 12 }}>Stocks, built for onchain · Base</span>

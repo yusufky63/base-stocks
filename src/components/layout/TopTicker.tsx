@@ -53,9 +53,6 @@ function PricesRow() {
   ));
   return (
     <div className="border-b border-line flex items-stretch">
-      <div className="hidden sm:flex items-center gap-2 px-3 h-8 border-r border-line text-ink-muted shrink-0">
-        <span className="live-dot" /> Prices
-      </div>
       <Track cells={cells} seconds={Math.max(50, cells.length * 5)} />
     </div>
   );
