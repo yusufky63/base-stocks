@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowUpRight, Search, Star } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronsUpDown, ChevronUp, Search, Star } from "lucide-react";
 import { useAccount } from "wagmi";
 import type { Address } from "viem";
 import { useAssets, useRegion, useSparklines, useWatchlist } from "@/hooks/queries";
@@ -19,6 +19,7 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 
 type Filter = "all" | "watchlist" | "movers" | MarketTag;
+type SortKey = "default" | "price" | "change24h" | "liquidity";
 
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "all", label: "All" },
@@ -39,8 +40,20 @@ export function StatusChip({ view, className }: { view: TradingStatusView; class
     <span title={view.detail} className={cx("inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em]", TEXT[view.tone], className)}>
       <span className={cx("inline-block w-1.5 h-1.5 rounded-full", DOT[view.tone])} aria-hidden />
       {view.label}
-      {view.status === "tradable" || view.status === "thin" ? <span className="text-ink-muted normal-case tracking-normal">· {view.detail.split(" ·")[0]}</span> : null}
+      {/* Liquidity shows on mobile only; the desktop table has a dedicated Liquidity column, so it would be a duplicate there. */}
+      {view.status === "tradable" || view.status === "thin" ? <span className="md:hidden text-ink-muted normal-case tracking-normal">· {view.detail.split(" ·")[0]}</span> : null}
     </span>
+  );
+}
+
+/** A right-aligned, sortable column header: clicking cycles default → high-to-low → low-to-high. */
+function SortHeader({ label, col, sort, onSort }: { label: string; col: SortKey; sort: { key: SortKey; dir: "asc" | "desc" }; onSort: (k: SortKey) => void }) {
+  const active = sort.key === col;
+  return (
+    <button type="button" onClick={() => onSort(col)} className={cx("inline-flex items-center gap-1 justify-end w-full font-mono text-[11px] uppercase tracking-[0.12em] transition-fast", active ? "text-ink" : "text-ink-muted hover:text-ink")}>
+      {label}
+      {active ? sort.dir === "asc" ? <ChevronUp size={11} strokeWidth={2} /> : <ChevronDown size={11} strokeWidth={2} /> : <ChevronsUpDown size={11} strokeWidth={2} className="opacity-30" />}
+    </button>
   );
 }
 
@@ -53,9 +66,13 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
   const restricted = region.data?.restricted === true;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "default", dir: "desc" });
+  // Click cycles a column: unsorted → high-to-low → low-to-high → back to the default status order.
+  const onSort = (key: SortKey) => setSort((s) => (s.key !== key ? { key, dir: "desc" } : s.dir === "desc" ? { key, dir: "asc" } : { key: "default", dir: "desc" }));
 
   const all = useMemo(() => (data ? sortByTradingStatus(data.assets.map((a) => ({ asset: a, price: data.prices[a.canonicalId] })), (x) => x) : []), [data]);
-  const liveCount = useMemo(() => all.filter((x) => tradingStatus(x.asset, x.price).status === "tradable").length, [all]);
+  // "Live" here means a working market you can trade — tradable or thin — matching the header stats and home.
+  const liveCount = useMemo(() => all.filter((x) => { const s = tradingStatus(x.asset, x.price).status; return s === "tradable" || s === "thin"; }).length, [all]);
   const notIssued = useMemo(() => all.filter((x) => tradingStatus(x.asset, x.price).status === "not-issued").length, [all]);
 
   const rows = useMemo(() => {
@@ -68,8 +85,19 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         .filter(({ asset, price }) => hasMeaningfulChange(tradingStatus(asset, price).status, price))
         .sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0));
     else if (filter !== "all") list = list.filter(({ asset }) => asset.tags.includes(filter));
+    if (sort.key !== "default") {
+      const val = (p?: AssetsResponse["prices"][string]) => (sort.key === "price" ? p?.displayUsd : sort.key === "change24h" ? p?.marketChange24hPct : p?.liquidityUsd);
+      list = [...list].sort((a, b) => {
+        const av = val(a.price);
+        const bv = val(b.price);
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1; // a missing value sinks to the bottom, whichever way we sort
+        if (bv == null) return -1;
+        return sort.dir === "asc" ? av - bv : bv - av;
+      });
+    }
     return list;
-  }, [all, query, filter, watchlist]);
+  }, [all, query, filter, watchlist, sort]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -107,12 +135,12 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
       {restricted && region.data && <RegionNotice region={region.data} compact />}
       {data && <MarketStats rows={all} />}
       <div className="border border-line rounded-[8px] overflow-hidden bg-canvas ticks">
-        <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
+        <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] gap-3 px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
           <span>Stock</span>
           <span className="text-right">7d</span>
-          <span className="text-right">Price</span>
-          <span className="text-right">24h</span>
-          <span className="text-right">Liquidity · vol</span>
+          <SortHeader label="Price" col="price" sort={sort} onSort={onSort} />
+          <SortHeader label="24h" col="change24h" sort={sort} onSort={onSort} />
+          <SortHeader label="Liquidity · vol" col="liquidity" sort={sort} onSort={onSort} />
           <span className="text-right">Reference</span>
           <span />
         </div>
@@ -149,7 +177,8 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
             {asset.underlying} <span className="text-ink-muted font-mono text-[11px]">{asset.symbol}</span>
           </span>
           <span className="block text-[13px] text-ink-secondary truncate">{asset.name}</span>
-          <StatusChip view={view} className="mt-0.5" />
+          {/* "Live" is the norm and the desktop table has its own columns, so only flag it on mobile; thin/paused/not-issued always show. */}
+          <StatusChip view={view} className={cx("mt-0.5", view.status === "tradable" && "md:hidden")} />
         </span>
       </Link>
       <div className="md:hidden text-right">
