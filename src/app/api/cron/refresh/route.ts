@@ -3,6 +3,7 @@ import { serverEnv } from "@/config/env";
 import { AppError } from "@/lib/errors";
 import { syncDiscoveredAssets } from "@/services/b20-asset-service";
 import { getStatusReport } from "@/services/status-service";
+import { sweepOpenPools } from "@/services/pool-service";
 import { getSupabaseAdmin } from "@/db/supabase";
 
 export const maxDuration = 60;
@@ -12,7 +13,8 @@ export const maxDuration = 60;
  * `src/instrumentation.ts` die with each instance. Vercel Cron calls this with
  * `Authorization: Bearer <CRON_SECRET>` (see vercel.json); anyone else gets 401.
  * Work: a light B20 discovery scan (new Coinbase stocks land in storage and go live automatically)
- * and one status probe run so the Status page has fresh history.
+ * and one status probe run so the Status page has fresh history, plus a claim sweep that pulls
+ * every open gift pool back into line with its `PoolClaimed` logs.
  */
 export const GET = route({}, async (req) => {
   const secret = serverEnv().CRON_SECRET;
@@ -21,6 +23,7 @@ export const GET = route({}, async (req) => {
   const started = Date.now();
   const discovery = await syncDiscoveredAssets({ lookbackBlocks: 120_000n }).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }));
   const status = await getStatusReport().catch(() => null);
+  const pools = await sweepOpenPools().catch(() => ({ pools: 0, added: 0 }));
   // Durable rate-limit windows (key "rl:*") accumulate one row per window; sweep anything older than two days.
   const sb = getSupabaseAdmin();
   if (sb) {
@@ -29,5 +32,5 @@ export const GET = route({}, async (req) => {
       if (error) console.warn("[cron] rl sweep:", error.message);
     });
   }
-  return json({ ok: true, ms: Date.now() - started, discovery, status: status ? { overall: status.overall, checks: status.checks.length } : null });
+  return json({ ok: true, ms: Date.now() - started, discovery, pools, status: status ? { overall: status.overall, checks: status.checks.length } : null });
 });

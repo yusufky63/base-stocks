@@ -262,3 +262,53 @@ alter table public.basket_votes        enable row level security;
 alter table public.referrals           enable row level security;
 alter table public.portfolio_snapshots enable row level security;
 revoke all on all tables in schema public from anon, authenticated;
+
+-- ---------- Gift pools (GiftPool contract): one deposit, many equal claims ----------
+-- Funds live in the ownerless contract; these tables are an index and a quest ledger only.
+create table if not exists public.gift_pools (
+  id            text primary key,
+  onchain_id    text not null unique,            -- keccak256(abi.encode(creator, salt))
+  creator       text not null,
+  gate_mode     text not null check (gate_mode in ('open', 'link', 'signer')),
+  gate_address  text not null,
+  slots         integer not null check (slots > 0),
+  expiry        bigint not null,                 -- unix ms
+  locked_until  bigint not null default 0,       -- unix ms; creator cannot cancel before this
+  visibility    text not null default 'unlisted' check (visibility in ('public', 'unlisted')),
+  verified      boolean not null default false,  -- admin flag; only these are promoted publicly
+  title         text,
+  message       text,
+  quests_json   jsonb not null default '[]'::jsonb,
+  memo          text not null,
+  tx_hash       text,
+  status        text not null default 'draft',
+  created_at    timestamptz not null default now()
+);
+create index if not exists gift_pools_creator_idx on public.gift_pools (creator, created_at desc);
+create index if not exists gift_pools_public_idx on public.gift_pools (visibility, verified, created_at desc);
+
+create table if not exists public.gift_pool_legs (
+  pool_id          text not null references public.gift_pools (id) on delete cascade,
+  position         integer not null,
+  token            text not null,
+  amount_per_claim text not null,                -- raw base units, as a string
+  primary key (pool_id, position)
+);
+
+create table if not exists public.gift_pool_claims (
+  pool_id      text not null references public.gift_pools (id) on delete cascade,
+  claimant     text not null,
+  status       text not null default 'issued' check (status in ('issued', 'confirmed', 'reconciled')),
+  quest_proof  jsonb not null default '{}'::jsonb,
+  tx_hash      text,
+  block_number bigint,
+  created_at   timestamptz not null default now(),
+  primary key (pool_id, claimant)                -- one row per address, enforced by the database too
+);
+create index if not exists gift_pool_claims_pool_idx on public.gift_pool_claims (pool_id, created_at desc);
+create index if not exists gift_pool_claims_claimant_idx on public.gift_pool_claims (claimant, created_at desc);
+
+alter table public.gift_pools       enable row level security;
+alter table public.gift_pool_legs   enable row level security;
+alter table public.gift_pool_claims enable row level security;
+revoke all on all tables in schema public from anon, authenticated;

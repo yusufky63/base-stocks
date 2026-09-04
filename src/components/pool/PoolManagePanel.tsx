@@ -1,0 +1,264 @@
+"use client";
+
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { encodeFunctionData, type Address, type Hash } from "viem";
+import { base } from "viem/chains";
+import { Lock, RefreshCw } from "lucide-react";
+import type { PoolClaim, PoolView } from "@/domain/pool";
+import { BASE_CHAIN_ID } from "@/config/chain";
+import { apiGet, apiPatch, apiPut } from "@/lib/client-api";
+import { withAttribution, attributionCapabilities } from "@/lib/attribution";
+import { GIFT_POOL_ADDRESS, giftPoolAbi } from "@/lib/pool";
+import { humanizeError, type HumanError } from "@/lib/errors";
+import { formatTokenAmount, shortenAddress } from "@/lib/format";
+import { Badge, Button, Module, ModuleHeader, Skeleton } from "@/components/ui/primitives";
+import { ErrorBanner, TxLink } from "@/components/common/display";
+import { TimeAgo } from "@/components/common/TimeAgo";
+
+type ClaimRow = PoolClaim & { basename?: string | null };
+
+/**
+ * The creator's side of a pool: who took a share, and the two-step close.
+ *
+ * Closing is deliberately two transactions' worth of work in one button: `cancel` only flips a
+ * flag (so a paused stock can never stop the creator from closing), then `withdraw` moves the
+ * remainder. On Base Account both go in one atomic batch; on other wallets they are confirmed one
+ * after the other. If a single stock in a package is paused by its issuer, the batch trips on that
+ * leg and the per-leg buttons bring the healthy ones home anyway.
+ */
+export function PoolManagePanel({
+  view,
+  onChanged,
+  lockedUntil,
+  cancelled,
+  claimed,
+  slots,
+}: {
+  view: PoolView;
+  onChanged: () => void;
+  lockedUntil: number;
+  cancelled: boolean;
+  claimed: number;
+  slots: number;
+}) {
+  const pool = view.pool;
+  const { address } = useAccount();
+  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+  const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+
+  // Snapshot the clock once per mount; the page refetches, so a stale second never matters.
+  const [loadedAt] = useState(() => Date.now());
+  const [busy, setBusy] = useState<"close" | "sync" | number | null>(null);
+  const [error, setError] = useState<HumanError | null>(null);
+  const [tx, setTx] = useState<Hash | undefined>();
+
+  const claims = useQuery({
+    queryKey: ["pool-claims", pool.id],
+    queryFn: () => apiGet<{ claims: ClaimRow[]; count: number; creatorOnly: boolean }>(`/api/pools/${pool.id}/claims`),
+    refetchInterval: 30_000,
+  });
+
+  const locked = lockedUntil > loadedAt;
+  const expired = loadedAt > pool.expiry;
+  const remaining = Math.max(0, slots - claimed);
+  const legsOnchain = view.onchain?.legs ?? [];
+  const allWithdrawn = legsOnchain.length > 0 && legsOnchain.every((l) => l.withdrawn);
+
+  const send = async (calls: Array<{ to: Address; data: `0x${string}` }>) => {
+    if (!address || !walletClient || !publicClient) throw new Error("Connect your wallet first.");
+    let atomic = false;
+    try {
+      const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string } };
+      atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
+    } catch {
+      atomic = false;
+    }
+    if (atomic && calls.length > 1) {
+      const { id } = await walletClient.sendCalls({ account: address, chain: base, forceAtomic: true, calls, capabilities: attributionCapabilities() });
+      const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
+      if (result.status === "failure") throw new Error("The transaction failed onchain.");
+      return result.receipts?.[result.receipts.length - 1]?.transactionHash;
+    }
+    let last: Hash | undefined;
+    for (const c of calls) {
+      last = await walletClient.sendTransaction({ account: address, chain: base, to: c.to, data: c.data });
+      await publicClient.waitForTransactionReceipt({ hash: last });
+    }
+    return last;
+  };
+
+  const close = async () => {
+    setError(null);
+    setBusy("close");
+    try {
+      const calls: Array<{ to: Address; data: `0x${string}` }> = [];
+      if (!cancelled) {
+        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: withAttribution(encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] })) });
+      }
+      if (!allWithdrawn) {
+        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: withAttribution(encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] })) });
+      }
+      if (calls.length === 0) return;
+      const hash = await send(calls);
+      setTx(hash);
+      await apiPatch(`/api/pools/${pool.id}`, { status: "cancelled" }).catch(() => undefined);
+      onChanged();
+    } catch (err) {
+      setError(humanizeError(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const withdrawLeg = async (index: number) => {
+    setError(null);
+    setBusy(index);
+    try {
+      const hash = await send([
+        { to: GIFT_POOL_ADDRESS as Address, data: withAttribution(encodeFunctionData({ abi: giftPoolAbi, functionName: "withdrawLeg", args: [pool.onchainId, BigInt(index)] })) },
+      ]);
+      setTx(hash);
+      onChanged();
+    } catch (err) {
+      setError(humanizeError(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sync = async () => {
+    setBusy("sync");
+    try {
+      await apiPut(`/api/pools/${pool.id}/claims`, {});
+      await claims.refetch();
+      onChanged();
+    } catch {
+      /* the roster simply stays as it was */
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const rows = claims.data?.claims ?? [];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Module>
+        <ModuleHeader
+          title="Your pool"
+          action={
+            <Button size="sm" variant="secondary" loading={busy === "sync"} onClick={() => void sync()}>
+              <RefreshCw size={13} strokeWidth={2} /> Sync with chain
+            </Button>
+          }
+        />
+        <div className="grid grid-cols-3 border-b border-line">
+          {[
+            ["Claimed", `${claimed}`],
+            ["Left", `${remaining}`],
+            ["Shares", `${slots}`],
+          ].map(([k, v]) => (
+            <div key={k} className="px-4 py-3 border-r border-line last:border-r-0">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{k}</div>
+              <div className="display num text-[22px]">{v}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="p-4 flex flex-col gap-3">
+          {cancelled && allWithdrawn ? (
+            <p className="text-[13px] text-ink-secondary">This pool is closed and everything unclaimed is back in your wallet.</p>
+          ) : locked ? (
+            <p className="text-[13px] text-ink-secondary inline-flex items-start gap-2">
+              <Lock size={14} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+              You locked this pool until {new Date(lockedUntil).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. Until then it cannot be closed — that promise is what makes the lock badge worth something.
+            </p>
+          ) : (
+            <>
+              <p className="text-[13px] text-ink-secondary">
+                {cancelled
+                  ? "The pool is closed. Bring the unclaimed remainder home."
+                  : expired
+                    ? "The claim window has closed. Withdraw the unclaimed remainder."
+                    : "Closing stops new claims immediately and returns the unclaimed remainder to your wallet. Shares already taken stay with the people who took them."}
+              </p>
+              <Button variant="danger" loading={busy === "close"} onClick={() => void close()}>
+                {cancelled ? "Withdraw the remainder" : expired ? "Withdraw the remainder" : "Close pool and withdraw"}
+              </Button>
+            </>
+          )}
+
+          {legsOnchain.length > 1 && !allWithdrawn && (cancelled || expired) && (
+            <div className="border-t border-line pt-3 flex flex-col gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Withdraw one at a time</span>
+              <p className="text-[12px] text-ink-muted">If an issuer has paused one of these stocks, the batch above will fail on that leg. Take the others home now and come back for the paused one later.</p>
+              {legsOnchain.map((l, i) => {
+                const meta = view.legs.find((v) => v.token.toLowerCase() === l.token.toLowerCase());
+                return (
+                  <div key={l.token} className="flex items-center justify-between gap-3">
+                    <span className="text-[13px]">
+                      {meta?.underlying ?? shortenAddress(l.token)}
+                      <span className="text-ink-muted font-mono num text-[12px]">
+                        {" · "}
+                        {formatTokenAmount(BigInt(meta?.scaledPerClaim ?? l.amountPerClaim) * BigInt(remaining), meta?.decimals ?? 8)} left
+                      </span>
+                    </span>
+                    {l.withdrawn ? (
+                      <Badge tone="positive">Withdrawn</Badge>
+                    ) : (
+                      <Button size="sm" variant="secondary" loading={busy === i} onClick={() => void withdrawLeg(i)}>
+                        Withdraw
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {error && <ErrorBanner message={error.message} detail={error.detail} />}
+          {tx && (
+            <div className="text-[12px]">
+              <TxLink hash={tx} />
+            </div>
+          )}
+        </div>
+      </Module>
+
+      <Module>
+        <ModuleHeader title={`Who claimed${rows.length > 0 ? ` · ${rows.length}` : ""}`} />
+        {claims.isLoading ? (
+          <div className="p-4 flex flex-col gap-2">
+            <Skeleton className="h-10" />
+            <Skeleton className="h-10" />
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="px-4 py-6 text-[14px] text-ink-secondary">Nobody has claimed yet. Share the link and this fills up.</p>
+        ) : (
+          <ul>
+            {rows.map((c) => (
+              <li key={c.claimant} className="flex items-center gap-3 px-4 py-2.5 border-b border-line last:border-b-0">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium truncate">{c.basename ?? shortenAddress(c.claimant)}</span>
+                  <span className="block text-[11px] text-ink-muted font-mono">
+                    <TimeAgo value={c.createdAt} />
+                    {Object.keys(c.questProof).length > 0 && ` · ${Object.keys(c.questProof).join(", ")} verified`}
+                  </span>
+                </span>
+                <Badge tone={c.status === "reconciled" ? "positive" : c.status === "confirmed" ? "primary" : "neutral"}>
+                  {c.status === "reconciled" ? "Onchain" : c.status === "confirmed" ? "Reported" : "Ticket issued"}
+                </Badge>
+                {c.txHash && <TxLink hash={c.txHash} />}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">
+          “Onchain” rows were matched against a <span className="font-mono">PoolClaimed</span> log — those are proof. The others are what the app was told; Sync turns them into the former.
+        </p>
+      </Module>
+    </div>
+  );
+}

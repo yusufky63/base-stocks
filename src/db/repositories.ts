@@ -1,6 +1,7 @@
 import type { DigestRecord } from "@/domain/digest";
 import type { Address, Hash } from "viem";
 import type { GiftRecord } from "@/domain/gift";
+import type { PoolClaim, PoolRecord } from "@/domain/pool";
 import type { PortfolioExecution, PortfolioExecutionStep, PortfolioTemplate } from "@/domain/portfolio";
 import { SEED_TEMPLATES } from "@/content/templates";
 import { getSupabaseAdmin } from "./supabase";
@@ -20,6 +21,14 @@ import {
   type ProfileRepo,
   type SnapshotRepo,
 } from "./community-repos";
+import {
+  MemoryPoolClaimRepo,
+  MemoryPoolRepo,
+  SupabasePoolClaimRepo,
+  SupabasePoolRepo,
+  type PoolClaimRepo,
+  type PoolRepo,
+} from "./pool-repos";
 
 /* ------------------------------ Types ------------------------------ */
 
@@ -126,6 +135,8 @@ export interface Repos {
   automation: AutomationRepo;
   earnActions: EarnActionRepo;
   digests: DigestRepo;
+  pools: PoolRepo;
+  poolClaims: PoolClaimRepo;
   backend: "memory" | "supabase";
 }
 
@@ -683,6 +694,10 @@ export function getRepos(): Repos {
       automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], create: (r: unknown) => r, update: null, remove: undefined }),
       earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, listByOwner: [] }),
       digests: resilient("digests", new SupabaseDigestRepo(), { get: null, put: undefined, latest: null }),
+      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [] }),
+      // `claimOnce` falls back to allowing the claim: the contract, not this table, is what stops
+      // an address taking two shares. A storage blip must not lock people out of a live campaign.
+      poolClaims: resilient("poolClaims", new SupabasePoolClaimRepo(), { claimOnce: (c: PoolClaim) => c, update: null, get: null, listByPool: [], listByClaimant: [], countByPool: 0 }),
     };
   } else {
     metrics.count("db.memoryBackend");
@@ -700,6 +715,8 @@ export function getRepos(): Repos {
       automation: new MemoryAutomationRepo(),
       earnActions: new MemoryEarnActionRepo(),
       digests: new MemoryDigestRepo(),
+      pools: new MemoryPoolRepo(),
+      poolClaims: new MemoryPoolClaimRepo(),
     };
   }
   return repos;

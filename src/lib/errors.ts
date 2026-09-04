@@ -7,7 +7,13 @@ export type AppErrorCode =
   | "NOT_FOUND"
   | "RATE_LIMITED"
   | "UNAUTHORIZED"
-  | "INTERNAL";
+  | "INTERNAL"
+  // Gift pools
+  | "POOL_UNAVAILABLE"
+  | "POOL_CLOSED"
+  | "POOL_EMPTY"
+  | "ALREADY_CLAIMED"
+  | "QUEST_INCOMPLETE";
 
 export class AppError extends Error {
   constructor(

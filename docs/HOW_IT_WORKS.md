@@ -18,6 +18,7 @@ This document is the technical reference. The product narrative and FAQ are on t
 | Portfolio | `/portfolio` | Value (stocks + USDC + Earn + LP), allocation, history, daily AI summary, gift inbox, automation card, Earn card; tabs Rebalance, Activity, Profile (handle, bio, visibility, badges with progress, referrals). |
 | Public profile | `/u/[handle-or-address]` | Allocation in percent (if public), badges, published baskets, referral counters. |
 | Gift receipt | `/gifts/[id]` | Public page for a submitted gift: from, to, amount, message, tx proof, share. |
+| Gift pools | `/pools`, `/pools/[id]` | One deposit, many equal shares: public directory, claim page and the creator's roster + close-and-withdraw panel. |
 | News | `/news` | Headlines per stock and market-wide, "Today's brief" (shared AI summary every 6 h). |
 | Settings | `/settings` | Slippage, ticker rows, motion, diagnostics (providers, geoblock mode, storage backend). |
 | Status | `/status` | Live probes of every dependency. |
@@ -125,6 +126,18 @@ Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market pr
 7. **Pay with ETH**: buys can sell native ETH (`payWith: "ETH"`); the USD amount is converted with the live ETH price; no bridge needed.
 8. **Gifts**: buy-for-recipient delivers straight to the recipient; send-existing uses `transferWithMemo(bytes32)` with a reconciliation memo; both create a gift record, a public receipt page and a share sheet (Base app / X / copy). Recipients are resolved server-side: Basename forward or reverse (forward-verified), avatar, and the BStocks profile (member badge, handle when public).
 
+### 5.3 Gift pools (`contracts/src/GiftPool.sol`)
+
+One deposit, many equal claims — the contract behind `/pools`. Ownerless like GiftEscrow: no admin, no pause, no upgrade, no fee, no token allowlist; it can only pay a claimant their exact share or return the unclaimed remainder to the creator. 64 Foundry tests, including four stateful invariants (conservation, solvency, claim-count agreement, no oversold slots).
+
+- **No division onchain.** The creator states the amount per claim and the contract multiplies by the slot count, so nothing rounds and no dust is stranded. `splitIntoShares` does the flooring in the browser and shows the creator what stays in their wallet. The invariant that follows: `balanceOf(pool) >= amountPerClaim × (slots − claimed)` for every leg not yet withdrawn.
+- **One gate, three products.** `gate == address(0)` is an open pool (one share per address, self-claim only, so nobody can spend a pool on addresses of their own choosing). Otherwise every claim carries an EIP-712 `Ticket(poolId, recipient, deadline)` signed by `gate` — an ephemeral link key held only in the share link's fragment, or the server's campaign signer (`POOL_GATE_SIGNER_KEY`) which signs after verifying quests. Gated claims may be submitted by anyone, so a relayer or a sponsored smart account can pay the gas. Low-`s` and `v ∈ {27,28}` are enforced.
+- **Packages.** Up to 8 legs (`MAX_LEGS`), each paying a fixed raw amount per claim, all in one claim transaction. B20 `balanceOf` is the raw balance and does not rebase, so a share promised at creation is the same share at claim time.
+- **Closing is two steps on purpose.** `cancel` only flips a flag and moves nothing, so a stock its issuer has paused can never keep the creator from closing the pool; `withdrawLeg` then brings tokens home one at a time and `withdraw` batches the healthy ones. Base Account does both in one atomic confirmation.
+- **`lockedUntil`** lets a creator give up the right to cancel for a period — an onchain-verifiable promise, shown as a Locked badge.
+- **Quests** never reach the contract. `src/services/quest-service.ts` only offers checks provable from the chain or a signature (Basename ownership, a minimum balance, a purchase re-verified against its transaction receipt, a SIWE sign-in). App-side `trade_records` are used as a lookup index, never as evidence. A "follow us on X" task cannot be verified with the free API and is deliberately absent.
+- **Who claimed.** `PoolClaimed` logs are the truth; the claim page reports its own transaction for speed (`confirmed`) and the daily cron sweep matches rows against logs (`reconciled`). Only the creator sees the roster.
+
 ---
 
 ## 6. Earn and liquidity
@@ -188,6 +201,8 @@ Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market pr
 | `GEOBLOCK_COUNTRIES`, `GEOBLOCK_MODE` | Compliance |
 | `ADMIN_API_TOKEN` | `/admin` verification |
 | `CRON_SECRET` | Bearer token Vercel Cron sends to `/api/cron/refresh` (discovery + status on serverless) |
+| `NEXT_PUBLIC_GIFT_POOL_ADDRESS` | Deployed GiftPool. Empty hides gift pools entirely rather than pointing users at nothing |
+| `POOL_GATE_SIGNER_KEY` | Campaign signer for quest-gated pools (server-only, 32-byte hex). Without it, open and link pools still work |
 | `MORPHO_API_URL`, `MARKET_WARMUP` | Optional overrides |
 
 No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp is deliberately not integrated.
@@ -207,6 +222,9 @@ No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp 
 | `GET/POST/PATCH /api/automation`, `POST /api/automation/intent` | Rules, AI plan draft |
 | `GET /api/earn`, `/api/earn/[address]`, `POST /api/earn/prepare`, `GET /api/earn/lp` | Discovery, deposit calls, LP positions |
 | `GET/POST /api/gifts`, `GET/PATCH /api/gifts/[id]` | Gift records and receipts |
+| `GET/POST /api/pools`, `GET/PATCH /api/pools/[id]` | Gift pools: public directory, a creator's own pools, create and presentation edits |
+| `GET/POST /api/pools/[id]/ticket` | Quest checklist for the signed-in wallet, and the campaign signer's claim ticket |
+| `GET/POST/PUT /api/pools/[id]/claims` | Claim roster (creator only), a claim page reporting its transaction, and the log reconciliation |
 | `GET /api/basename/resolve`, `/reverse` | Recipient resolution with profile |
 | `GET /api/activity/[address]` | Timeline with onchain verification |
 | `GET /api/profiles/[ref]`, `/me`, `GET/POST /api/baskets`, `/api/community/pulse`, `/api/referrals`, `/api/watchlist` | Community and profile |

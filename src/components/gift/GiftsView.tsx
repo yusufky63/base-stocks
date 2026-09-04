@@ -11,13 +11,16 @@ import { AssetLogo } from "@/components/common/display";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { Button, LinkButton, Module, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
+import { isPoolDeployed } from "@/lib/pool";
+import { PoolCreateFlow } from "@/components/pool/PoolCreateFlow";
+import { PoolHistory } from "@/components/pool/PoolHistory";
 import { ClaimLinkFlow } from "./ClaimLinkFlow";
 import { BulkClaimLinks } from "./BulkClaimLinks";
 import { GiftHistory } from "./GiftHistory";
 import { SendSheet } from "./SendSheet";
 
 type Tab = "create" | "history";
-type Mode = "address" | "link" | "bulk";
+type Mode = "address" | "link" | "bulk" | "pool";
 
 /**
  * The Gift page: pick a stock you hold, choose how to give it — straight to an address or
@@ -31,6 +34,7 @@ export function GiftsView() {
   const [sendOpen, setSendOpen] = useState(false);
   const portfolio = usePortfolio(address);
   const assets = useAssets();
+  const poolsEnabled = isPoolDeployed();
 
   const holdings = useMemo(() => (portfolio.data?.holdings ?? []).filter((h) => BigInt(h.rawBalance) > 0n), [portfolio.data]);
   const holding: PortfolioHolding | null = holdings.find((h) => h.assetAddress.toLowerCase() === picked) ?? holdings[0] ?? null;
@@ -54,7 +58,10 @@ export function GiftsView() {
       />
 
       {tab === "history" ? (
-        <Module>{address ? <GiftHistory owner={address} /> : <div className="p-6 flex flex-col items-start gap-3"><p className="text-[14px] text-ink-secondary">Connect a wallet to see your gifts.</p><ConnectButton /></div>}</Module>
+        <div className="flex flex-col gap-6">
+          {poolsEnabled && address && <PoolHistory owner={address} />}
+          <Module>{address ? <GiftHistory owner={address} /> : <div className="p-6 flex flex-col items-start gap-3"><p className="text-[14px] text-ink-secondary">Connect a wallet to see your gifts.</p><ConnectButton /></div>}</Module>
+        </div>
       ) : !isConnected ? (
         <Module>
           <div className="p-6 flex flex-col items-start gap-3">
@@ -100,8 +107,8 @@ export function GiftsView() {
           </div>
         </Module>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 items-start">
-          <Module>
+        <div className={cx("grid grid-cols-1 gap-6 items-start", mode !== "pool" && "lg:grid-cols-[2fr_3fr]")}>
+          <Module className={cx(mode === "pool" && "hidden")}>
             <div className="px-4 py-3 border-b border-line font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">1 · What to give</div>
             <ul>
               {holdings.map((h) => {
@@ -139,11 +146,14 @@ export function GiftsView() {
                 onChange={setMode}
                 options={[
                   { value: "link", label: "Claim link" },
+                  ...(poolsEnabled ? ([{ value: "pool" as Mode, label: "Pool" }] as const) : []),
                   { value: "bulk", label: "Many links" },
                   { value: "address", label: "To an address" },
                 ]}
               />
-              {assetDTO && holding ? (
+              {mode === "pool" ? (
+                <PoolCreateFlow holdings={holdings} assets={assets.data?.assets ?? []} />
+              ) : assetDTO && holding ? (
                 mode === "link" ? (
                   <ClaimLinkFlow key={`link-${assetDTO.address}`} asset={assetDTO} raw={raw} scaled={scaled} priceUsd={holding.priceUsd} />
                 ) : mode === "bulk" ? (

@@ -46,6 +46,16 @@ const serverSchema = z.object({
   /** Shared secret Vercel Cron sends as a Bearer token to /api/cron/refresh. */
   CRON_SECRET: z.string().min(16).optional(),
   AUTH_SECRET: z.string().min(16).optional(),
+  /**
+   * Campaign signer for quest-gated gift pools. Server-only, never NEXT_PUBLIC_. Without it the
+   * app still offers open and link-gated pools; only quest gating is unavailable. Compromise is
+   * bounded by the pools that name this address as their gate and by their slot counts, so use a
+   * dedicated key for campaigns and rotate it by creating new pools.
+   */
+  POOL_GATE_SIGNER_KEY: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{64}$/, "Expected a 32-byte hex private key")
+    .optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
@@ -78,4 +88,6 @@ export const publicEnv = {
   /** Base Builder Code (public, appended to calldata as an ERC-8021 suffix). An empty env value counts as unset. */
   builderCode: process.env.NEXT_PUBLIC_BASE_BUILDER_CODE || "bc_71vd6x2w",
   paymasterUrl: process.env.NEXT_PUBLIC_PAYMASTER_URL ?? "",
+  /** GiftPool deployment. Empty until the contract is deployed; the app then hides pools. */
+  giftPoolAddress: process.env.NEXT_PUBLIC_GIFT_POOL_ADDRESS ?? "",
 } as const;

@@ -17,7 +17,7 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 - **Tests** landed 2026-09-03: `pnpm e2e` runs an 8-test anonymous Playwright smoke; vitest covers trade-router scoring and LP math; the escrow has 4 fuzz properties. Still open: wallet-connected e2e flows and provider schema tests for Kyber/Velora/Uniswap.
 - **Error monitoring** beyond `/status`: Sentry or Vercel Observability on API routes, with provider latency/fallback counters exported.
 - **Base app submission**: sign `accountAssociation` and set `baseBuilder.allowedAddresses` in `public/.well-known/farcaster.json`.
-- **Legal**: choose a license file; legal review of the eligibility notice and issuer disclosures before promotion.
+- **Legal**: choose a license file; legal review of the eligibility notice and issuer disclosures before promotion. Now a blocker for one specific thing: public, quest-gated gift pools distribute a tokenized security to strangers in exchange for an action, which is a promotional distribution rather than a private gift. Private and link-shared pools (Faz 1–2) do not wait on it; the public `/pools` directory should.
 
 ## Phase B — Execution depth
 
@@ -47,6 +47,8 @@ Base plans to replace Flashblocks with canonical 200ms blocks in the Denim hardf
 ## Phase E — Reach
 
 - **GiftEscrow shipped 2026-09-03** (`0x8D9fE4b3Ab9BecbE1181d15d51FB9724561C7f55`, `contracts/`, 17 Foundry tests): claim-link gifts with passkey onboarding and sponsored claims. Source verified on Basescan (2026-09-03). Still open: add the escrow's `claim` to the CDP paymaster allowlist so no-ETH recipients are actually sponsored, and a first real mainnet run (create → claim → cancel with a few dollars of stock).
+
+- **GiftPool built 2026-09-04** (`contracts/src/GiftPool.sol`, 64 Foundry tests incl. 4 stateful invariants): one deposit, many equal claims, covering three products with one ownerless contract — percentage pools (10 people, 10 % each), multi-stock packages (up to 8 legs paid in one claim) and quest-gated campaigns. No division onchain, so no dust; `cancel` and `withdrawLeg` are separate so an issuer pause can never trap a package; `lockedUntil` lets a creator give up the right to cancel. App surface: `/pools` directory, `/pools/[id]` claim + creator panel, a Pool tab in `/gifts`, three Supabase tables, five API routes, a quest verifier that only offers chain-provable checks, and a cron sweep that reconciles the roster against `PoolClaimed` logs. Still open, in order: deploy to Base and set `NEXT_PUBLIC_GIFT_POOL_ADDRESS`, add `GiftPool.claim` to the CDP paymaster allowlist (without it a no-ETH claimer cannot take a share), run a small real pool end to end, verify on Basescan, and get the legal review below done **before** the public directory is promoted.
 
 - **LI.FI SDK / widget in-app** instead of the hosted jumper.exchange link (heavy dependency; the link already covers 20+ chains).
 - **CoinGecko Onchain (paid)** as primary market data once public rate limits bind; the adapter already exists behind `COINGECKO_API_KEY`.
