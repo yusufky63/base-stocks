@@ -48,3 +48,16 @@ export function sortByTradingStatus<T>(items: T[], pick: (item: T) => { asset: P
     .sort((a, b) => a.rank - b.rank || a.i - b.i)
     .map((x) => x.item);
 }
+
+/**
+ * Whether a 24h move from this market means anything.
+ *
+ * A pool younger than a day has no honest "24h ago" to compare against, and a few thousand
+ * dollars of depth moves several percent on a single trade. On the day six stocks listed, the DEX
+ * reported Microsoft down 82% while its pool price sat 1% from the Chainlink reference — the
+ * number was an artifact of the pool being created, not the stock moving. Deep markets keep their
+ * change; the rest show nothing rather than something wrong.
+ */
+export function hasMeaningfulChange(status: TradingStatus): boolean {
+  return status === "tradable" || status === "thin";
+}

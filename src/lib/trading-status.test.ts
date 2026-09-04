@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortByTradingStatus, tradingStatus } from "./trading-status";
+import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "./trading-status";
 
 const asset = (over: { status?: "active" | "paused"; totalSupply?: string } = {}) => ({
   status: over.status ?? ("active" as const),
@@ -55,6 +55,20 @@ describe("trading status", () => {
     expect(tradingStatus(asset(), price(2_100_000, 6_200_000)).detail).toBe("$2.1M liquidity · $6.2M 24h");
     expect(tradingStatus(asset(), price(2_100_000, 0)).detail).toBe("$2.1M liquidity");
     expect(tradingStatus(asset(), price(2_100_000, null)).detail).toBe("$2.1M liquidity");
+  });
+
+  /**
+   * The second thing the six listings exposed: a pool created hours ago has no honest "24h ago",
+   * so the DEX reported Microsoft down 82% while its price sat 1% from the Chainlink reference.
+   */
+  it("only trusts a 24h move from a market deep enough to make one", () => {
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(2_100_000)).status)).toBe(true);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(27_905)).status)).toBe(true);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(9_979)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(108)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(0)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset({ totalSupply: "0" }), price(0)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset({ status: "paused" }), price(5_000_000)).status)).toBe(false);
   });
 
   it("orders deepest first and keeps input order within a tier", () => {

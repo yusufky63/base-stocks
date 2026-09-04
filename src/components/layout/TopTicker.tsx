@@ -6,7 +6,7 @@ import { useNews } from "@/components/news/NewsModule";
 import { useTickerSettings } from "@/hooks/useSettings";
 import { formatUsd } from "@/lib/format";
 import { AssetLogo, PriceChange } from "@/components/common/display";
-import { sortByTradingStatus } from "@/lib/trading-status";
+import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
 
 /**
  * Global marquee rows above the header: prices (on by default) and headlines (opt-in from
@@ -48,7 +48,7 @@ function PricesRow() {
       <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={16} className="rounded-[3px]" />
       <span className="font-medium">{asset.underlying}</span>
       <span className="num">{formatUsd(price?.displayUsd)}</span>
-      <PriceChange value={price?.marketChange24hPct} digits={1} />
+      <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status) ? price?.marketChange24hPct : null} digits={1} />
     </Link>
   ));
   return (
