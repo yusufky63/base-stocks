@@ -1,9 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAccount } from "wagmi";
-import { Sprout, ShieldCheck, Layers } from "lucide-react";
+import { Sprout, ShieldCheck, Layers, RefreshCw } from "lucide-react";
 import type { EarnOpportunity } from "@/domain/earn";
 import { apiGet } from "@/lib/client-api";
 import { formatPct, formatUsdCompact, timeAgo } from "@/lib/format";
@@ -21,7 +21,20 @@ type Item = EarnOpportunity & { symbol: string; underlying: string; logoURI?: st
 /** Earn: idle-USDC venues executed in-app + stock-specific opportunities discovered at runtime. */
 export function EarnOverview() {
   const { isConnected } = useAccount();
-  const { data, isLoading } = useQuery({ queryKey: ["earn", "all"], queryFn: () => apiGet<{ items: Item[]; updatedAt: number; checked?: { assets: number; of: number; providers: string[]; unavailable: string[] } }>("/api/earn"), staleTime: 2 * 60_000 });
+  const freshRef = useRef(false);
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["earn", "all"],
+    queryFn: () => {
+      const fresh = freshRef.current;
+      freshRef.current = false;
+      return apiGet<{ items: Item[]; updatedAt: number; checked?: { assets: number; of: number; providers: string[]; unavailable: string[] } }>(`/api/earn${fresh ? "?fresh=1" : ""}`);
+    },
+    staleTime: 2 * 60_000,
+  });
+  const hardRefresh = () => {
+    freshRef.current = true;
+    void refetch();
+  };
   const items = data?.items ?? [];
   const [selected, setSelected] = useState<Item | null>(null);
   // Supply/vault and borrow venues for B20 stocks do not exist yet; filters for them were
@@ -55,7 +68,25 @@ export function EarnOverview() {
       <LpPositionsModule />
 
       <Module>
-        <ModuleHeader index="S" title="Stock-specific venues" action={data ? <span className="text-[11px] font-mono text-ink-muted">updated {timeAgo(data.updatedAt)}</span> : undefined} />
+        <ModuleHeader
+          index="S"
+          title="Stock-specific venues"
+          action={
+            <span className="inline-flex items-center gap-2">
+              {data && <span className="text-[11px] font-mono text-ink-muted">updated {timeAgo(data.updatedAt)}</span>}
+              <button
+                type="button"
+                onClick={hardRefresh}
+                disabled={isFetching}
+                aria-label="Re-scan all venues"
+                title="Re-scan all venues (bypasses the cache)"
+                className="inline-flex items-center justify-center h-7 w-7 rounded-[6px] border border-line text-ink-secondary hover:text-ink hover:border-line-strong transition-fast disabled:opacity-50"
+              >
+                <RefreshCw size={13} strokeWidth={1.75} className={isFetching ? "animate-spin" : undefined} />
+              </button>
+            </span>
+          }
+        />
         {isLoading && (
           <div className="p-4 flex flex-col gap-2">
             <Skeleton className="h-12" />

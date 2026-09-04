@@ -1,35 +1,106 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Address } from "viem";
+import type { PortfolioCurve, CurveWindow } from "@/services/portfolio-curve-service";
 import { apiGet } from "@/lib/client-api";
 import { formatUsd, formatPct } from "@/lib/format";
-import { Module, ModuleHeader } from "@/components/ui/primitives";
+import { Module, ModuleHeader, Skeleton, cx } from "@/components/ui/primitives";
+import { Segmented } from "@/components/ui/Segmented";
 import { Sparkline } from "@/components/ui/Sparkline";
 
-/** Portfolio value history from daily snapshots (recorded on each visit). */
+type Range = CurveWindow | "ALL";
+
+const RANGES: Array<{ value: Range; label: string }> = [
+  { value: "1D", label: "1D" },
+  { value: "1W", label: "1W" },
+  { value: "1M", label: "1M" },
+  { value: "ALL", label: "All" },
+];
+
+/**
+ * Two different charts behind one control, and the difference is stated rather than blurred.
+ *
+ * 1D / 1W / 1M price the stocks held *right now* back through the Chainlink reference: it answers
+ * "how has what I hold moved", and buys, sells and gifts are invisible in it. All is the daily
+ * snapshot record — what the account was actually worth, deposits and trades included — which only
+ * exists from the day the wallet first opened this page.
+ */
 export function HistoryModule({ address }: { address: Address }) {
-  const { data } = useQuery({ queryKey: ["portfolio", "history", address.toLowerCase()], queryFn: () => apiGet<{ points: Array<{ day: string; totalUsd: number }> }>(`/api/portfolio/${address}/history?days=90`), staleTime: 5 * 60_000 });
-  const points = data?.points ?? [];
-  const first = points[0]?.totalUsd ?? null;
-  const last = points[points.length - 1]?.totalUsd ?? null;
-  const change = first && last ? ((last - first) / first) * 100 : null;
+  const [range, setRange] = useState<Range>("1D");
+
+  const curve = useQuery({
+    queryKey: ["portfolio", "curve", address.toLowerCase(), range],
+    queryFn: () => apiGet<{ curve: PortfolioCurve }>(`/api/portfolio/${address}/curve?window=${range}`).then((r) => r.curve),
+    enabled: range !== "ALL",
+    staleTime: 60_000,
+  });
+
+  const snapshots = useQuery({
+    queryKey: ["portfolio", "history", address.toLowerCase()],
+    queryFn: () => apiGet<{ points: Array<{ day: string; totalUsd: number }> }>(`/api/portfolio/${address}/history?days=365`),
+    enabled: range === "ALL",
+    staleTime: 5 * 60_000,
+  });
+
+  const loading = range === "ALL" ? snapshots.isLoading : curve.isLoading;
+  const series = range === "ALL" ? (snapshots.data?.points ?? []).map((p) => p.totalUsd) : (curve.data?.points ?? []).map((p) => p.usd);
+  const first = series[0] ?? null;
+  const last = series[series.length - 1] ?? null;
+  const changePct = range === "ALL" ? (first && last ? ((last - first) / first) * 100 : null) : (curve.data?.changePct ?? null);
+
+  const header = (
+    <ModuleHeader
+      index="H"
+      title="Value history"
+      action={<Segmented<Range> size="sm" className="w-[200px]" ariaLabel="History range" value={range} onChange={setRange} options={RANGES} />}
+    />
+  );
+
+  if (loading) {
+    return (
+      <Module>
+        {header}
+        <div className="p-4">
+          <Skeleton className="h-[72px]" />
+        </div>
+      </Module>
+    );
+  }
+
+  if (series.length < 2) {
+    return (
+      <Module>
+        {header}
+        <p className="px-4 py-4 text-[13px] text-ink-secondary">
+          {range === "ALL"
+            ? "The account's own value history starts the first day this page is opened, and builds from there. Pick 1D to see how what you hold has moved in the meantime."
+            : "Nothing to chart yet: no stock with a reference feed is held in this wallet."}
+        </p>
+      </Module>
+    );
+  }
+
   return (
     <Module>
-      <ModuleHeader index="H" title="Value history" action={<span className="font-mono text-[11px] text-ink-muted">{points.length} days</span>} />
-      {points.length < 2 ? (
-        <p className="px-4 py-4 text-[13px] text-ink-secondary">History builds up daily as you visit; come back tomorrow for the first line.</p>
-      ) : (
-        <div className="p-4 flex items-center justify-between gap-4">
-          <Sparkline points={points.map((p) => p.totalUsd)} width={260} height={72} />
-          <div className="text-right">
-            <div className="display num text-[22px]">{formatUsd(last)}</div>
-            <div className="text-[12px] font-mono text-ink-secondary">
-              {formatPct(change, { sign: true })} since {points[0]!.day}
-            </div>
+      {header}
+      <div className="p-4 flex items-center justify-between gap-4">
+        <Sparkline points={series} width={260} height={72} />
+        <div className="text-right">
+          <div className="display num text-[22px]">{formatUsd(last)}</div>
+          <div className={cx("text-[12px] font-mono num", (changePct ?? 0) > 0 ? "text-positive-fg" : (changePct ?? 0) < 0 ? "text-danger-fg" : "text-ink-secondary")}>
+            {formatPct(changePct, { sign: true })}
           </div>
         </div>
-      )}
+      </div>
+      <p className="px-4 py-2.5 text-[11px] text-ink-muted border-t border-line">
+        {range === "ALL"
+          ? `What the account was worth, from ${snapshots.data?.points[0]?.day ?? "the first visit"} — deposits and trades included.`
+          : "What you hold today, priced back through the Chainlink reference. Buys, sells and gifts do not appear; pick All for the account's own record."}
+        {range !== "ALL" && curve.data?.flat && " The reference has not moved in this window — stock feeds are 24/5."}
+        {range !== "ALL" && (curve.data?.missing.length ?? 0) > 0 && ` ${curve.data!.missing.join(", ")} left out: no reference feed to price ${curve.data!.missing.length > 1 ? "them" : "it"} back.`}
+      </p>
     </Module>
   );
 }
