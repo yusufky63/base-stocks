@@ -8,7 +8,6 @@ const serverSchema = z.object({
   BASE_RPC_URL: z.string().url().optional(),
   /** Second keyed RPC (dRPC); slots in between the primary and the CDP fallback. */
   DRPC_RPC_URL: z.string().url().optional(),
-  FLASHBLOCKS_RPC_URL: z.string().url().optional(),
   ZEROX_API_KEY: z.string().min(1).optional(),
   /** Uniswap Trading API key (developers.uniswap.org); enables the Uniswap route behind KyberSwap. */
   UNISWAP_API_KEY: z.string().min(1).optional(),
@@ -76,7 +75,6 @@ export const publicEnv = {
   /** Official production origin as the fallback so share links, wallet metadata and manifests never point at localhost. */
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? (process.env.NODE_ENV === "production" ? "https://basestocks.finance" : "http://localhost:3000"),
   baseRpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL ?? "",
-  flashblocksRpcUrl: process.env.NEXT_PUBLIC_FLASHBLOCKS_RPC_URL ?? "",
   /** Base Builder Code (public, appended to calldata as an ERC-8021 suffix). An empty env value counts as unset. */
   builderCode: process.env.NEXT_PUBLIC_BASE_BUILDER_CODE || "bc_71vd6x2w",
   paymasterUrl: process.env.NEXT_PUBLIC_PAYMASTER_URL ?? "",

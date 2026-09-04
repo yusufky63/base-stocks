@@ -1,5 +1,5 @@
 import type { Hash } from "viem";
-import { getFlashblocksClient, getServerPublicClient } from "@/lib/viem/server-client";
+import { getFastReceiptClient, getServerPublicClient } from "@/lib/viem/server-client";
 import { metrics } from "@/lib/http";
 
 export type TxStatus = "unknown" | "submitted" | "preconfirmed" | "confirmed" | "failed";
@@ -8,7 +8,7 @@ export interface TxStatusResult {
   status: TxStatus;
   blockNumber?: number;
   /** Which path produced the status (for observability/UI debug). */
-  via: "receipt" | "flashblocks" | "mempool" | "none";
+  via: "receipt" | "fast" | "mempool" | "none";
 }
 
 export interface ConfirmationProvider {
@@ -16,16 +16,18 @@ export interface ConfirmationProvider {
 }
 
 /**
- * Flashblocks-aware confirmation with normal receipt fallback (spec §17).
- * - A receipt from the Flashblocks-aware RPC whose block is beyond the latest sealed block = preconfirmed.
+ * Fast-receipt confirmation with normal receipt fallback (spec §17).
+ * - A receipt from the fast RPC whose block is beyond the latest sealed block = preconfirmed
+ *   (Flashblocks today; after the Denim hardfork the same call returns canonical 200ms blocks and
+ *   this path simply reports confirmed-grade data faster).
  * - A receipt from the regular RPC (or sealed block) = confirmed / failed.
  * - `base_transactionStatus` == Known = submitted (in mempool).
- * Future block-cadence changes only touch this adapter.
+ * Block-cadence changes only touch this adapter.
  */
-export class FlashblocksConfirmationProvider implements ConfirmationProvider {
+export class FastReceiptConfirmationProvider implements ConfirmationProvider {
   async getStatus(hash: Hash): Promise<TxStatusResult> {
     const normal = getServerPublicClient();
-    const fast = getFlashblocksClient();
+    const fast = getFastReceiptClient();
 
     const [receipt, latest] = await Promise.all([
       normal.getTransactionReceipt({ hash }).catch(() => null),
@@ -35,7 +37,7 @@ export class FlashblocksConfirmationProvider implements ConfirmationProvider {
       if (latest === null || receipt.blockNumber <= latest) {
         return { status: receipt.status === "success" ? "confirmed" : "failed", blockNumber: Number(receipt.blockNumber), via: "receipt" };
       }
-      return { status: receipt.status === "success" ? "preconfirmed" : "failed", blockNumber: Number(receipt.blockNumber), via: "flashblocks" };
+      return { status: receipt.status === "success" ? "preconfirmed" : "failed", blockNumber: Number(receipt.blockNumber), via: "fast" };
     }
 
     // Flashblocks-aware endpoint may already know the receipt.
@@ -43,7 +45,7 @@ export class FlashblocksConfirmationProvider implements ConfirmationProvider {
       const fastReceipt = await fast.getTransactionReceipt({ hash });
       if (fastReceipt) {
         metrics.count("tx.preconfirmed");
-        return { status: fastReceipt.status === "success" ? "preconfirmed" : "failed", blockNumber: Number(fastReceipt.blockNumber), via: "flashblocks" };
+        return { status: fastReceipt.status === "success" ? "preconfirmed" : "failed", blockNumber: Number(fastReceipt.blockNumber), via: "fast" };
       }
     } catch {
       /* not available on this endpoint */
@@ -69,4 +71,4 @@ export class FlashblocksConfirmationProvider implements ConfirmationProvider {
   }
 }
 
-export const confirmationService: ConfirmationProvider = new FlashblocksConfirmationProvider();
+export const confirmationService: ConfirmationProvider = new FastReceiptConfirmationProvider();

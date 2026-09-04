@@ -32,7 +32,7 @@ function createBaseClient(transport: ReturnType<typeof fallback>, multicall: boo
 export type BasePublicClient = ReturnType<typeof createBaseClient>;
 
 let publicClient: BasePublicClient | null = null;
-let flashblocksClient: BasePublicClient | null = null;
+let fastReceiptClient: BasePublicClient | null = null;
 
 /**
  * Shared server-side public client for Base mainnet.
@@ -46,17 +46,14 @@ export function getServerPublicClient(): BasePublicClient {
 }
 
 /**
- * Flashblocks-aware client used only by the confirmation service.
- * Falls back to the regular RPC when no dedicated endpoint is configured.
+ * Fast-receipt client used only by the confirmation service. mainnet.base.org serves receipts from
+ * Flashblocks preconfirmed state today and will serve canonical 200ms blocks after the Denim
+ * hardfork - the plain getTransactionReceipt call this client exists for works identically in both
+ * eras, so nothing here changes at activation. Other RPCs are left out on purpose: they answer
+ * only at the sealed 2s cadence, which the regular client already covers.
  */
-export function getFlashblocksClient(): BasePublicClient {
-  if (flashblocksClient) return flashblocksClient;
-  const env = serverEnv();
-  // mainnet.base.org is Flashblocks-aware (pending-tag state); a dedicated RPC (Alchemy etc.) usually is not.
-  // The configured endpoint gets mainnet.base.org behind it so preconfirm status survives its outage;
-  // other public RPCs are left out on purpose (they would answer, without the pending tag).
-  const primary = env.FLASHBLOCKS_RPC_URL ?? "https://mainnet.base.org";
-  const urls = primary === "https://mainnet.base.org" ? [primary] : [primary, "https://mainnet.base.org"];
-  flashblocksClient = createBaseClient(fallback(urls.map((u) => http(u, { timeout: 5_000, batch: true, retryCount: 1 })), { rank: false }), false);
-  return flashblocksClient;
+export function getFastReceiptClient(): BasePublicClient {
+  if (fastReceiptClient) return fastReceiptClient;
+  fastReceiptClient = createBaseClient(fallback([http("https://mainnet.base.org", { timeout: 5_000, batch: true, retryCount: 1 })], { rank: false }), false);
+  return fastReceiptClient;
 }
