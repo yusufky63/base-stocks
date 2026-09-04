@@ -47,7 +47,14 @@ export const OG = {
   ink: "#0a0b0d",
   secondary: "#5b616e",
   muted: "#717886",
-  /** Vivid lime for gifts; the deep tone stays for text that needs contrast on white. */
+  /**
+   * The gift accent, in one place: every gift and pool card reads from here, so the whole family
+   * changes together. `giftDeep` is the tone that carries text and bars on white, where the bright
+   * one would not hold contrast.
+   */
+  gift: "#7856ff",
+  giftDeep: "#4a2fc9",
+  /** The app’s lime, still used for a positive price move. */
   green: "#66c800",
   greenDeep: "#2f7d00",
   positive: "#2f7d00",
@@ -230,6 +237,29 @@ export function OgWeights({ allocations, accent = OG.blue }: { allocations: { as
           <div style={{ display: "flex", width: 62, justifyContent: "flex-end", fontFamily: OG.mono, fontSize: 20, color: OG.secondary }}>{`${Math.round(r.weightBps / 100)}%`}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The legs of a package, listed with what each claim gets.
+ *
+ * A pool of one or two stocks reads fine as a sentence. Past that the label becomes a wall of
+ * repeated amounts that wraps three lines deep and still leaves most of the package unnamed, so
+ * the legs move here and every one of them gets said.
+ */
+export function OgLegs({ legs, accent = OG.blue }: { legs: { underlying: string; amount: string }[]; accent?: string }) {
+  const shown = legs.slice(0, 6);
+  const rest = legs.length - shown.length;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 10, width: 340 }}>
+      {shown.map((l) => (
+        <div key={l.underlying} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingBottom: 8, borderBottom: `1px solid ${OG.border}` }}>
+          <div style={{ display: "flex", fontFamily: OG.mono, fontSize: 22, color: OG.ink }}>{l.underlying}</div>
+          <div style={{ display: "flex", fontFamily: OG.mono, fontSize: 22, color: accent }}>{l.amount}</div>
+        </div>
+      ))}
+      {rest > 0 && <div style={{ display: "flex", fontSize: 19, color: OG.muted }}>{`+${rest} more`}</div>}
     </div>
   );
 }
