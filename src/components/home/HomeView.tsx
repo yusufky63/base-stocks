@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
 import { GiftsCard } from "@/components/pool/PoolList";
@@ -24,18 +25,27 @@ import { FundWallet } from "@/components/common/FundWallet";
 
 export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: AssetsResponse; initialTemplates?: PortfolioTemplate[] }) {
   const { address, isConnected } = useAccount();
-  const { data: assets } = useAssets(initialAssets);
+  // Home opts out of the 30s price poll: the movers list should stay still, not reshuffle under the reader.
+  const { data: assets } = useAssets(initialAssets, { refetchInterval: false });
   const { data: portfolio, isLoading: loadingPortfolio } = usePortfolio(address);
   const { data: templates } = useTemplates(initialTemplates);
   const { data: activity } = useActivity(address);
   const { data: sparks } = useSparklines();
   const watchlist = useWatchlist(address);
 
-  const priced = (assets?.assets ?? []).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] }));
-  const ordered = sortByTradingStatus(priced, (x) => x);
-  const movers = ordered.filter((x) => hasMeaningfulChange(tradingStatus(x.asset, x.price).status, x.price)).sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0)).slice(0, 6);
-  const watched = priced.filter(({ asset }) => watchlist.has(asset.address));
-  const quick = ordered.slice(0, 4);
+  // Derived once per assets change, so the portfolio's own refetch cannot re-sort or re-animate the lists.
+  const priced = useMemo(() => (assets?.assets ?? []).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] })), [assets]);
+  const ordered = useMemo(() => sortByTradingStatus(priced, (x) => x), [priced]);
+  const movers = useMemo(
+    () =>
+      ordered
+        .filter((x) => hasMeaningfulChange(tradingStatus(x.asset, x.price).status, x.price))
+        .sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0))
+        .slice(0, 6),
+    [ordered],
+  );
+  const watched = useMemo(() => priced.filter(({ asset }) => watchlist.has(asset.address)), [priced, watchlist]);
+  const quick = useMemo(() => ordered.slice(0, 4), [ordered]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -118,7 +128,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
                 <Link key={asset.canonicalId} href={`/stocks/${asset.address}?trade=buy`} className="rail p-4 border-r border-b border-line md:border-b-0 [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:last:border-r-0 hover:bg-surface transition-fast">
                   <div className="flex items-center justify-between">
                     <Coin3D underlying={asset.underlying} symbol={asset.symbol} fallbackSrc={asset.logoURI} size={40} />
-                    <Sparkline points={sparks?.series[asset.canonicalId] ?? []} width={64} height={22} />
+                    <Sparkline points={sparks?.series24h[asset.canonicalId] ?? []} width={64} height={22} />
                   </div>
                   <div className="mt-3 font-medium">{asset.underlying}</div>
                   <div className="display num text-[20px]">
@@ -134,7 +144,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             <Module>
               <ModuleHeader title="Watchlist" />
               {watched.map(({ asset, price }) => (
-                <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} />
+                <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series24h[asset.canonicalId]} />
               ))}
             </Module>
           )}
@@ -144,7 +154,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
           <Module>
             <ModuleHeader title="Top movers" />
             {movers.map(({ asset, price }) => (
-              <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} />
+              <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series24h[asset.canonicalId]} />
             ))}
             {movers.length === 0 && (
               <div className="p-4 flex flex-col gap-2">
