@@ -51,7 +51,7 @@ export const qk = {
 export function useSparklines() {
   return useQuery({
     queryKey: ["sparklines"],
-    queryFn: () => apiGet<{ series: Record<string, number[]>; updatedAt: number }>("/api/sparklines"),
+    queryFn: () => apiGet<{ series: Record<string, number[]>; series24h: Record<string, number[]>; updatedAt: number }>("/api/sparklines"),
     staleTime: 5 * 60_000,
   });
 }
@@ -69,12 +69,13 @@ export function useConfigFlags() {
   return useQuery({ queryKey: qk.config, queryFn: () => apiGet<ConfigResponse>("/api/config"), staleTime: 5 * 60_000 });
 }
 
-export function useAssets(initialData?: AssetsResponse) {
+export function useAssets(initialData?: AssetsResponse, opts?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: qk.assets,
     queryFn: () => apiGet<AssetsResponse>("/api/assets"),
     initialData,
-    refetchInterval: 30_000,
+    // Most surfaces want live prices (30s); the home page opts out so it does not reshuffle under you.
+    refetchInterval: opts?.refetchInterval ?? 30_000,
     placeholderData: keepPreviousData,
   });
 }

@@ -5,7 +5,7 @@ const asset = (over: { status?: "active" | "paused"; totalSupply?: string } = {}
   status: over.status ?? ("active" as const),
   totalSupply: over.totalSupply ?? "100000000000",
 });
-const price = (liquidityUsd: number | null, volume24hUsd: number | null = null) => ({ liquidityUsd, volume24hUsd });
+const price = (liquidityUsd: number | null, volume24hUsd: number | null = null, marketChange24hPct: number | null = 1.2) => ({ liquidityUsd, volume24hUsd, marketChange24hPct });
 
 describe("trading status", () => {
   it("puts issuance and pauses ahead of any liquidity question", () => {
@@ -62,13 +62,13 @@ describe("trading status", () => {
    * so the DEX reported Microsoft down 82% while its price sat 1% from the Chainlink reference.
    */
   it("only trusts a 24h move from a market with real depth", () => {
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(2_100_000)).status)).toBe(true);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(100_000)).status)).toBe(true);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(27_905)).status)).toBe(false);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(108)).status)).toBe(false);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(0)).status)).toBe(false);
-    expect(hasMeaningfulChange(tradingStatus(asset({ totalSupply: "0" }), price(0)).status)).toBe(false);
-    expect(hasMeaningfulChange(tradingStatus(asset({ status: "paused" }), price(5_000_000)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(2_100_000)).status, price(2_100_000))).toBe(true);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(100_000)).status, price(100_000))).toBe(true);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(27_905)).status, price(27_905))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(108)).status, price(108))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(0)).status, price(0))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset({ totalSupply: "0" }), price(0)).status, price(0))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset({ status: "paused" }), price(5_000_000)).status, price(5_000_000))).toBe(false);
   });
 
   /**
@@ -76,9 +76,33 @@ describe("trading status", () => {
    * it, when the two were equally meaningless. Seventy-one dollars of depth decides nothing.
    */
   it("does not let a market squeak past on the thin boundary", () => {
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(10_071)).status)).toBe(false);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(9_979)).status)).toBe(false);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(99_999)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(10_071)).status, price(10_071))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(9_979)).status, price(9_979))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(99_999)).status, price(99_999))).toBe(false);
+  });
+
+  /**
+   * Depth was not enough on its own. Amazon cleared the bar at $111k and still reported -68% for
+   * the day; Strategy did the same at $110k. Ten thousand dollars past the line is still a book
+   * one trade can write, and a competitor's table prints exactly these beside the real ones.
+   */
+  it("refuses a move the depth behind it could not have produced", () => {
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(111_000)).status, price(111_000, null, -67.81))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(110_000)).status, price(110_000, null, -72.45))).toBe(false);
+    // The same market on an ordinary day keeps its move.
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(111_000)).status, price(111_000, null, -1.96))).toBe(true);
+  });
+
+  it("trusts a large move once the book is deep enough to mean it", () => {
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(2_400_000)).status, price(2_400_000, null, -41))).toBe(true);
+    // Just under the deep line, the same move is the pool talking rather than the stock.
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(999_999)).status, price(999_999, null, -41))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(999_999)).status, price(999_999, null, -25))).toBe(true);
+  });
+
+  it("says nothing when the feed reports no move at all", () => {
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(2_400_000)).status, price(2_400_000, null, null))).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(2_400_000)).status, null)).toBe(false);
   });
 
   it("orders deepest first and keeps input order within a tier", () => {

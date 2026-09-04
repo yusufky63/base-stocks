@@ -19,6 +19,10 @@ export interface TradingStatusView {
 }
 
 const LIQUID_USD = 100_000;
+/** Deep enough that a large daily move is news rather than one order against a thin book. */
+const DEEP_USD = 1_000_000;
+/** Below DEEP_USD, the largest daily move still credited to the stock rather than to a single trade. */
+const MAX_THIN_MOVE_PCT = 25;
 const THIN_USD = 10_000;
 
 function compactUsd(n: number): string {
@@ -61,9 +65,24 @@ export function sortByTradingStatus<T>(items: T[], pick: (item: T) => { asset: P
  * So the line is depth, not almost-depth. At $28k a single $3k trade moves the price ten percent,
  * which is a fact about one trade and not about the stock. Thin markets keep everything else —
  * price, liquidity, the Chainlink reference beside it — and simply do not assert a daily move.
+ *
+ * Depth alone turned out not to be enough. Amazon at $111k of liquidity cleared the bar and then
+ * reported −68% for the day, and Strategy did the same at $110k: past the line by ten thousand
+ * dollars, and still a book thin enough that one trade wrote the number. A competitor's table
+ * prints exactly these, next to the real ones, with nothing to tell them apart.
+ *
+ * So the size of the move is weighed against the depth that produced it. Past a million of
+ * liquidity a large move is treated as news, because a book that deep does not swing on one order.
+ * Under it, a move beyond a quarter is far likelier to be one trade than the company losing that
+ * much of itself in a day — and a real stock that genuinely falls that far will be reported by
+ * every feed the page already shows, not just this one.
  */
-export function hasMeaningfulChange(status: TradingStatus): boolean {
-  return status === "tradable";
+export function hasMeaningfulChange(status: TradingStatus, price: Pick<PriceView, "liquidityUsd" | "marketChange24hPct"> | null | undefined): boolean {
+  if (status !== "tradable") return false;
+  const change = price?.marketChange24hPct;
+  if (change === null || change === undefined) return false;
+  const liq = price?.liquidityUsd ?? 0;
+  return liq >= DEEP_USD || Math.abs(change) <= MAX_THIN_MOVE_PCT;
 }
 
 /**

@@ -33,7 +33,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
 
   const priced = (assets?.assets ?? []).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] }));
   const ordered = sortByTradingStatus(priced, (x) => x);
-  const movers = ordered.filter((x) => hasMeaningfulChange(tradingStatus(x.asset, x.price).status) && x.price?.marketChange24hPct !== null && x.price?.marketChange24hPct !== undefined).sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0)).slice(0, 6);
+  const movers = ordered.filter((x) => hasMeaningfulChange(tradingStatus(x.asset, x.price).status, x.price)).sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0)).slice(0, 6);
   const watched = priced.filter(({ asset }) => watchlist.has(asset.address));
   const quick = ordered.slice(0, 4);
 
@@ -124,7 +124,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
                   <div className="display num text-[20px]">
                     <AnimatedNumber value={price?.displayUsd} format={(v) => formatUsd(v)} />
                   </div>
-                  <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status) ? price?.marketChange24hPct : null} className="text-[12px]" />
+                  <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status, price) ? price?.marketChange24hPct : null} className="text-[12px]" />
                 </Link>
               ))}
             </div>
@@ -241,7 +241,7 @@ function MiniRow({ asset, price, spark }: { asset: AssetsResponse["assets"][numb
         <span className="block display num text-[15px]">
           <AnimatedNumber value={price?.displayUsd} format={(v) => formatUsd(v)} />
         </span>
-        <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status) ? price?.marketChange24hPct : null} className="text-[12px]" />
+        <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status, price) ? price?.marketChange24hPct : null} className="text-[12px]" />
       </span>
     </Link>
   );

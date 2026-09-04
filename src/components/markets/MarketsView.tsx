@@ -65,7 +65,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
     if (filter === "watchlist") list = list.filter(({ asset }) => watchlist.has(asset.address));
     else if (filter === "movers")
       list = [...list]
-        .filter(({ asset, price }) => hasMeaningfulChange(tradingStatus(asset, price).status) && price?.marketChange24hPct !== null && price?.marketChange24hPct !== undefined)
+        .filter(({ asset, price }) => hasMeaningfulChange(tradingStatus(asset, price).status, price))
         .sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0));
     else if (filter !== "all") list = list.filter(({ asset }) => asset.tags.includes(filter));
     return list;
@@ -156,7 +156,7 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
         <div className="display num text-[16px]">
           <AnimatedNumber value={display} format={(v) => formatUsd(v)} />
         </div>
-        <PriceChange value={hasMeaningfulChange(view.status) ? price?.marketChange24hPct : null} className="text-[12px]" />
+        <PriceChange value={hasMeaningfulChange(view.status, price) ? price?.marketChange24hPct : null} className="text-[12px]" />
       </div>
       <div className="hidden md:flex justify-end">
         <Sparkline points={spark ?? []} width={84} height={26} />
@@ -166,7 +166,7 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
         {price?.displaySource === "reference" && <span className="block text-[10px] font-mono text-ink-muted uppercase">reference</span>}
       </div>
       <div className="hidden md:block text-right">
-        <PriceChange value={hasMeaningfulChange(view.status) ? price?.marketChange24hPct : null} />
+        <PriceChange value={hasMeaningfulChange(view.status, price) ? price?.marketChange24hPct : null} />
       </div>
       <div className="hidden md:block text-right font-mono num text-[12px]">
         <span className="block">{price?.liquidityUsd ? formatUsdCompact(price.liquidityUsd) : "—"}</span>

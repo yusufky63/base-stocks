@@ -48,7 +48,7 @@ function PricesRow() {
       <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={16} className="rounded-[3px]" />
       <span className="font-medium">{asset.underlying}</span>
       <span className="num">{formatUsd(price?.displayUsd)}</span>
-      <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status) ? price?.marketChange24hPct : null} digits={1} />
+      <PriceChange value={hasMeaningfulChange(tradingStatus(asset, price).status, price) ? price?.marketChange24hPct : null} digits={1} />
     </Link>
   ));
   return (
