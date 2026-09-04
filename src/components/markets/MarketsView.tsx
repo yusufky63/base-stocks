@@ -7,29 +7,17 @@ import { useAccount } from "wagmi";
 import type { Address } from "viem";
 import { useAssets, useRegion, useSparklines, useWatchlist } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
-import type { MarketTag } from "@/domain/asset";
 import { formatUsd, formatUsdCompact } from "@/lib/format";
 import { hasMeaningfulChange, sortByTradingStatus, tradingStatus, type TradingStatusView } from "@/lib/trading-status";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { RegionNotice } from "@/components/common/RegionNotice";
-import { Chip, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
+import { PageTitle, Skeleton, cx } from "@/components/ui/primitives";
 import { assetColor } from "@/lib/colors";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 
-type Filter = "all" | "watchlist" | "movers" | MarketTag;
 type SortKey = "default" | "price" | "change24h" | "liquidity";
-
-const FILTERS: Array<{ id: Filter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "technology", label: "Technology" },
-  { id: "ai", label: "AI" },
-  { id: "finance", label: "Finance" },
-  { id: "crypto", label: "Crypto" },
-  { id: "movers", label: "Top movers" },
-  { id: "watchlist", label: "Watchlist" },
-];
 
 const DOT: Record<TradingStatusView["tone"], string> = { positive: "bg-positive-fg", warning: "bg-warning-fg", neutral: "bg-ink-muted", danger: "bg-danger-fg" };
 const TEXT: Record<TradingStatusView["tone"], string> = { positive: "text-positive-fg", warning: "text-warning-fg", neutral: "text-ink-muted", danger: "text-danger-fg" };
@@ -65,7 +53,6 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
   const region = useRegion();
   const restricted = region.data?.restricted === true;
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "default", dir: "desc" });
   // Click cycles a column: unsorted → high-to-low → low-to-high → back to the default status order.
   const onSort = (key: SortKey) => setSort((s) => (s.key !== key ? { key, dir: "desc" } : s.dir === "desc" ? { key, dir: "asc" } : { key: "default", dir: "desc" }));
@@ -77,14 +64,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = all;
-    if (q) list = list.filter(({ asset }) => asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q) || asset.underlying.toLowerCase().includes(q));
-    if (filter === "watchlist") list = list.filter(({ asset }) => watchlist.has(asset.address));
-    else if (filter === "movers")
-      list = [...list]
-        .filter(({ asset, price }) => hasMeaningfulChange(tradingStatus(asset, price).status, price))
-        .sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0));
-    else if (filter !== "all") list = list.filter(({ asset }) => asset.tags.includes(filter));
+    let list = q ? all.filter(({ asset }) => asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q) || asset.underlying.toLowerCase().includes(q)) : all;
     if (sort.key !== "default") {
       const val = (p?: AssetsResponse["prices"][string]) => (sort.key === "price" ? p?.displayUsd : sort.key === "change24h" ? p?.marketChange24hPct : p?.liquidityUsd);
       list = [...list].sort((a, b) => {
@@ -97,7 +77,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
       });
     }
     return list;
-  }, [all, query, filter, watchlist, sort]);
+  }, [all, query, sort]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -124,14 +104,6 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         }
       />
 
-      <div className="flex gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0">
-        {FILTERS.map((f) => (
-          <Chip key={f.id} active={filter === f.id} onClick={() => setFilter(f.id)} disabled={f.id === "watchlist" && !address} title={f.id === "watchlist" && !address ? "Connect to use a watchlist" : undefined}>
-            {f.label}
-          </Chip>
-        ))}
-      </div>
-
       {restricted && region.data && <RegionNotice region={region.data} compact />}
       {data && <MarketStats rows={all} />}
       <div className="border border-line rounded-[8px] overflow-hidden bg-canvas ticks">
@@ -155,7 +127,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         {rows.map(({ asset, price }) => (
           <MarketRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} watched={watchlist.has(asset.address)} onToggleWatch={address ? () => watchlist.toggle(asset.address as Address) : undefined} restricted={restricted} />
         ))}
-        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{filter === "watchlist" ? "Your watchlist is empty. Star a stock to add it." : "No stocks match."}</p>}
+        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{query ? `No stocks match “${query}”.` : "No stocks match."}</p>}
       </div>
       <p className="text-[12px] text-ink-muted">Live = a DEX pool with $100k+ liquidity; Thin = $10k–100k; Not issued yet = the contract exists but Coinbase has not minted tokens on Base. Price is the DEX market price when a pool exists, otherwise the Chainlink reference (marked). Executable prices come from a live quote when you trade.</p>
     </div>
