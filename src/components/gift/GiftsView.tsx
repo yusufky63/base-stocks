@@ -5,10 +5,11 @@ import { useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { Gift as GiftIcon, Send } from "lucide-react";
 import type { PortfolioHolding } from "@/domain/portfolio";
-import { useAssets, usePortfolio } from "@/hooks/queries";
+import { useAssets, usePortfolio, useRegion } from "@/hooks/queries";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { ConnectButton } from "@/components/layout/ConnectButton";
+import { RegionNotice } from "@/components/common/RegionNotice";
 import { Button, LinkButton, Module, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { isPoolDeployed } from "@/lib/pool";
@@ -37,6 +38,10 @@ export function GiftsView() {
   const assets = useAssets();
   const poolsEnabled = isPoolDeployed();
   // The tab count is the point of the label: "Claim (3)" is an invitation, "Claim" is furniture.
+  const region = useRegion();
+  // Giving a stock away is a distribution, not browsing: the eligibility check gates it the same
+  // way it gates a trade. Claiming is gated on the claim page, where the claimant actually is.
+  const restricted = region.data?.restricted === true;
   const publicPools = usePublicPools();
   const openCount = (publicPools.data ?? []).filter((v) => v.pool.status === "live" && remainingShares(v) > 0).length;
 
@@ -74,6 +79,8 @@ export function GiftsView() {
           {poolsEnabled && address && <PoolHistory owner={address} />}
           <Module>{address ? <GiftHistory owner={address} /> : <div className="p-6 flex flex-col items-start gap-3"><p className="text-[14px] text-ink-secondary">Connect a wallet to see your gifts.</p><ConnectButton /></div>}</Module>
         </div>
+      ) : restricted && region.data ? (
+        <RegionNotice region={region.data} />
       ) : !isConnected ? (
         <Module>
           <div className="p-6 flex flex-col items-start gap-3">

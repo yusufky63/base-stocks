@@ -173,7 +173,9 @@ One deposit, many equal claims — the contract behind `/pools`. Ownerless like 
 
 ## 9. Compliance
 
-- Coinbase Tokenized Stocks are offered to eligible persons outside the United States. `GEOBLOCK_COUNTRIES` (default `US`) + `GEOBLOCK_MODE`: `attest` (default) shows an eligibility notice and lets the visitor self-certify (HttpOnly cookie `bstocks_eligibility`, 30 days), `block` answers 451 on execution routes. `/api/region` tells the UI the country, mode and current state. Nothing onchain blocks a holder today (policy 5), so the interface rule plus the legal notice is the enforcement layer; 0x's opt-in requires `block`.
+- Coinbase Tokenized Stocks are offered to eligible persons outside the United States. `GEOBLOCK_COUNTRIES` (default `US`) + `GEOBLOCK_MODE`: `attest` (default) shows an eligibility notice and lets the visitor self-certify (HttpOnly cookie `bstocks_eligibility`, 30 days), `block` answers 451. `/api/region` tells the UI the country, mode and current state. Nothing onchain blocks a holder today (policy 5), so the interface rule plus the legal notice is the enforcement layer; 0x's opt-in requires `block`.
+- **What the edge closes** (`src/proxy.ts`, covered by `src/proxy.test.ts`): execution routes for every method (`/api/trade/*`, `/api/earn/prepare`, `/api/portfolio/{plan,quote,execute}`), and **writes only** on `/api/gifts` and `/api/pools` — creating a gift or a pool, and asking BStocks to sign a claim ticket, is distribution of a tokenized security. Reading a receipt, the pool directory or a quest checklist is browsing and stays open everywhere.
+- **What the edge cannot close**: the claim transaction goes straight to the contract from the claimant's wallet. The eligibility notice on `/gifts/claim/[id]` and `/pools/[id]` is the gate there, as it is for any self-custodial transfer. The give side is gated in the UI too — `/gifts` shows the notice instead of the create flows for a restricted visitor.
 - The legal notice (footer, Settings, How it works) states: independent interface, not a Coinbase or Base product, no investment advice, templates are not recommendations, yields are variable.
 
 ---
