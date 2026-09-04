@@ -171,16 +171,45 @@ export function PoolList({ columns = 2, showFinished = true }: { columns?: 2 | 3
   );
 }
 
-/* ------------------------------- the teaser ------------------------------- */
+/* -------------------------------- home card ------------------------------- */
 
 /**
- * The home card. Renders nothing at all when no pool is open — an empty "nothing to claim" box on
- * the front page would be worse than no box.
+ * The gifts card on the home page. Always present, because the point is that gifting exists at
+ * all — but what it says depends on whether anything is actually claimable.
+ *
+ * With open pools it is a shelf: what each one pays, how many shares are left, one tap in. With
+ * none it is the invitation instead. What it never is, is an empty "nothing to claim" box, which
+ * would be the worst of both.
  */
-export function OpenPoolsTeaser({ max = 2 }: { max?: number }) {
+export function GiftsCard({ max = 2 }: { max?: number }) {
   const pools = usePublicPools();
   const open = (pools.data ?? []).filter((v) => v.pool.status === "live" && remainingShares(v) > 0).slice(0, max);
-  if (open.length === 0) return null;
+
+  if (open.length === 0) {
+    return (
+      <Module>
+        <ModuleHeader
+          title="Gift stock"
+          action={
+            <Link href="/pools" className="text-[13px] text-primary font-medium">
+              Open pools
+            </Link>
+          }
+        />
+        <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <span className="h-11 w-11 rounded-full bg-primary-soft inline-flex items-center justify-center shrink-0" aria-hidden>
+            <Gift size={20} strokeWidth={1.75} className="text-primary" />
+          </span>
+          <p className="text-[13px] text-ink-secondary flex-1 min-w-0">
+            Send a share of a stock to a Basename, an address, or a link that needs no wallet at all. Or fund a pool and let a whole group take one share each.
+          </p>
+          <LinkButton href="/gifts" variant="primary" className="shrink-0">
+            Gift a stock
+          </LinkButton>
+        </div>
+      </Module>
+    );
+  }
 
   return (
     <Module>
@@ -205,9 +234,7 @@ export function OpenPoolsTeaser({ max = 2 }: { max?: number }) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-medium text-[14px] leading-tight truncate">{shareLabel(v)}</span>
-                <span className="block text-[12px] text-ink-secondary truncate">
-                  {v.pool.title || `by ${v.creatorBasename ?? shortenAddress(v.pool.creator)}`}
-                </span>
+                <span className="block text-[12px] text-ink-secondary truncate">{v.pool.title || `by ${v.creatorBasename ?? shortenAddress(v.pool.creator)}`}</span>
               </span>
               <span className="text-right shrink-0">
                 {v.usdPerClaim !== null && <span className="block display num text-[15px]">{formatUsd(v.usdPerClaim)}</span>}

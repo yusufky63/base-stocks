@@ -37,12 +37,14 @@ export function PoolHistory({ owner }: { owner: Address }) {
     refetchInterval: 30_000,
   });
 
-  const list = pools.data ?? [];
+  // Live pools first: the one you can still close, publish or share matters more than a finished one.
+  const rank = (v: PoolView) => (v.pool.status === "live" ? 0 : v.pool.status === "submitted" ? 1 : 2);
+  const list = [...(pools.data ?? [])].sort((a, b) => rank(a) - rank(b) || b.pool.createdAt - a.pool.createdAt);
   if (!pools.isLoading && list.length === 0) return null;
 
   return (
     <Module>
-      <ModuleHeader title="Your pools" />
+      <ModuleHeader title="Your pools" action={<Link href="/pools" className="text-[13px] text-primary font-medium">All public pools</Link>} />
       {pools.isLoading ? (
         <div className="p-4 flex flex-col gap-2">
           <Skeleton className="h-14" />

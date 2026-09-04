@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
-import { OpenPoolsTeaser } from "@/components/pool/PoolList";
+import { GiftsCard } from "@/components/pool/PoolList";
 import { useAccount } from "wagmi";
 import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from "lucide-react";
 import { useAssets, useActivity, useCommunityPulse, usePortfolio, useTemplates, useWatchlist, useSparklines } from "@/hooks/queries";
@@ -139,7 +139,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             </Module>
           )}
 
-          <OpenPoolsTeaser />
+          <GiftsCard />
 
           <Module>
             <ModuleHeader title="Top movers" />

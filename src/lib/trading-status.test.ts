@@ -61,14 +61,24 @@ describe("trading status", () => {
    * The second thing the six listings exposed: a pool created hours ago has no honest "24h ago",
    * so the DEX reported Microsoft down 82% while its price sat 1% from the Chainlink reference.
    */
-  it("only trusts a 24h move from a market deep enough to make one", () => {
+  it("only trusts a 24h move from a market with real depth", () => {
     expect(hasMeaningfulChange(tradingStatus(asset(), price(2_100_000)).status)).toBe(true);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(27_905)).status)).toBe(true);
-    expect(hasMeaningfulChange(tradingStatus(asset(), price(9_979)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(100_000)).status)).toBe(true);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(27_905)).status)).toBe(false);
     expect(hasMeaningfulChange(tradingStatus(asset(), price(108)).status)).toBe(false);
     expect(hasMeaningfulChange(tradingStatus(asset(), price(0)).status)).toBe(false);
     expect(hasMeaningfulChange(tradingStatus(asset({ totalSupply: "0" }), price(0)).status)).toBe(false);
     expect(hasMeaningfulChange(tradingStatus(asset({ status: "paused" }), price(5_000_000)).status)).toBe(false);
+  });
+
+  /**
+   * The bug in the first cut: Amazon at $10,071 kept a -63% headline while Microsoft at $9,979 lost
+   * it, when the two were equally meaningless. Seventy-one dollars of depth decides nothing.
+   */
+  it("does not let a market squeak past on the thin boundary", () => {
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(10_071)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(9_979)).status)).toBe(false);
+    expect(hasMeaningfulChange(tradingStatus(asset(), price(99_999)).status)).toBe(false);
   });
 
   it("orders deepest first and keeps input order within a tier", () => {

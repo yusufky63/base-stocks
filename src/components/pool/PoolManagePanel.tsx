@@ -5,15 +5,17 @@ import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, type Address, type Hash } from "viem";
 import { base } from "viem/chains";
-import { Lock, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, Lock, RefreshCw } from "lucide-react";
 import type { PoolClaim, PoolView } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { apiGet, apiPatch, apiPut } from "@/lib/client-api";
+import { apiGet, apiPatch, apiPut, ApiError } from "@/lib/client-api";
 import { withAttribution, attributionCapabilities } from "@/lib/attribution";
 import { GIFT_POOL_ADDRESS, giftPoolAbi } from "@/lib/pool";
 import { humanizeError, type HumanError } from "@/lib/errors";
+import { useAuth } from "@/hooks/useAuth";
 import { formatTokenAmount, shortenAddress } from "@/lib/format";
 import { Badge, Button, Module, ModuleHeader, Skeleton, cx } from "@/components/ui/primitives";
+import { Segmented } from "@/components/ui/Segmented";
 import { ErrorBanner, TxLink } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 
@@ -50,7 +52,8 @@ export function PoolManagePanel({
 
   // Snapshot the clock once per mount; the page refetches, so a stale second never matters.
   const [loadedAt] = useState(() => Date.now());
-  const [busy, setBusy] = useState<"close" | "sync" | number | null>(null);
+  const { ensureSignedIn } = useAuth();
+  const [busy, setBusy] = useState<"close" | "sync" | "visibility" | number | null>(null);
   const [error, setError] = useState<HumanError | null>(null);
   const [tx, setTx] = useState<Hash | undefined>();
 
@@ -128,6 +131,26 @@ export function PoolManagePanel({
     }
   };
 
+  /**
+   * Publishing after the fact. A pool is unlisted unless its creator asks otherwise, and until now
+   * that choice was frozen at creation — so a pool made in a hurry stayed invisible with no way
+   * back. The route already accepted the change; it just had nothing to call it.
+   */
+  const setVisibility = async (visibility: "public" | "unlisted") => {
+    if (visibility === pool.visibility) return;
+    setError(null);
+    setBusy("visibility");
+    try {
+      await ensureSignedIn(); // proving the wallet is the creator's is the whole gate here
+      await apiPatch(`/api/pools/${pool.id}`, { visibility });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? { code: "UNKNOWN", message: err.message } : humanizeError(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const sync = async () => {
     setBusy("sync");
     try {
@@ -165,6 +188,27 @@ export function PoolManagePanel({
               <div className="display num text-[22px]">{v}</div>
             </div>
           ))}
+        </div>
+
+        <div className="p-4 border-b border-line flex flex-col gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Who can find it</span>
+          <Segmented<"unlisted" | "public">
+            size="sm"
+            className="max-w-[320px]"
+            ariaLabel="Who can find this pool"
+            value={pool.visibility}
+            onChange={(v) => void setVisibility(v)}
+            options={[
+              { value: "unlisted", label: "By link only", disabled: busy === "visibility" },
+              { value: "public", label: "Listed publicly", disabled: busy === "visibility" },
+            ]}
+          />
+          <p className="text-[12px] text-ink-muted inline-flex items-start gap-1.5">
+            {pool.visibility === "public" ? <Eye size={13} strokeWidth={1.75} className="mt-0.5 shrink-0" /> : <EyeOff size={13} strokeWidth={1.75} className="mt-0.5 shrink-0" />}
+            {pool.visibility === "public"
+              ? "Anyone can find this on the pools page, in the Claim tab and on the home page."
+              : "Only people you send the link to can reach this. Listing it needs one signature to prove the wallet is yours."}
+          </p>
         </div>
 
         <div className="p-4 flex flex-col gap-3">

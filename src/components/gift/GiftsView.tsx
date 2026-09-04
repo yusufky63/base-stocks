@@ -58,7 +58,7 @@ export function GiftsView() {
         options={[
           { value: "create", label: "Create" },
           ...(poolsEnabled ? ([{ value: "discover" as Tab, label: openCount > 0 ? `Claim (${openCount})` : "Claim" }] as const) : []),
-          { value: "history", label: "History" },
+          { value: "history", label: "Yours" },
         ]}
       />
 

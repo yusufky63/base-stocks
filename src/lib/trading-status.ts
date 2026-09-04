@@ -50,14 +50,18 @@ export function sortByTradingStatus<T>(items: T[], pick: (item: T) => { asset: P
 }
 
 /**
- * Whether a 24h move from this market means anything.
+ * Whether a 24h move from this market means anything. Only a market with real depth qualifies.
  *
- * A pool younger than a day has no honest "24h ago" to compare against, and a few thousand
- * dollars of depth moves several percent on a single trade. On the day six stocks listed, the DEX
- * reported Microsoft down 82% while its pool price sat 1% from the Chainlink reference — the
- * number was an artifact of the pool being created, not the stock moving. Deep markets keep their
- * change; the rest show nothing rather than something wrong.
+ * A pool younger than a day has no honest "24h ago" to compare against: on the day six stocks
+ * listed, the DEX reported Microsoft down 82% while its pool price sat 1% from the Chainlink
+ * reference. The first cut of this drew the line at Thin, and Amazon slipped through at $10,071
+ * of depth still claiming −63% while Microsoft was blocked at $9,979 — seventy-one dollars of
+ * liquidity is not the difference between a real move and an artifact.
+ *
+ * So the line is depth, not almost-depth. At $28k a single $3k trade moves the price ten percent,
+ * which is a fact about one trade and not about the stock. Thin markets keep everything else —
+ * price, liquidity, the Chainlink reference beside it — and simply do not assert a daily move.
  */
 export function hasMeaningfulChange(status: TradingStatus): boolean {
-  return status === "tradable" || status === "thin";
+  return status === "tradable";
 }
