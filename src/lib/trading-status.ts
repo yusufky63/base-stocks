@@ -65,3 +65,34 @@ export function sortByTradingStatus<T>(items: T[], pick: (item: T) => { asset: P
 export function hasMeaningfulChange(status: TradingStatus): boolean {
   return status === "tradable";
 }
+
+/**
+ * A batched leg is not the same risk as a hand-placed trade: the user reviews a plan, not each
+ * fill, so a leg large enough to move the pool against itself should be caught before they sign
+ * anything. Two percent of the pool is the line — at that size the impact is still cents on a deep
+ * market, and it is what stops a $20 buy landing in a $108 pool.
+ */
+export const MAX_LEG_POOL_SHARE = 0.02;
+
+/** What share of the pool this leg would consume; null when there is no pool to measure against. */
+export function legPoolShare(targetUsd: number, liquidityUsd: number | null | undefined): number | null {
+  if (!liquidityUsd || liquidityUsd <= 0 || !Number.isFinite(targetUsd) || targetUsd <= 0) return null;
+  return targetUsd / liquidityUsd;
+}
+
+/**
+ * Why a buy leg cannot run today, or null when it can. Status first — a stock with no supply, no
+ * pool or paused transfers cannot be filled at any size — then size against depth.
+ */
+export function buyLegBlockedReason(
+  status: TradingStatus,
+  targetUsd: number,
+  liquidityUsd: number | null | undefined,
+): string | null {
+  if (status === "not-issued") return "not issued on Base yet";
+  if (status === "no-pool") return "issued, but no pool can fill it yet";
+  if (status === "paused") return "transfers are paused by the issuer";
+  const share = legPoolShare(targetUsd, liquidityUsd);
+  if (share !== null && share > MAX_LEG_POOL_SHARE) return `this leg is ${(share * 100).toFixed(0)}% of its pool`;
+  return null;
+}

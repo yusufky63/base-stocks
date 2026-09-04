@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "./trading-status";
+import { buyLegBlockedReason, hasMeaningfulChange, legPoolShare, sortByTradingStatus, tradingStatus } from "./trading-status";
 
 const asset = (over: { status?: "active" | "paused"; totalSupply?: string } = {}) => ({
   status: over.status ?? ("active" as const),
@@ -91,5 +91,42 @@ describe("trading status", () => {
       { name: "HALT", asset: asset({ status: "paused" }), price: price(500_000) },
     ];
     expect(sortByTradingStatus(rows, (r) => r).map((r) => r.name)).toEqual(["NVDA", "AAPL", "SPCX", "SNDK", "COIN", "HALT"]);
+  });
+});
+
+/**
+ * A rebalance queues several legs and the user signs the plan, not each fill, so a leg that cannot
+ * run has to be caught before anything is signed. The old check was `totalSupply > 0`, which let
+ * through a stock that is issued with no pool, and one whose pool is smaller than the leg.
+ */
+describe("whether a buy leg can run", () => {
+  it("refuses what cannot be filled at any size", () => {
+    expect(buyLegBlockedReason("not-issued", 100, 0)).toMatch(/not issued/);
+    expect(buyLegBlockedReason("no-pool", 100, 0)).toMatch(/no pool/);
+    expect(buyLegBlockedReason("paused", 100, 5_000_000)).toMatch(/paused/);
+  });
+
+  it("refuses a leg that would eat its own pool", () => {
+    // $20 into SanDisk's $108 pool: the trade is the market.
+    expect(buyLegBlockedReason("very-thin", 20, 108)).toMatch(/% of its pool/);
+    expect(buyLegBlockedReason("thin", 500, 10_000)).toMatch(/% of its pool/);
+  });
+
+  it("lets a leg through when the pool can absorb it", () => {
+    expect(buyLegBlockedReason("tradable", 500, 2_100_000)).toBeNull();
+    expect(buyLegBlockedReason("thin", 100, 27_905)).toBeNull();
+    expect(buyLegBlockedReason("very-thin", 50, 9_979)).toBeNull(); // 0.5% of the pool
+  });
+
+  it("holds the two-percent line exactly", () => {
+    expect(buyLegBlockedReason("tradable", 200, 10_000)).toBeNull(); // exactly 2%
+    expect(buyLegBlockedReason("tradable", 201, 10_000)).toMatch(/% of its pool/);
+  });
+
+  it("measures the share, and reports none when there is no pool to measure", () => {
+    expect(legPoolShare(500, 10_000)).toBeCloseTo(0.05);
+    expect(legPoolShare(500, 0)).toBeNull();
+    expect(legPoolShare(500, null)).toBeNull();
+    expect(legPoolShare(0, 10_000)).toBeNull();
   });
 });
