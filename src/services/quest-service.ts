@@ -65,9 +65,13 @@ function label(q: Quest, symbol?: string): string {
   }
 }
 
-/** Where a self-declared step sends the claimant. */
+/** Where a step sends the claimant to actually do it: the stock's buy panel, or a social link. */
 export function questActionUrl(q: Quest): string | undefined {
   switch (q.type) {
+    case "hold-asset":
+    case "buy-asset":
+      // Checked steps: send the claimant straight to the stock's buy panel, then re-verify on return.
+      return q.assetAddress ? `/stocks/${q.assetAddress}?trade=buy` : undefined;
     case "follow-bstocks":
       return xProfileUrl(BSTOCKS_X_HANDLE);
     case "follow-x":
@@ -106,7 +110,7 @@ async function verifyHoldBasename(index: number, claimant: Address): Promise<Que
 
 async function verifyHoldAsset(index: number, q: Quest, claimant: Address): Promise<QuestResult> {
   const symbol = await symbolFor(q.assetAddress);
-  const base: QuestResult = { index, type: "hold-asset", label: label(q, symbol), done: false };
+  const base: QuestResult = { index, type: "hold-asset", label: label(q, symbol), done: false, actionUrl: questActionUrl(q) };
   if (!q.assetAddress) return { ...base, detail: "This step is misconfigured; ask the creator to fix it." };
   const min = BigInt(q.minRawAmount ?? "1");
   const balance = await getServerPublicClient()
@@ -129,7 +133,7 @@ async function verifyHoldAsset(index: number, q: Quest, claimant: Address): Prom
  */
 async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promise<QuestResult> {
   const symbol = await symbolFor(q.assetAddress);
-  const base: QuestResult = { index, type: "buy-asset", label: label(q, symbol), done: false };
+  const base: QuestResult = { index, type: "buy-asset", label: label(q, symbol), done: false, actionUrl: questActionUrl(q) };
   if (!q.assetAddress) return { ...base, detail: "This step is misconfigured; ask the creator to fix it." };
 
   const withinDays = q.withinDays ?? DEFAULT_WITHIN_DAYS;

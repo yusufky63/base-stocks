@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Circle, ExternalLink, Globe, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, Circle, ExternalLink, Globe, ShieldCheck } from "lucide-react";
 import type { QuestStatus } from "@/domain/pool";
 import { apiPost, ApiError } from "@/lib/client-api";
 import { XMark } from "@/components/brand/Logo";
-import { Button, Skeleton, cx } from "@/components/ui/primitives";
+import { Button, LinkButton, Skeleton, cx } from "@/components/ui/primitives";
 
 /** How long the confirmation window runs after someone says they did a declared step. */
 const CONFIRM_MS = 5_000;
@@ -121,6 +121,12 @@ export function QuestChecklist({ poolId, isSignedIn, data, loading, onSignIn, on
                       </>
                     )}
                   </Button>
+                )}
+                {/* Checked asset steps: no attestation — send the claimant to buy, the chain proves it on return. */}
+                {!q.done && !q.selfDeclared && q.actionUrl && (q.type === "buy-asset" || q.type === "hold-asset") && (
+                  <LinkButton href={q.actionUrl} size="sm" variant="primary" className="shrink-0">
+                    Buy <ArrowRight size={12} strokeWidth={2} />
+                  </LinkButton>
                 )}
               </div>
               {busy && (

@@ -183,7 +183,10 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
   }
 
   try {
-    await callAfterApproval(publicClient, address, { to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) });
+    // `needsApproval`: when we just sent the approval this run, tolerate a stale-allowance revert
+    // from an RPC that lags our own approve receipt — that is the "fails on the first try, works on
+    // the next" case. Without a fresh approval, a revert is real and surfaces immediately.
+    await callAfterApproval(publicClient, address, { to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) }, 4, needsApproval);
   } catch (simErr) {
     const h = humanizeError(simErr);
     if (h.code === "QUOTE_EXPIRED" || h.code === "SLIPPAGE") {
@@ -212,13 +215,19 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
  * "insufficient allowance" revert right after our own approval is stale state, not a real
  * failure, so it retries briefly before surfacing.
  */
-export async function callAfterApproval(publicClient: PublicClient, account: Address, call: { to: Address; data: Hex; value?: bigint }, attempts = 4): Promise<void> {
+export async function callAfterApproval(publicClient: PublicClient, account: Address, call: { to: Address; data: Hex; value?: bigint }, attempts = 4, retryOnRevert = false): Promise<void> {
   for (let i = 0; ; i++) {
     try {
       await publicClient.call({ account, to: call.to, data: call.data, value: call.value });
       return;
     } catch (err) {
-      if (humanizeError(err).code === "ALLOWANCE_REQUIRED" && i < attempts) {
+      const code = humanizeError(err).code;
+      // Straight after our own approval a revert is almost always stale allowance state on a lagging
+      // RPC. Some routers surface that as a decodable allowance error; others as a bare "execution
+      // reverted" (e.g. Uniswap's TransferHelper "STF"). So when the caller says an approval just
+      // landed (`retryOnRevert`), retry a generic simulation failure too, not only a decoded one.
+      const retriable = code === "ALLOWANCE_REQUIRED" || (retryOnRevert && code === "SIMULATION_FAILED");
+      if (retriable && i < attempts) {
         await new Promise((r) => setTimeout(r, 1200));
         continue;
       }
