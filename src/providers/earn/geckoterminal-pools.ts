@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { estimateFeeApyPct, liquidityRiskLabel } from "./fee-apy";
 import { z } from "zod";
 import type { EarnOpportunity, EarnProviderId } from "@/domain/earn";
 import { cached } from "@/lib/cache";
@@ -86,7 +87,8 @@ export async function discoverDexPoolOpportunities(asset: Address, known: Set<st
         type: "liquidity" as const,
         title: `${p.dexLabel} · ${p.name}`,
         liquidityUsd: p.reserveUsd,
-        riskLabel: "higher" as const,
+        variableApy: estimateFeeApyPct(p.volume24hUsd, feeRateFromName(p.name), p.reserveUsd),
+        riskLabel: liquidityRiskLabel(/USDC/i.test(p.name) ? "USDC" : null, p.reserveUsd),
         dataTimestamp: now,
         url: p.url,
         risks: [
@@ -102,4 +104,10 @@ export async function discoverDexPoolOpportunities(asset: Address, known: Set<st
     metrics.count("geckoterminal.pools", false, err instanceof Error ? err.message : String(err));
     return [];
   }
+}
+
+/** GeckoTerminal encodes the fee tier in the pool name ("… 0.3%"); absent = unknown. */
+function feeRateFromName(name: string): number | null {
+  const m = /(\d+(?:\.\d+)?)%/.exec(name);
+  return m ? Number(m[1]) / 100 : null;
 }

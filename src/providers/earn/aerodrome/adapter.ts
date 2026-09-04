@@ -6,6 +6,8 @@ import { cached, TTL } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { getEthUsd } from "@/services/price-service";
+import { getDexPools } from "../geckoterminal-pools";
+import { estimateFeeApyPct, liquidityRiskLabel } from "../fee-apy";
 
 /**
  * Aerodrome liquidity discovery (onchain, no SDK).
@@ -96,7 +98,16 @@ export class AerodromeEarnProvider implements EarnProvider {
         { address: asset, abi: erc20Abi, functionName: "balanceOf" as const, args: [p.pool] as const },
         { address: p.quote.address, abi: erc20Abi, functionName: "balanceOf" as const, args: [p.pool] as const },
       ]);
-      const [bal, ethUsd] = await Promise.all([client.multicall({ contracts, allowFailure: true }), getEthUsd().catch(() => null)]);
+      const feeAbi = parseAbi(["function fee() view returns (uint24)"]);
+      const clPools = pools.filter((p) => p.kind === "cl");
+      const [bal, ethUsd, fees, gt] = await Promise.all([
+        client.multicall({ contracts, allowFailure: true }),
+        getEthUsd().catch(() => null),
+        client.multicall({ contracts: clPools.map((p) => ({ address: p.pool, abi: feeAbi, functionName: "fee" as const })), allowFailure: true }).catch(() => []),
+        getDexPools(asset).catch(() => []),
+      ]);
+      const feeByPool = new Map(clPools.map((p, i) => [p.pool.toLowerCase(), fees[i]?.status === "success" ? Number(fees[i]!.result) / 1e6 : null]));
+      const volumeByPool = new Map(gt.map((p) => [p.address.toLowerCase(), p.volume24hUsd]));
       const now = Date.now();
       const out = pools.map((p, i) => {
         const assetBal = bal[i * 2]?.status === "success" ? (bal[i * 2]!.result as bigint) : 0n;
@@ -105,6 +116,7 @@ export class AerodromeEarnProvider implements EarnProvider {
         const quoteUsd = p.quote.symbol === "USDC" ? Number(quoteBal) / 10 ** USDC_DECIMALS : ethUsd !== null ? (Number(quoteBal) / 1e18) * ethUsd : null;
         const liquidityUsd = assetUsd !== null && quoteUsd !== null ? assetUsd + quoteUsd : quoteUsd !== null ? quoteUsd * 2 : undefined;
         const label = p.kind === "cl" ? `Concentrated · tick ${p.tickSpacing}` : p.kind === "v2-stable" ? "Stable AMM" : "Volatile AMM";
+        const variableApy = p.kind === "cl" ? estimateFeeApyPct(volumeByPool.get(p.pool.toLowerCase()), feeByPool.get(p.pool.toLowerCase()), liquidityUsd) : undefined;
         return {
           id: `aerodrome:${p.kind}:${p.pool.toLowerCase()}`,
           provider: "aerodrome" as const,
@@ -112,7 +124,8 @@ export class AerodromeEarnProvider implements EarnProvider {
           type: "liquidity" as const,
           title: `Aerodrome ${p.quote.symbol} pool · ${label}`,
           liquidityUsd,
-          riskLabel: "higher" as const,
+          variableApy,
+          riskLabel: liquidityRiskLabel(p.quote.symbol, liquidityUsd),
           dataTimestamp: now,
           url: `https://aerodrome.finance/deposit?token0=${asset}&token1=${p.quote.address}&type=${p.kind === "cl" ? p.tickSpacing : p.kind === "v2-stable" ? 0 : -1}&chain=8453`,
           risks: [

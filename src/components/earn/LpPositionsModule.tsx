@@ -70,16 +70,18 @@ export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
         return (
           <div key={`${p.manager}-${p.tokenId}`} className="px-4 py-3 border-b border-line last:border-b-0 flex flex-col gap-2">
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-medium text-[14px] inline-flex items-center gap-2">
-                  <AssetLogo src={logoOf(stock.address)} symbol={stock.symbol} size={26} className="shrink-0" />
-                  {p.token0.symbol} / {p.token1.symbol}
-                  <span className="font-mono text-[11px] text-ink-muted">{p.provider === "uniswap" ? `${(p.feeOrTickSpacing / 10_000).toFixed(2).replace(/0$/, "")}% fee` : `tick ${p.feeOrTickSpacing}`}</span>
-                </div>
-                <div className="text-[12px] text-ink-secondary inline-flex items-center gap-1.5">
-                  <ProtocolLogo provider={p.provider} size={14} label={p.managerLabel} withLabel className="text-[12px]" />
-                  <span>· #{p.tokenId}
-                  {p.rangeUsd ? (p.rangeUsd.upper > 1e9 || p.rangeUsd.lower < 1e-6 ? " · full range" : ` · range ${formatUsd(p.rangeUsd.lower)} – ${formatUsd(p.rangeUsd.upper)} per ${stock.symbol}`) : ""}</span>
+              <div className="flex items-center gap-3 min-w-0">
+                <AssetLogo src={logoOf(stock.address)} symbol={stock.symbol} size={32} className="shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-medium text-[14px] flex items-center gap-2">
+                    <span className="truncate">{p.token0.symbol} / {p.token1.symbol}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-ink-muted border border-line rounded px-1.5 py-0.5">{p.provider === "uniswap" ? `${(p.feeOrTickSpacing / 10_000).toFixed(2).replace(/0$/, "")}% fee` : `tick ${p.feeOrTickSpacing}`}</span>
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-ink-secondary flex items-center gap-1.5 min-w-0">
+                    <ProtocolLogo provider={p.provider} size={13} label={p.managerLabel} withLabel className="text-[12px] min-w-0" />
+                    <span className="shrink-0 text-ink-muted">·</span>
+                    <span className="shrink-0 font-mono num">#{p.tokenId}</span>
+                  </div>
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -87,6 +89,12 @@ export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
                 <Badge tone={p.inRange ? "positive" : "warning"}>{p.inRange ? "in range" : "out of range"}</Badge>
               </div>
             </div>
+            {p.rangeUsd && (
+              <div className="flex items-baseline justify-between gap-3 text-[11px] font-mono">
+                <span className="uppercase tracking-[0.08em] text-ink-muted">Range</span>
+                <span className="num text-ink-secondary text-right">{p.rangeUsd.upper > 1e9 || p.rangeUsd.lower < 1e-6 ? "full range" : `${formatUsd(p.rangeUsd.lower)} – ${formatUsd(p.rangeUsd.upper)} per ${stock.symbol} · now ${formatUsd(p.rangeUsd.current)}`}</span>
+              </div>
+            )}
             {p.rangeUsd && p.rangeUsd.upper <= 1e9 && (
               <div className="relative h-1.5 rounded-full bg-surface-muted overflow-hidden" aria-hidden>
                 {(() => {
@@ -102,22 +110,26 @@ export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
               </div>
             )}
             {!p.inRange && <p className="text-[12px] text-warning-fg">Out of range: the position sits in one token and earns no fees until the price re-enters the range.</p>}
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-ink-secondary font-mono">
-              <span>
-                {fmtAmt(p.amount0)} {p.token0.symbol} · {fmtAmt(p.amount1)} {p.token1.symbol}
-              </span>
-              <span>
-                fees {fmtAmt(p.fees.amount0)} {p.token0.symbol} + {fmtAmt(p.fees.amount1)} {p.token1.symbol}
-                {p.fees.usd !== null ? ` (${formatUsd(p.fees.usd)})` : ""}
-              </span>
-              <span className="inline-flex items-center gap-3">
-                <button type="button" onClick={() => setManaging(p)} className="text-primary font-medium hover:underline">
-                  Collect / withdraw
-                </button>
-                <a href={p.manageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-ink-muted hover:text-ink">
-                  {p.provider === "uniswap" ? "Uniswap" : "Aerodrome"} <ExternalLink size={12} strokeWidth={1.75} />
-                </a>
-              </span>
+            <div className="flex flex-col gap-1 text-[11px] font-mono">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="uppercase tracking-[0.08em] text-ink-muted">Holding</span>
+                <span className="num text-ink-secondary text-right">{fmtAmt(p.amount0)} {p.token0.symbol} · {fmtAmt(p.amount1)} {p.token1.symbol}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="uppercase tracking-[0.08em] text-ink-muted">Fees earned</span>
+                <span className={cx("num text-right", p.fees.usd !== null && p.fees.usd > 0 ? "text-positive-fg" : "text-ink-secondary")}>
+                  {fmtAmt(p.fees.amount0)} {p.token0.symbol} + {fmtAmt(p.fees.amount1)} {p.token1.symbol}
+                  {p.fees.usd !== null ? ` (${formatUsd(p.fees.usd)})` : ""}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-line pt-2 text-[13px]">
+              <button type="button" onClick={() => setManaging(p)} className="text-primary font-medium hover:underline">
+                Collect / withdraw
+              </button>
+              <a href={p.manageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-[12px] text-ink-muted hover:text-ink">
+                on {p.provider === "uniswap" ? "Uniswap" : "Aerodrome"} <ExternalLink size={12} strokeWidth={1.75} />
+              </a>
             </div>
           </div>
         );

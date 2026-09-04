@@ -6,6 +6,8 @@ import { cached, TTL } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { getEthUsd } from "@/services/price-service";
+import { getDexPools } from "../geckoterminal-pools";
+import { estimateFeeApyPct, liquidityRiskLabel } from "../fee-apy";
 
 /**
  * Uniswap v3 pool discovery on Base (onchain, no SDK): factory `getPool(token, quote, fee)` for the
@@ -64,7 +66,8 @@ export class UniswapEarnProvider implements EarnProvider {
         { address: asset, abi: erc20Abi, functionName: "balanceOf" as const, args: [p.pool] as const },
         { address: p.quote.address, abi: erc20Abi, functionName: "balanceOf" as const, args: [p.pool] as const },
       ]);
-      const [bal, ethUsd] = await Promise.all([client.multicall({ contracts, allowFailure: true }), getEthUsd().catch(() => null)]);
+      const [bal, ethUsd, gt] = await Promise.all([client.multicall({ contracts, allowFailure: true }), getEthUsd().catch(() => null), getDexPools(asset).catch(() => [])]);
+      const volumeByPool = new Map(gt.map((p) => [p.address.toLowerCase(), p.volume24hUsd]));
       const now = Date.now();
       return pools
         .map((p, i) => {
@@ -80,7 +83,8 @@ export class UniswapEarnProvider implements EarnProvider {
             type: "liquidity" as const,
             title: `Uniswap v3 ${p.quote.symbol} pool · ${(p.fee / 10_000).toFixed(2).replace(/0$/, "")}% fee`,
             liquidityUsd,
-            riskLabel: "higher" as const,
+            variableApy: estimateFeeApyPct(volumeByPool.get(p.pool.toLowerCase()), p.fee / 1e6, liquidityUsd),
+            riskLabel: liquidityRiskLabel(p.quote.symbol, liquidityUsd),
             dataTimestamp: now,
             url: `https://app.uniswap.org/explore/pools/base/${p.pool}`,
             risks: [

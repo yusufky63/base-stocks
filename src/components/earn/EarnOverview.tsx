@@ -10,7 +10,7 @@ import { formatPct, formatUsdCompact, timeAgo } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { ProtocolLogo } from "@/components/common/ProtocolLogo";
-import { Module, ModuleHeader, Skeleton, Badge, Chip, PageTitle, LinkButton } from "@/components/ui/primitives";
+import { Module, ModuleHeader, Skeleton, Badge, PageTitle, LinkButton } from "@/components/ui/primitives";
 import { UsdcEarnModule } from "./UsdcEarnModule";
 import { LpPositionsModule } from "./LpPositionsModule";
 import { VenueSheet } from "./VenueSheet";
@@ -23,11 +23,11 @@ export function EarnOverview() {
   const { isConnected } = useAccount();
   const { data, isLoading } = useQuery({ queryKey: ["earn", "all"], queryFn: () => apiGet<{ items: Item[]; updatedAt: number; checked?: { assets: number; of: number; providers: string[]; unavailable: string[] } }>("/api/earn"), staleTime: 2 * 60_000 });
   const items = data?.items ?? [];
-  const [kind, setKind] = useState<"all" | "earn" | "liquidity" | "borrow">("all");
   const [selected, setSelected] = useState<Item | null>(null);
-  const isEarn = (o: Item) => o.type === "supply" || o.type === "vault";
-  const counts = { all: items.length, earn: items.filter(isEarn).length, liquidity: items.filter((o) => o.type === "liquidity").length, borrow: items.filter((o) => o.type === "borrow").length };
-  const shown = items.filter((o) => kind === "all" || (kind === "earn" ? isEarn(o) : o.type === kind));
+  // Supply/vault and borrow venues for B20 stocks do not exist yet; filters for them were
+  // permanently-empty chrome, so everything discovered is listed directly (badges still say what
+  // each row is if a lending market ever appears).
+  const shown = items;
   return (
     <div className="flex flex-col gap-6">
       <PageTitle
@@ -56,13 +56,6 @@ export function EarnOverview() {
 
       <Module>
         <ModuleHeader index="S" title="Stock-specific venues" action={data ? <span className="text-[11px] font-mono text-ink-muted">updated {timeAgo(data.updatedAt)}</span> : undefined} />
-        <div className="flex gap-2 px-4 py-2 border-b border-line overflow-x-auto scrollbar-none">
-          {([["all", "All"], ["earn", "Supply & vaults"], ["liquidity", "Liquidity pools"], ["borrow", "Borrow against stocks"]] as const).map(([id, label]) => (
-            <Chip key={id} active={kind === id} onClick={() => setKind(id)} className="whitespace-nowrap">
-              {label} · {counts[id]}
-            </Chip>
-          ))}
-        </div>
         {isLoading && (
           <div className="p-4 flex flex-col gap-2">
             <Skeleton className="h-12" />
@@ -72,12 +65,6 @@ export function EarnOverview() {
         {!isLoading && items.length === 0 && (
           <p className="px-4 py-6 text-[14px] text-ink-secondary">
             No verified venue for a tokenized stock right now. This list fills in automatically when a Morpho market, Aave reserve or Aerodrome pool appears for one of the stocks.
-            <ScanNote checked={data?.checked} />
-          </p>
-        )}
-        {!isLoading && items.length > 0 && shown.length === 0 && (
-          <p className="px-4 py-6 text-[14px] text-ink-secondary">
-            {kind === "borrow" ? "No lending market accepts a tokenized stock as collateral yet: Morpho markets are queried by collateral asset, Aave V3 and Compound v3 reserve lists are read onchain, and nothing lists a B20 token today." : "No supply market or vault takes a tokenized stock as its asset yet: Morpho vaults, Aave V3 reserves and Compound v3 markets are read at runtime and none lists a B20 token today."}
             <ScanNote checked={data?.checked} />
           </p>
         )}
@@ -93,7 +80,7 @@ export function EarnOverview() {
                 <span className="flex gap-2 mt-1">
                   <ProtocolLogo provider={o.provider} size={16} withLabel className="text-[12px] font-medium" />
                   <Badge>{o.type}</Badge>
-                  <Badge tone={o.riskLabel === "higher" ? "danger" : "neutral"}>risk {o.riskLabel}</Badge>
+                  <Badge tone={o.riskLabel === "higher" ? "danger" : o.riskLabel === "medium" ? "warning" : "neutral"}>risk {o.riskLabel}</Badge>
                   {o.inApp && <Badge tone="positive">in-app</Badge>}
                 </span>
               </span>
@@ -102,10 +89,13 @@ export function EarnOverview() {
               {o.variableApy !== undefined ? (
                 <>
                   <span className="block display num text-[18px]">{formatPct(o.variableApy, { sign: false })}</span>
-                  <span className="block text-[10px] font-mono uppercase text-ink-muted">{o.type === "borrow" ? "borrow rate" : "variable"} · {timeAgo(o.dataTimestamp)}</span>
+                  <span className="block text-[10px] font-mono uppercase text-ink-muted">est. fees · {formatUsdCompact(o.liquidityUsd ?? o.tvlUsd ?? null)} liq</span>
                 </>
               ) : (
-                <span className="block text-[13px] text-ink-secondary">{formatUsdCompact(o.liquidityUsd ?? o.tvlUsd ?? null)} liquidity</span>
+                <>
+                  <span className="block text-[13px] text-ink-secondary">{formatUsdCompact(o.liquidityUsd ?? o.tvlUsd ?? null)} liquidity</span>
+                  <span className="block text-[10px] font-mono uppercase text-ink-muted">volume too low to rate</span>
+                </>
               )}
             </span>
           </button>
