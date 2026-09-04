@@ -8,7 +8,7 @@ import type { AutomationRule } from "@/domain/community";
 import { useAuth } from "@/hooks/useAuth";
 import { Module, ModuleHeader } from "@/components/ui/primitives";
 
-type RuleDTO = AutomationRule & { due: boolean };
+type RuleDTO = AutomationRule & { due: boolean; missed?: number };
 
 /** Compact pointer to the Automate page with the wallet's active plans and what is due. */
 export function AutomationCard() {
@@ -16,6 +16,7 @@ export function AutomationCard() {
   const rules = useQuery({ queryKey: ["automation", auth.signedInAs ?? ""], queryFn: async () => (await apiGet<{ rules: RuleDTO[] }>("/api/automation")).rules, enabled: auth.isSignedIn, staleTime: 60_000 });
   const active = (rules.data ?? []).filter((r) => r.status === "active");
   const due = active.filter((r) => r.due);
+  const missedTotal = due.reduce((sum, r) => sum + (r.missed ?? 1), 0);
   return (
     <Module>
       <ModuleHeader
@@ -43,7 +44,13 @@ export function AutomationCard() {
                 {active.length} active plan{active.length > 1 ? "s" : ""}
                 {due.length > 0 ? ` · ${due.length} due now` : ""}
               </span>
-              <span className="block text-ink-secondary">{due.length > 0 ? "A run is waiting for your confirmation." : "Nothing due; runs wait for your confirmation."}</span>
+              <span className="block text-ink-secondary">
+                {due.length === 0
+                  ? "Nothing due; runs wait for your confirmation."
+                  : missedTotal > due.length
+                    ? `${missedTotal} scheduled runs went by unconfirmed. Running now buys once, not ${missedTotal} times.`
+                    : "A run is waiting for your confirmation."}
+              </span>
             </>
           )}
         </span>

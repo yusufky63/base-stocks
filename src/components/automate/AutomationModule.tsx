@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/Input";
 import { SignInButton } from "@/components/layout/SignInButton";
 import { ExecutionProgress } from "@/components/build/ExecutionProgress";
 
-type RuleDTO = AutomationRule & { due: boolean };
+type RuleDTO = AutomationRule & { due: boolean; missed?: number };
 
 /**
  * Automation V1 (spec §4.8): the system proposes runs, the user approves each one with a wallet
@@ -134,7 +134,11 @@ export function AutomationModule({ templates, draft = null }: { templates: Portf
                 </div>
                 <div className="text-[12px] text-ink-muted font-mono">
                   {r.status}
-                  {r.nextRunAt ? ` · next ${r.due ? "due now" : new Date(r.nextRunAt).toLocaleDateString()}` : ""}
+                  {r.nextRunAt
+                    ? r.due
+                      ? ` · due since ${new Date(r.nextRunAt).toLocaleDateString()}${(r.missed ?? 0) > 1 ? ` · ${r.missed} runs went by` : ""}`
+                      : ` · next ${new Date(r.nextRunAt).toLocaleDateString()}`
+                    : ""}
                   {r.lastRunAt ? ` · last ${timeAgo(r.lastRunAt)}` : ""}
                 </div>
               </div>

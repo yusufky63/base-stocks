@@ -57,14 +57,46 @@ export async function createRule(owner: Address, input: CreateRuleInput): Promis
   return getRepos().automation.create(rule);
 }
 
-/** Mark a run as executed by the user and schedule the next one. */
+/**
+ * When the next run falls due, anchored on the time it was *scheduled* for rather than the moment
+ * the user got round to confirming it.
+ *
+ * Anchoring on the confirmation slid the whole schedule: confirm a weekly plan three days late,
+ * every week, and it quietly becomes a ten-day plan. Anchoring on the schedule keeps the cadence
+ * the user asked for.
+ *
+ * The catch-up loop is the other half. Someone away for two months should come back to one run
+ * waiting, not eight — a plan that buys $100 a week is not an instruction to spend $800 at once,
+ * and nothing here should be able to queue that.
+ */
+export function nextRunAfter(scheduledFor: number | undefined, cadenceDays: number, now: number): number {
+  const cadenceMs = Math.max(1, cadenceDays) * 24 * 3600_000;
+  let next = (scheduledFor ?? now) + cadenceMs;
+  while (next <= now) next += cadenceMs;
+  return next;
+}
+
+/**
+ * How many scheduled runs went by unconfirmed, the one already due included. Only ever reported —
+ * a missed run is not carried forward and bought later, because the price it was meant to buy at
+ * is gone.
+ */
+export function missedRuns(rule: AutomationRule, now = Date.now()): number {
+  if (!isDue(rule, now)) return 0;
+  const cadenceMs = Math.max(1, rule.config.cadenceDays ?? 7) * 24 * 3600_000;
+  return Math.floor((now - rule.nextRunAt!) / cadenceMs) + 1;
+}
+
+/** Mark a run as executed by the user and schedule the next one on the original cadence. */
 export async function markRun(owner: Address, id: string): Promise<AutomationRule | null> {
   const rules = await getRepos().automation.list(owner);
   const rule = rules.find((r) => r.id === id);
   if (!rule) return null;
   const now = Date.now();
-  const cadenceMs = (rule.config.cadenceDays ?? 7) * 24 * 3600_000;
-  return getRepos().automation.update(id, owner, { lastRunAt: now, nextRunAt: now + cadenceMs });
+  return getRepos().automation.update(id, owner, {
+    lastRunAt: now,
+    nextRunAt: nextRunAfter(rule.nextRunAt, rule.config.cadenceDays ?? 7, now),
+  });
 }
 
 export function isDue(rule: AutomationRule, now = Date.now()): boolean {
