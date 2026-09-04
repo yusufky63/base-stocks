@@ -7,6 +7,7 @@ import { getPriceViews } from "@/services/price-service";
 import { reverseResolve } from "@/services/basename-service";
 import { b20AssetAbi } from "@/lib/b20/abi";
 import { BSTOCKS_X_HANDLE, xIntentUrl, xProfileUrl } from "@/content/social";
+import { isHttpUrl, prettyHost } from "@/lib/url";
 import { formatUsd } from "@/lib/format";
 
 /**
@@ -17,9 +18,9 @@ import { formatUsd } from "@/lib/format";
  *
  * - **Checked** — proven from the chain or a signature. App-side records (`trade_records`) are a
  *   lookup index, never evidence: every purchase they point at is re-read from its receipt.
- * - **Self-declared** — X steps. The free X API cannot prove a follow, a repost or a like, so the
- *   claimant confirms these about themselves and the app stores who declared what, with the
- *   timestamp. Nothing in the copy calls that "verified", because it is not.
+ * - **Self-declared** — X steps and link visits. Nobody can prove a follow, a repost, a like or a
+ *   page view from outside, so the claimant confirms these about themselves and the app stores who
+ *   declared what, with the timestamp. Nothing in the copy calls that "verified", because it is not.
  */
 
 const DEFAULT_WITHIN_DAYS = 30;
@@ -59,6 +60,8 @@ function label(q: Quest, symbol?: string): string {
       return "Repost the announcement on X";
     case "like-x":
       return "Like the announcement on X";
+    case "visit-url":
+      return q.label?.trim() || (q.url ? `Visit ${prettyHost(q.url)}` : "Visit the link");
   }
 }
 
@@ -73,6 +76,9 @@ export function questActionUrl(q: Quest): string | undefined {
       return q.tweetUrl ? xIntentUrl("repost", q.tweetUrl) : undefined;
     case "like-x":
       return q.tweetUrl ? xIntentUrl("like", q.tweetUrl) : undefined;
+    case "visit-url":
+      // Never hand a non-http scheme to `window.open`, whatever landed in storage.
+      return q.url && isHttpUrl(q.url) ? q.url : undefined;
     default:
       return undefined;
   }
@@ -197,14 +203,21 @@ async function receivedFromReceipt(
 /** A self-declared X step: done once the claimant has confirmed it for this pool. */
 function readDeclared(index: number, q: Quest, attested: Attestations): QuestResult {
   const done = typeof attested[String(index)] === "number";
+  const actionUrl = questActionUrl(q);
   return {
     index,
     type: q.type,
     label: label(q),
     done,
     selfDeclared: true,
-    actionUrl: questActionUrl(q),
-    detail: done ? undefined : "Open X, do it, and confirm here.",
+    actionUrl,
+    detail: done
+      ? undefined
+      : actionUrl
+        ? q.type === "visit-url"
+          ? "Open the link, then confirm here."
+          : "Open X, do it, then confirm here."
+        : "This step has no destination; ask the creator to fix it.",
     proof: done ? { declaredAt: attested[String(index)] } : undefined,
   };
 }
@@ -293,6 +306,8 @@ function shortDeclaredLabel(type: QuestType): string {
       return "repost";
     case "like-x":
       return "like";
+    case "visit-url":
+      return "visit";
     default:
       return type;
   }

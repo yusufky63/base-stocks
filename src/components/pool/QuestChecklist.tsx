@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Circle, ExternalLink, ShieldCheck } from "lucide-react";
+import { Check, Circle, ExternalLink, Globe, ShieldCheck } from "lucide-react";
 import type { QuestStatus } from "@/domain/pool";
 import { apiPost, ApiError } from "@/lib/client-api";
 import { XMark } from "@/components/brand/Logo";
 import { Button, Skeleton, cx } from "@/components/ui/primitives";
 
-/** How long the confirmation window runs after someone says they did an X step. */
+/** How long the confirmation window runs after someone says they did a declared step. */
 const CONFIRM_MS = 5_000;
 
 interface Props {
@@ -23,10 +23,10 @@ interface Props {
  * What a claimant still has to do before a quest-gated pool will pay them.
  *
  * Two kinds of row, and the list never blurs them. Checked steps (Basename, balance, a purchase)
- * are read from the chain and simply say done or not. X steps open X and then wait on the
- * claimant's own confirmation — the free X API cannot see a follow, a repost or a like, so the
- * row says "confirmed by you", not "verified", and the creator's roster shows the same
- * distinction.
+ * are read from the chain and simply say done or not. Declared steps open a link — an X profile,
+ * a post, a page — and then wait on the claimant's own confirmation, because nobody can see a
+ * follow, a repost, a like or a page view from outside. Those rows say "confirmed by you", not
+ * "verified", and the creator's roster shows the same distinction.
  */
 export function QuestChecklist({ poolId, isSignedIn, data, loading, onSignIn, onChanged }: Props) {
   const [pending, setPending] = useState<number | null>(null);
@@ -97,6 +97,8 @@ export function QuestChecklist({ poolId, isSignedIn, data, loading, onSignIn, on
                 <span className="mt-0.5 shrink-0">
                   {q.done ? (
                     <Check size={15} strokeWidth={2.5} className="text-positive-fg" />
+                  ) : q.type === "visit-url" ? (
+                    <Globe size={14} strokeWidth={1.75} className="text-ink-muted" />
                   ) : q.selfDeclared ? (
                     <XMark size={13} className="text-ink-muted" />
                   ) : (
@@ -134,7 +136,7 @@ export function QuestChecklist({ poolId, isSignedIn, data, loading, onSignIn, on
       <p className="px-3.5 py-2.5 text-[11px] text-ink-muted border-t border-line flex items-start gap-1.5">
         <ShieldCheck size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
         {declaredCount > 0
-          ? "Onchain steps are read from Base. X steps are confirmed by you — X does not let anyone check a follow, a repost or a like from outside."
+          ? "Onchain steps are read from Base. The rest are confirmed by you — a follow, a repost, a like or a page view cannot be checked from outside."
           : "Every step here is read from Base, not taken on trust."}
       </p>
     </div>

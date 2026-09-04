@@ -24,15 +24,25 @@ export type PoolStatus = "draft" | "submitted" | "live" | "cancelled" | "expired
  * - **Checked** (`hold-basename`, `hold-asset`, `buy-asset`, `sign-in`) are proven from the chain
  *   or from a signature. A purchase is re-read from its transaction receipt, never trusted from
  *   our own `trade_records`, which an unauthenticated route writes.
- * - **Self-declared** (`follow-bstocks`, `follow-x`, `repost-x`, `like-x`) are steps the claimant
- *   confirms about themselves. X's free API cannot prove a follow, a repost or a like, so nothing
- *   here pretends otherwise: the app records who declared what and says so on both the claim page
- *   and the creator's roster.
+ * - **Self-declared** (`follow-bstocks`, `follow-x`, `repost-x`, `like-x`, `visit-url`) are steps
+ *   the claimant confirms about themselves. Nobody can prove a follow, a repost, a like or a page
+ *   view from outside, so nothing here pretends otherwise: the app records who declared what and
+ *   says so on both the claim page and the creator's roster.
+ *
+ * A pool may repeat a type — two accounts to follow, three links to visit — except for the ones
+ * where a second copy would mean nothing (see `SINGLETON_QUESTS`).
  */
-export type QuestType = "sign-in" | "hold-basename" | "hold-asset" | "buy-asset" | "follow-bstocks" | "follow-x" | "repost-x" | "like-x";
+export type QuestType = "sign-in" | "hold-basename" | "hold-asset" | "buy-asset" | "follow-bstocks" | "follow-x" | "repost-x" | "like-x" | "visit-url";
 
 /** The quest types the claimant confirms about themselves; everything else is checked. */
-export const SELF_DECLARED_QUESTS = ["follow-bstocks", "follow-x", "repost-x", "like-x"] as const satisfies readonly QuestType[];
+export const SELF_DECLARED_QUESTS = ["follow-bstocks", "follow-x", "repost-x", "like-x", "visit-url"] as const satisfies readonly QuestType[];
+
+/** Types that make no sense twice in one pool. Everything else can be added again. */
+export const SINGLETON_QUESTS = ["sign-in", "hold-basename", "follow-bstocks"] as const satisfies readonly QuestType[];
+
+export function isSingletonQuest(type: QuestType): boolean {
+  return (SINGLETON_QUESTS as readonly string[]).includes(type);
+}
 
 export function isSelfDeclared(type: QuestType): boolean {
   return (SELF_DECLARED_QUESTS as readonly string[]).includes(type);
@@ -52,6 +62,10 @@ export interface Quest {
   handle?: string;
   /** `repost-x` / `like-x`: the post to act on. */
   tweetUrl?: string;
+  /** `visit-url`: any http(s) page — a site, a Discord invite, a Telegram group, a video. */
+  url?: string;
+  /** `visit-url`: what the creator calls it, e.g. "Read the launch post". */
+  label?: string;
 }
 
 export interface PoolLeg {

@@ -4,17 +4,20 @@ import { getRepos } from "@/db/repositories";
 import { requirePool } from "@/services/pool-service";
 import { readAttestations, toQuestStatus, verifyQuests } from "@/services/quest-service";
 import { isSelfDeclared } from "@/domain/pool";
+import { MAX_POOL_QUESTS } from "@/lib/pool";
 import { requireSession } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import type { PoolClaim } from "@/domain/pool";
 
-const attestSchema = z.object({ questIndex: z.number().int().min(0).max(7) });
+const attestSchema = z.object({ questIndex: z.number().int().min(0).max(MAX_POOL_QUESTS - 1) });
 
 /**
- * Records the claimant's own confirmation of one X step ("I followed", "I reposted").
+ * Records the claimant's own confirmation of one self-declared step — "I followed", "I reposted",
+ * "I opened the link".
  *
- * This is an attestation, not a check: X's free API does not expose follows, reposts or likes, so
- * there is nothing to verify against and the app never says there is. What it does buy is real:
+ * This is an attestation, not a check: nobody can read a follow, a repost, a like or a page view
+ * from outside, so there is nothing to verify against and the app never says there is. What it
+ * does buy is real:
  * the confirmation is tied to a signed-in wallet, stamped with a time, survives a reload, and
  * shows up on the creator's roster marked as declared rather than checked — so a creator knows
  * exactly what they are looking at.

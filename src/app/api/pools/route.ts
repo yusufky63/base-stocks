@@ -5,9 +5,10 @@ import { getRepos } from "@/db/repositories";
 import { b20Guard } from "@/services/b20-guard-service";
 import { buildPoolView, listPublicPools } from "@/services/pool-service";
 import { gateSignerAddress, isGateSignerConfigured } from "@/lib/pool/gate";
-import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, MAX_POOL_SLOTS, MAX_POOL_DURATION_S, ZERO_ADDRESS, isPoolDeployed, onchainIdFor, poolMemo, poolSalt } from "@/lib/pool";
+import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, MAX_POOL_QUESTS, MAX_POOL_SLOTS, MAX_POOL_DURATION_S, ZERO_ADDRESS, isPoolDeployed, onchainIdFor, poolMemo, poolSalt } from "@/lib/pool";
 import { sessionAddress } from "@/lib/auth/session";
 import { isXPostUrl, normalizeXHandle } from "@/content/social";
+import { isHttpUrl } from "@/lib/url";
 import { AppError } from "@/lib/errors";
 import type { PoolRecord } from "@/domain/pool";
 
@@ -37,6 +38,12 @@ const questSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("follow-x"), handle: xHandleSchema }),
   z.object({ type: z.literal("repost-x"), tweetUrl: xPostSchema }),
   z.object({ type: z.literal("like-x"), tweetUrl: xPostSchema }),
+  z.object({
+    type: z.literal("visit-url"),
+    // `.url()` alone would accept `javascript:`; these links go to `window.open`.
+    url: z.string().trim().max(500).refine(isHttpUrl, "Links must start with https://"),
+    label: z.string().trim().max(60).optional(),
+  }),
 ]);
 
 const createSchema = z.object({
@@ -54,7 +61,7 @@ const createSchema = z.object({
   visibility: z.enum(["public", "unlisted"]).default("unlisted"),
   title: z.string().max(80).optional(),
   message: z.string().max(280).optional(),
-  quests: z.array(questSchema).max(8).default([]),
+  quests: z.array(questSchema).max(MAX_POOL_QUESTS).default([]),
 });
 
 /**

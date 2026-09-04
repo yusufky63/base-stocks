@@ -27,6 +27,8 @@ export const MAX_POOL_LEGS = 8;
 /** Practical ceiling on slots: the create transaction stays one confirmation either way, but a
  *  pool this size is a campaign, not a gift, and the UI should say so. */
 export const MAX_POOL_SLOTS = 10_000;
+/** Steps a pool may ask for. Offchain only, so this is a usability limit, not a contract one. */
+export const MAX_POOL_QUESTS = 8;
 
 export const giftPoolAbi = [
   {
