@@ -6,6 +6,7 @@ import { WagmiProvider, cookieToInitialState } from "wagmi";
 import { wagmiConfig } from "@/config/wagmi";
 import { ensureAppKit } from "@/config/appkit";
 import { ThemeProvider, useTheme } from "@/components/layout/ThemeProvider";
+import { MiniAppProvider } from "@/components/layout/MiniAppProvider";
 
 function AppKitBoot() {
   const { resolved } = useTheme();
@@ -32,7 +33,7 @@ export function Providers({ children, cookies }: { children: ReactNode; cookies:
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <AppKitBoot />
-          {children}
+          <MiniAppProvider>{children}</MiniAppProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </WagmiProvider>

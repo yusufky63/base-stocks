@@ -5,6 +5,8 @@ import { Check, Copy, Share2, Smartphone } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button, cx } from "@/components/ui/primitives";
 import { publicEnv } from "@/config/env";
+import { useMiniApp } from "@/components/layout/MiniAppProvider";
+import { composeCast } from "@/lib/miniapp-actions";
 
 /** X (Twitter) mark at button-icon size. */
 function XIcon({ size = 14 }: { size?: number }) {
@@ -21,7 +23,11 @@ interface ShareProps {
   text: string;
 }
 
-/** The Base app has no public compose intent; on desktop we copy the post and open base.app so it can be pasted. */
+/**
+ * Outside the Base app there is no public compose intent to link to, so the post is copied and
+ * base.app is opened for it to be pasted. Inside the app the host composes it properly — see
+ * `composeCast` below, which is why this is only the fallback.
+ */
 const BASE_APP_URL = "https://base.app";
 
 /**
@@ -35,6 +41,8 @@ export function ShareActions({ path, text, className }: ShareProps & { className
   const message = `${text} ${url}`;
   const x = `https://x.com/intent/post?text=${encodeURIComponent(message)}`;
   const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const { isMiniApp } = useMiniApp();
+  const [casting, setCasting] = useState(false);
 
   const copy = async (what: "link" | "post") => {
     try {
@@ -44,6 +52,14 @@ export function ShareActions({ path, text, className }: ShareProps & { className
     } catch {
       /* clipboard blocked: the URL stays visible below */
     }
+  };
+  // Inside the Base app the link does not need copying anywhere: it goes into a composer with the
+  // mini app card already attached, which is the whole reason a pool link is worth sharing there.
+  const cast = async () => {
+    setCasting(true);
+    const composed = await composeCast(text, url);
+    setCasting(false);
+    if (!composed) await copy("post");
   };
   const nativeShare = async () => {
     try {
@@ -66,7 +82,11 @@ export function ShareActions({ path, text, className }: ShareProps & { className
         </div>
       </div>
 
-      {canNativeShare ? (
+      {isMiniApp ? (
+        <Button variant="primary" size="lg" full loading={casting} onClick={() => void cast()}>
+          <Share2 size={16} strokeWidth={1.75} /> Share as a cast
+        </Button>
+      ) : canNativeShare ? (
         <Button variant="primary" size="lg" full onClick={nativeShare}>
           <Smartphone size={16} strokeWidth={1.75} /> Share to Base app or other apps
         </Button>

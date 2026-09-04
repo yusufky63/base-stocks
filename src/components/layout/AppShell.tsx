@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const showTicker = !path.startsWith("/admin");
   return (
     <div className="flex min-h-dvh flex-col">
-      <div className="sticky top-0 z-30">
+      <div className="sticky top-0 z-30 [padding-top:var(--miniapp-safe-top)] bg-canvas">
         {showTicker && <TopTicker />}
         <header className="border-b border-line bg-canvas/95 backdrop-blur-[2px]">
           <div className="mx-auto flex h-14 max-w-[1320px] items-center justify-between gap-2 md:gap-3 px-4 md:px-6">
@@ -149,7 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </footer>
 
-      <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:env(safe-area-inset-bottom)]">
+      <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:max(env(safe-area-inset-bottom),var(--miniapp-safe-bottom))]">
         <div className="grid grid-cols-6">
           {NAV.map((n) => {
             const Icon = n.icon;

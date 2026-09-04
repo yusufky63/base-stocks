@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import { useTheme, type ThemePreference } from "@/components/layout/ThemeProvider";
 import { useMotion, type MotionPreference } from "@/lib/motion";
@@ -7,6 +8,8 @@ import { useSlippage, useTickerSettings } from "@/hooks/useSettings";
 import { useConfigFlags } from "@/hooks/queries";
 import { isAttributionEnabled } from "@/lib/attribution";
 import { Module, ModuleHeader, Chip, Button, KeyValue } from "@/components/ui/primitives";
+import { useMiniApp } from "@/components/layout/MiniAppProvider";
+import { addMiniApp } from "@/lib/miniapp-actions";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { AddressLabel, LegalNotice } from "@/components/common/display";
 
@@ -45,6 +48,8 @@ export function SettingsView() {
           <p className="text-[12px] text-ink-muted">BStocks never holds keys or funds. No signature is requested on connect or page load.</p>
         </div>
       </Module>
+
+      <SaveToBaseApp />
 
       <Module>
         <ModuleHeader title="Appearance" />
@@ -153,5 +158,37 @@ export function SettingsView() {
         </div>
       </details>
     </div>
+  );
+}
+
+/**
+ * Saving BStocks alongside the user's other mini apps.
+ *
+ * Only shown where it means something: inside a host, and only while the app is not already saved.
+ * The host runs its own confirmation, and declining is an ordinary answer — the row simply stays.
+ */
+function SaveToBaseApp() {
+  const { isMiniApp, context } = useMiniApp();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  if (!isMiniApp || context?.client.added || saved) return null;
+
+  const save = async () => {
+    setSaving(true);
+    setSaved(await addMiniApp());
+    setSaving(false);
+  };
+
+  return (
+    <Module>
+      <ModuleHeader title="Base app" />
+      <div className="p-4 flex flex-col gap-3">
+        <Button variant="secondary" loading={saving} onClick={() => void save()} className="self-start">
+          Save BStocks to my apps
+        </Button>
+        <p className="text-[12px] text-ink-muted">Keeps BStocks in your app list so you can open it without the link.</p>
+      </div>
+    </Module>
   );
 }

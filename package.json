@@ -16,6 +16,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
     "@base-org/account": "^2.5.10",
+    "@farcaster/miniapp-sdk": "0.3.0",
+    "@farcaster/miniapp-wagmi-connector": "2.0.0",
     "@reown/appkit": "^1.8.23",
     "@reown/appkit-adapter-wagmi": "^1.8.23",
     "@supabase/supabase-js": "^2.114.0",

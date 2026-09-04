@@ -3,6 +3,13 @@
 /* ---------- Design tokens: Base-compatible palette, modular typography with character ---------- */
 :root {
   color-scheme: light;
+
+  /* Reported by a mini app host, which owns the notch and its own chrome; `env(safe-area-inset-*)`
+     reads 0 inside its WebView because the page is not the thing touching the screen edge. */
+  --miniapp-safe-top: 0px;
+  --miniapp-safe-bottom: 0px;
+  --miniapp-safe-left: 0px;
+  --miniapp-safe-right: 0px;
   --bg: #ffffff;
   --surface: #f8f9fb;
   --surface-muted: #eef0f3;

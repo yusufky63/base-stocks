@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, ShieldCheck, Timer, Zap } from "lucide-react";
+import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, Send, ShieldCheck, Smartphone, Timer, Wallet, Zap } from "lucide-react";
 import {
   B20_FACTORY_ADDRESS,
   B20_ACTIVATION_REGISTRY_ADDRESS,
@@ -36,6 +36,7 @@ const NAV = [
   ["gifts", "Gift escrow"],
   ["gas", "Gas & sponsorship"],
   ["privacy", "Data & privacy"],
+  ["base-app", "Base app"],
   ["contracts", "Contracts"],
 ] as const;
 
@@ -306,7 +307,29 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={10} id="contracts" title="Contract addresses" sub="Base mainnet" />
+        <SectionHead n={10} id="base-app" title="Inside the Base app" sub="the same app, one frame in" />
+        <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
+          <Cell icon={Smartphone} title="A mini app, not a wrapper">
+            The site is served as a Base mini app from <span className="font-mono text-[12px]">/.well-known/farcaster.json</span>. There is no second build and no
+            second codebase: the host opens the same pages, and the app tells it when it has finished loading so the splash screen comes down.
+          </Cell>
+          <Cell icon={Wallet} title="The host wallet, no modal">
+            Inside the app the wallet is the one already signed in there, already on Base, and it is connected on arrival. Nothing is signed on load
+            here either — connecting is not signing, and every trade, claim and approval is still confirmed by you.
+          </Cell>
+          <Cell icon={Send} title="Links that launch the page">
+            A shared gift pool carries its own launch card, so the button opens that pool rather than the home page. Link-gated pools keep their key in
+            the URL fragment, which never reaches a server, so those are deliberately left without one.
+          </Cell>
+        </div>
+        <p className="text-[13px] text-ink-secondary leading-relaxed">
+          A mini app host embeds the page in a frame, so the site allows framing from the Base and Farcaster hosts by name and refuses everyone else —
+          <span className="font-mono text-[12px]"> frame-ancestors</span> rather than a blanket denial, which would have shown a blank panel instead of the app.
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={11} id="contracts" title="Contract addresses" sub="Base mainnet" />
         <div className="border border-line rounded-[8px] bg-canvas overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>

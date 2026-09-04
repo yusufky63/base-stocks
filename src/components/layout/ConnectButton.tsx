@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { ChevronDown, Wallet } from "lucide-react";
 import type { Address } from "viem";
-import { hasReown } from "@/config/wagmi";
+import { MINI_APP_CONNECTOR_ID, hasReown } from "@/config/wagmi";
 import { getAppKit } from "@/config/appkit";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { Button, cx } from "@/components/ui/primitives";
@@ -12,6 +12,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { useBasename } from "@/hooks/queries";
 import { shortenAddress } from "@/lib/format";
 import { AddressLabel } from "@/components/common/display";
+import { useMiniApp } from "@/components/layout/MiniAppProvider";
 
 /**
  * Wallet entry point. Uses the AppKit modal when configured, otherwise a minimal picker
@@ -24,6 +25,8 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const [switchError, setSwitchError] = useState<string | null>(null);
   const { disconnect } = useDisconnect();
+  const { isMiniApp } = useMiniApp();
+  const { connectors, connect } = useConnect();
 
   // A wallet extension can answer eth_accounts with an empty list (locked, or a second extension
   // owning window.ethereum) while Wagmi still reports "connected". AppKit then looks up the
@@ -34,6 +37,18 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
   }, [status, address, disconnect]);
 
   const openWallet = () => {
+    // In the Base app there is one wallet and it is the host's own. AppKit would offer a choice
+    // that does not exist there, in a modal that belongs to someone else's frame, so the host
+    // connector is used directly and the sheet is kept for showing the account afterwards.
+    if (isMiniApp) {
+      const host = connectors.find((c) => c.id === MINI_APP_CONNECTOR_ID);
+      if (host && !isConnected) {
+        connect({ connector: host, chainId: BASE_CHAIN_ID });
+        return;
+      }
+      setOpen(true);
+      return;
+    }
     const kit = hasReown ? getAppKit() : null;
     if (kit) void kit.open();
     else setOpen(true);
@@ -157,6 +172,7 @@ function FallbackWalletSheet({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 function rank(id: string): number {
+  if (id === MINI_APP_CONNECTOR_ID) return -1;
   if (id === "baseAccount") return 0;
   if (id === "coinbaseWalletSDK") return 1;
   if (id === "injected") return 9;
@@ -164,6 +180,7 @@ function rank(id: string): number {
 }
 
 function friendlyName(id: string, name: string): string {
+  if (id === MINI_APP_CONNECTOR_ID) return "Base app wallet";
   if (id === "baseAccount") return "Base Account";
   if (id === "injected") return "Browser wallet";
   return name;

@@ -4,26 +4,13 @@ import { DM_Sans, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { AppShell } from "@/components/layout/AppShell";
+import { appMeta } from "@/lib/miniapp";
 
 const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["400", "500", "600"], display: "swap" });
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", weight: ["500", "700"], display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"], display: "swap" });
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://basestocks.finance").replace(/\/$/, "");
-/** Base app id (Builder Codes): ties this web app to the registered Base project for attribution. */
-const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || "6a98cc686e87922b5d1d4597";
-
-/** Base app / mini app embed: a launch button when a link to the site is shared inside the Base app. */
-const miniAppEmbed = JSON.stringify({
-  version: "1",
-  imageUrl: `${APP_URL}/opengraph-image`,
-  button: { title: "Open BStocks", action: { type: "launch_miniapp", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0370fd" } },
-});
-const frameEmbed = JSON.stringify({
-  version: "1",
-  imageUrl: `${APP_URL}/opengraph-image`,
-  button: { title: "Open BStocks", action: { type: "launch_frame", name: "BStocks", url: `${APP_URL}/`, splashImageUrl: `${APP_URL}/brand/splash-200.png`, splashBackgroundColor: "#0370fd" } },
-});
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
@@ -41,7 +28,7 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", site: "@BaseOnStocks", creator: "@BaseOnStocks" },
   robots: { index: true, follow: true },
   icons: { icon: [{ url: "/favicon.ico", sizes: "16x16 32x32 48x48 64x64" }, { url: "/brand/logo-mark-transparent-128.png", type: "image/png", sizes: "128x128" }], apple: "/brand/icon-1024.png" },
-  other: { "base:app_id": BASE_APP_ID, "fc:miniapp": miniAppEmbed, "fc:frame": frameEmbed },
+  other: appMeta(),
 };
 
 export const viewport: Viewport = {
