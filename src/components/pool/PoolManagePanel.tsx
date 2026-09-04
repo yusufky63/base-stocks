@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, type Address, type Hash } from "viem";
@@ -20,6 +20,17 @@ import { ErrorBanner, TxLink } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 
 type ClaimRow = PoolClaim & { basename?: string | null; proof?: Array<{ label: string; checked: boolean }> };
+
+/** "2 days 23 hours", "4 hours", "11 minutes" — enough to plan around, no false precision. */
+function untilLabel(ms: number): string {
+  const mins = Math.max(1, Math.round(ms / 60_000));
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"}`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return rest === 0 ? `${days} day${days === 1 ? "" : "s"}` : `${days}d ${rest}h`;
+}
 
 /**
  * The creator's side of a pool: who took a share, and the two-step close.
@@ -50,8 +61,13 @@ export function PoolManagePanel({
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
 
-  // Snapshot the clock once per mount; the page refetches, so a stale second never matters.
-  const [loadedAt] = useState(() => Date.now());
+  // A ticking clock rather than a snapshot: a lock that expires while the page is open should
+  // hand the creator their button, not make them reload to find out.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
   const { ensureSignedIn } = useAuth();
   const [busy, setBusy] = useState<"close" | "sync" | "visibility" | number | null>(null);
   const [error, setError] = useState<HumanError | null>(null);
@@ -63,8 +79,8 @@ export function PoolManagePanel({
     refetchInterval: 30_000,
   });
 
-  const locked = lockedUntil > loadedAt;
-  const expired = loadedAt > pool.expiry;
+  const locked = lockedUntil > now;
+  const expired = now > pool.expiry;
   const remaining = Math.max(0, slots - claimed);
   const legsOnchain = view.onchain?.legs ?? [];
   const allWithdrawn = legsOnchain.length > 0 && legsOnchain.every((l) => l.withdrawn);
@@ -214,23 +230,34 @@ export function PoolManagePanel({
         <div className="p-4 flex flex-col gap-3">
           {cancelled && allWithdrawn ? (
             <p className="text-[13px] text-ink-secondary">This pool is closed and everything unclaimed is back in your wallet.</p>
-          ) : locked ? (
-            <p className="text-[13px] text-ink-secondary inline-flex items-start gap-2">
-              <Lock size={14} strokeWidth={1.75} className="mt-0.5 shrink-0" />
-              You locked this pool until {new Date(lockedUntil).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. Until then it cannot be closed — that promise is what makes the lock badge worth something.
-            </p>
           ) : (
             <>
               <p className="text-[13px] text-ink-secondary">
-                {cancelled
-                  ? "The pool is closed. Bring the unclaimed remainder home."
-                  : expired
-                    ? "The claim window has closed. Withdraw the unclaimed remainder."
-                    : "Closing stops new claims immediately and returns the unclaimed remainder to your wallet. Shares already taken stay with the people who took them."}
+                {locked
+                  ? "Closing stops new claims and returns the unclaimed remainder to your wallet — but you locked this pool, so not yet."
+                  : cancelled
+                    ? "The pool is closed. Bring the unclaimed remainder home."
+                    : expired
+                      ? "The claim window has closed. Withdraw the unclaimed remainder."
+                      : "Closing stops new claims immediately and returns the unclaimed remainder to your wallet. Shares already taken stay with the people who took them."}
               </p>
-              <Button variant="danger" loading={busy === "close"} onClick={() => void close()}>
-                {cancelled ? "Withdraw the remainder" : expired ? "Withdraw the remainder" : "Close pool and withdraw"}
+              {/* Shown disabled rather than hidden: "what can I do, and when" is the question a
+                  locked creator is actually asking, and a missing button answers neither half. */}
+              <Button
+                variant="danger"
+                disabled={locked}
+                loading={busy === "close"}
+                title={locked ? `Unlocks ${new Date(lockedUntil).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : undefined}
+                onClick={() => void close()}
+              >
+                {locked ? `Locked · unlocks in ${untilLabel(lockedUntil - now)}` : cancelled || expired ? "Withdraw the remainder" : "Close pool and withdraw"}
               </Button>
+              {locked && (
+                <p className="text-[12px] text-ink-muted inline-flex items-start gap-1.5">
+                  <Lock size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                  {`You gave up the right to close this until ${new Date(lockedUntil).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. The contract enforces it against you too — that is what makes the Locked badge worth anything to a claimer.`}
+                </p>
+              )}
             </>
           )}
 
