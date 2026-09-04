@@ -257,7 +257,7 @@ function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["ass
     { label: "Live markets", value: String(live.length) },
     { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
     { label: "24h volume", value: volume > 0 ? formatUsdCompact(volume) : "—" },
-    { label: "Issued", value: `${live.length} / ${total}` },
+    { label: "Issued", value: `${items.filter((x) => BigInt(x.asset.totalSupply ?? "0") > 0n).length} / ${total}` },
   ];
   return (
     <dl className="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-px bg-line border border-line rounded-[8px] overflow-hidden max-w-[640px]">

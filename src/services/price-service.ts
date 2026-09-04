@@ -65,14 +65,36 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
   };
 }
 
-/** Market data for many assets; tolerant of provider failure (returns empty map). */
+/**
+ * Last-known-good market data per token. DexScreener/GeckoTerminal intermittently miss individual
+ * tokens (rate limits, partial batches); without this buffer a miss nulls liquidityUsd and a stock
+ * flaps between "Live" and "No pool" on the home/markets counters. A miss is served from here for
+ * up to 10 minutes, keeping the entry's original updatedAt so freshness display stays honest.
+ * Module-level: survives warm serverless invocations, resets on cold start (same as no buffer).
+ */
+const lastGoodMarket = new Map<string, TokenMarketData>();
+const LAST_GOOD_MAX_AGE_MS = 10 * 60_000;
+
+/** Market data for many assets; tolerant of provider failure (misses fall back to recent last-good values). */
 export async function getMarketDataMap(addresses: Address[]): Promise<Map<string, TokenMarketData>> {
+  let fresh = new Map<string, TokenMarketData>();
   try {
-    return await getMarketDataProvider().getTokenMarkets(addresses);
+    fresh = await getMarketDataProvider().getTokenMarkets(addresses);
   } catch (err) {
     metrics.count("market.snapshot", false, err instanceof Error ? err.message : String(err));
-    return new Map();
   }
+  const now = Date.now();
+  for (const [k, v] of fresh) lastGoodMarket.set(k.toLowerCase(), v);
+  for (const a of addresses) {
+    const k = a.toLowerCase();
+    if (fresh.has(k)) continue;
+    const kept = lastGoodMarket.get(k);
+    if (kept && now - kept.updatedAt <= LAST_GOOD_MAX_AGE_MS) {
+      fresh.set(k, kept);
+      metrics.count("market.lastgood", true);
+    }
+  }
+  return fresh;
 }
 
 export async function getPriceViews(assets: B20Asset[]): Promise<Map<string, PriceView>> {
