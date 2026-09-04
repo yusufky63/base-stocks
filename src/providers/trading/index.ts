@@ -16,9 +16,10 @@ import { cowProvider } from "./cow/adapter";
  * chain: it is chosen when it wins the comparison or the user picks it, never as a surprise
  * substitute for a swap transaction. `orders: false` leaves it out entirely (basket legs).
  */
-export function getTradeProviders(opts: { orders?: boolean } = {}): TradeProvider[] {
+export function getTradeProviders(opts: { orders?: boolean; zeroX?: boolean } = {}): TradeProvider[] {
   const list: TradeProvider[] = [];
-  if (ZeroXTradeProvider.isConfigured()) list.push(zeroXProvider);
+  // 0x's API terms exclude US persons; the router drops it for US requests (zeroX: false).
+  if (opts.zeroX !== false && ZeroXTradeProvider.isConfigured()) list.push(zeroXProvider);
   list.push(kyberProvider);
   if (OkxTradeProvider.isUsable()) list.push(okxProvider);
   if (UniswapTradeProvider.isConfigured()) list.push(uniswapProvider);

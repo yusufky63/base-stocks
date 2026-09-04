@@ -27,6 +27,8 @@ export interface TradeRequest {
   strictProvider?: boolean;
   /** Allow signed-order providers (CoW). Basket legs set false: each leg must be a transaction with a hash. */
   orders?: boolean;
+  /** Server-set from the request's country: 0x's API terms exclude US persons, so US requests skip it. Never read from the client body. */
+  noZeroX?: boolean;
 }
 
 /** Hedge delay before the fallback provider is started in parallel. */
@@ -138,8 +140,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * the estimated network fee. The losers are returned as alternatives so the UI can show the
  * comparison. Falls back to a single hedged race only if nothing answers.
  */
-async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide, orders: boolean): Promise<{ best: IndicativeQuote; alternatives: TradeQuoteAlternative[] }> {
-  const providers = getTradeProviders({ orders });
+async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide, orders: boolean, zeroX: boolean): Promise<{ best: IndicativeQuote; alternatives: TradeQuoteAlternative[] }> {
+  const providers = getTradeProviders({ orders, zeroX });
   const [md, ethUsd] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd()]);
   const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
   const tokenUsd = view.displayUsd ?? asset.oracle?.priceUsd ?? null;
@@ -177,7 +179,7 @@ export class TradeRouter {
     validateAmount(req, asset, asset.oracle?.priceUsd ?? null, req.payWith === "ETH" ? await getEthUsd() : null);
     const intent = buildIntent(req, asset);
     const started = Date.now();
-    const { best, alternatives } = await compareProviders(intent, asset, req.side, req.orders !== false);
+    const { best, alternatives } = await compareProviders(intent, asset, req.side, req.orders !== false, !req.noZeroX);
     metrics.count(`trade.price.${best.provider}`);
     const summary = await summarize(req, asset, best, warnings);
     metrics.count("trade.price.latency", true, String(Date.now() - started));
@@ -192,9 +194,12 @@ export class TradeRouter {
     const intent = buildIntent(req, asset);
     // The provider that won the comparison goes first and the hedged chain still covers failures;
     // a manual choice (strictProvider) is honoured exactly so the user signs what they picked.
-    const all = getTradeProviders({ orders: req.orders !== false });
+    const all = getTradeProviders({ orders: req.orders !== false, zeroX: !req.noZeroX });
     const strict = req.strictProvider && req.provider ? all.filter((p) => p.id === req.provider) : [];
-    if (req.strictProvider && req.provider && strict.length === 0) throw new AppError("PROVIDER_UNAVAILABLE", "The provider you picked is not available right now. Switch back to the best route.", 503);
+    if (req.strictProvider && req.provider && strict.length === 0) {
+      if (req.provider === "zeroX" && req.noZeroX) throw new AppError("PROVIDER_UNAVAILABLE", "0x does not serve US users; pick another route.", 451);
+      throw new AppError("PROVIDER_UNAVAILABLE", "The provider you picked is not available right now. Switch back to the best route.", 503);
+    }
     const ordered = strict.length ? strict : [...all].sort((a, b) => Number(b.id === req.provider) - Number(a.id === req.provider));
     const q: ExecutableQuote = await withFallback(ordered, (p) => p.getExecutableQuote(intent));
     metrics.count(`trade.quote.${q.provider}`);

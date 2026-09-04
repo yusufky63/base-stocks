@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { route, json, parseBody, addressSchema, bigintStringSchema } from "@/lib/api";
 import { tradeRouter } from "@/services/trade-router";
+import { requestCountry } from "@/lib/geo";
 
 /** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
 export const maxDuration = 60;
@@ -23,6 +24,6 @@ const bodySchema = z.object({
 /** Indicative price. Browser → this route → 0x/Kyber (keys stay server-side). */
 export const POST = route({ rateLimit: { key: "trade.price", limit: 120, windowMs: 60_000 } }, async (req) => {
   const body = await parseBody(req, bodySchema);
-  const summary = await tradeRouter.price(body);
+  const summary = await tradeRouter.price({ ...body, noZeroX: requestCountry(req) === "US" });
   return json(summary);
 });

@@ -31,7 +31,7 @@ export const INTEGRATIONS: IntegrationGroup[] = [
       { name: "Uniswap", mark: "uniswap", color: "#ff007a", url: "https://app.uniswap.org", role: "Trading API routes" },
       { name: "Aerodrome", mark: "aerodrome", color: "#2563eb", url: "https://aerodrome.finance", role: "Direct pool swap, deepest stock liquidity" },
       { name: "OKX DEX", mark: "okx-dex", color: "#000000", url: "https://web3.okx.com/dex", role: "Aggregator (Onchain OS)" },
-      { name: "0x", mark: "0x", color: "#111111", url: "https://0x.org", role: "Swap API v2, where the asset is authorized" },
+      { name: "0x", mark: "0x", color: "#111111", url: "https://0x.org", role: "Swap API v2, where the asset is authorized · non-US only" },
       { name: "CoW Protocol", mark: "cowswap", color: "#012f7a", url: "https://cow.fi", role: "Signed orders: gasless swaps, limit orders" },
     ],
   },

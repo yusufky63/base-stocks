@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { route, json, parseBody } from "@/lib/api";
 import { serverEnv } from "@/config/env";
+import { requestCountry } from "@/lib/geo";
 
 const COOKIE = "bstocks_eligibility";
 const THIRTY_DAYS = 30 * 24 * 3600;
 
 function describe(req: Request) {
-  const country = (req.headers.get("x-vercel-ip-country") ?? req.headers.get("cf-ipcountry") ?? req.headers.get("x-country-code") ?? "").toUpperCase();
+  const country = requestCountry(req) ?? "";
   const env = serverEnv();
   const blocked = (env.GEOBLOCK_COUNTRIES ?? "US")
     .split(",")
