@@ -244,16 +244,7 @@ export async function getUsdcBalance(owner: Address): Promise<bigint> {
   }
 }
 
-/**
- * Curated last-resort icons for stocks whose contractURI has no image yet (new listings).
- * Lowest priority: the moment Coinbase publishes metadata or a market provider knows the
- * token, those win and these stop applying.
- */
-const FALLBACK_LOGOS: Record<string, string> = {
-  SPCX: "/logos/spcx.svg",
-};
-
-/** Fill missing logos from the market-data provider (best effort, cached), then curated fallbacks. */
+/** Fill missing logos from the market-data provider (best effort, cached). */
 export async function enrichLogos(assets: B20Asset[]): Promise<B20Asset[]> {
   const md = getMarketDataProvider();
   await Promise.all(
@@ -264,7 +255,6 @@ export async function enrichLogos(assets: B20Asset[]): Promise<B20Asset[]> {
         if (meta?.logoURI) a.logoURI = meta.logoURI;
       }),
   );
-  for (const a of assets) if (!a.logoURI && FALLBACK_LOGOS[a.underlying]) a.logoURI = FALLBACK_LOGOS[a.underlying];
   return assets;
 }
 
