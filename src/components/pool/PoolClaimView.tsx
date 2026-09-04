@@ -21,6 +21,7 @@ import { Badge, Button, LinkButton, Module } from "@/components/ui/primitives";
 import { AddressLabel, AssetLogo, TxLink } from "@/components/common/display";
 import { RegionNotice } from "@/components/common/RegionNotice";
 import { ConnectButton } from "@/components/layout/ConnectButton";
+import { ShareActions } from "@/components/common/ShareSheet";
 import { PoolManagePanel } from "./PoolManagePanel";
 import { QuestChecklist } from "./QuestChecklist";
 
@@ -289,6 +290,14 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
                   </LinkButton>
                 )}
               </div>
+              {/* The moment worth sharing. A link-gated pool's URL is useless without the key it
+                  carries in the fragment, so those point at the stock instead of a dead claim page. */}
+              <ShareActions
+                compact
+                className="pt-1"
+                path={pool.gateMode === "link" && view.legs[0] ? `/stocks/${view.legs[0].token}` : `/pools/${pool.id}`}
+                text={`I claimed ${shareLabel || "a share"} from a gift pool on BStocks — tokenized stocks on Base.`}
+              />
             </>
           ) : cancelled ? (
             <p className="text-[14px] text-ink-secondary text-center">The creator closed this pool and took the remainder back.</p>

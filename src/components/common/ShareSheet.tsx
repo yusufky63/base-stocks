@@ -34,7 +34,12 @@ const BASE_APP_URL = "https://base.app";
  * Share actions as a plain block: link preview with copy, then Base app / system share, X and
  * copy-post. Used inline (e.g. after a confirmed trade) and inside ShareSheet — no nested dialogs.
  */
-export function ShareActions({ path, text, className }: ShareProps & { className?: string }) {
+/**
+ * `compact` drops the link preview and the big primary share button, leaving just the two direct
+ * actions. It is for places that already have their own primary — a claim confirmation offers
+ * "View your portfolio" first, and a second full-width primary underneath would fight it.
+ */
+export function ShareActions({ path, text, className, compact }: ShareProps & { className?: string; compact?: boolean }) {
   const [copied, setCopied] = useState<"link" | "post" | null>(null);
   const origin = typeof window !== "undefined" ? window.location.origin : publicEnv.appUrl;
   const url = `${origin}${path}`;
@@ -71,6 +76,7 @@ export function ShareActions({ path, text, className }: ShareProps & { className
 
   return (
     <div className={cx("flex flex-col gap-3", className)}>
+      {!compact && (
       <div className="border border-line rounded-[8px] p-3 flex flex-col gap-2 bg-surface">
         <p className="text-[14px] leading-snug">{text}</p>
         <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
@@ -81,8 +87,9 @@ export function ShareActions({ path, text, className }: ShareProps & { className
           </button>
         </div>
       </div>
+      )}
 
-      {isMiniApp ? (
+      {compact ? null : isMiniApp ? (
         <Button variant="primary" size="lg" full loading={casting} onClick={() => void cast()}>
           <Share2 size={16} strokeWidth={1.75} /> Share as a cast
         </Button>

@@ -20,6 +20,7 @@ import { shortenAddress } from "@/lib/format";
 import { useRegion } from "@/hooks/queries";
 import { Badge, Button, LinkButton, Module } from "@/components/ui/primitives";
 import { AddressLabel, TxLink } from "@/components/common/display";
+import { ShareActions } from "@/components/common/ShareSheet";
 import { Avatar } from "@/components/common/RecipientCard";
 import { RegionNotice } from "@/components/common/RegionNotice";
 import { ConnectButton } from "@/components/layout/ConnectButton";
@@ -209,6 +210,15 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
                     </LinkButton>
                   )}
                 </div>
+              )}
+              {/* The claim link itself is single-use and unlisted, so what gets shared is the stock. */}
+              {phase === "confirmed" && r.asset && (
+                <ShareActions
+                  compact
+                  className="pt-1"
+                  path={`/stocks/${r.asset.address}`}
+                  text={`Someone gifted me ${amount} on BStocks — a tokenized stock on Base.`}
+                />
               )}
             </>
           ) : reclaimedView ? (
