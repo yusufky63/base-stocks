@@ -25,6 +25,10 @@ Deployment findings: `/api/health` ok, `/api/status` was degraded only because o
 - **Quote scoring**: include the 0x integrator fee and price impact in `netUsd`, not only the network fee; show "Best price found" with the provider behind a disclosure.
 - **Trade API tests**: schema tests for Kyber, Velora, Uniswap responses like the existing 0x ones.
 
+## Denim hardfork watch (added 2026-09-04)
+
+Base plans to replace Flashblocks with canonical 200ms blocks in the Denim hardfork (live on Vibenet only; Sepolia/Mainnet activation TBD). Codebase inventory against the official migration table came back clean: no `"pending"` block-tag reads, no `eth_subscribe` / WebSocket use anywhere — our only Flashblocks consumption is plain `getTransactionReceipt` against the Flashblocks-aware HTTP endpoint in confirmation-service, which keeps working unchanged (receipts just become canonical instead of preconfirmed). Post-activation cleanup, cosmetic only: drop `getFlashblocksClient` + `FLASHBLOCKS_RPC_URL`, collapse "preconfirmed" into "confirmed", update the docs/how-it-works wording; optionally adopt the new `timestampMs` response fields for sub-second activity timestamps.
+
 ## Phase C — Liquidity and Earn
 
 - **LP Phase 2 shipped 2026-09-03**: collect fees and withdraw 25–100% (decrease + collect) plus in-app `mint` from a USD-per-share range (±5/10/25% or full, inverse amounts-for-range math with tests, exact approvals, simulated bundle, 1% minimums) on USDC-quoted Uniswap v3 and Slipstream pools — all atomic on Base Account. Still open: `increaseLiquidity` (near-free now), WETH-quoted pools, Uniswap v4 stays on the venue.
