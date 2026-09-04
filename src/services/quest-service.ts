@@ -1,32 +1,45 @@
 import { decodeEventLog, erc20Abi, formatUnits, type Address, type Hash } from "viem";
-import type { Quest, QuestStatus } from "@/domain/pool";
+import { isSelfDeclared, type Quest, type QuestStatus, type QuestType } from "@/domain/pool";
 import { getRepos } from "@/db/repositories";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { getAssets } from "@/services/b20-asset-service";
 import { getPriceViews } from "@/services/price-service";
 import { reverseResolve } from "@/services/basename-service";
 import { b20AssetAbi } from "@/lib/b20/abi";
+import { BSTOCKS_X_HANDLE, xIntentUrl, xProfileUrl } from "@/content/social";
 import { formatUsd } from "@/lib/format";
 
 /**
- * Quest verification for gift pools. Everything here runs on the server and gates a claim
- * ticket; the contract itself knows nothing about quests, so a new quest type never needs a new
- * deployment.
+ * Quest verification for gift pools. Everything here runs on the server and gates a claim ticket;
+ * the contract knows nothing about quests, so a new quest type never needs a new deployment.
  *
- * The rule this file holds to: **only checks that can be proven from the chain or from a
- * signature.** App-side records (`trade_records`) are written by an unauthenticated route and
- * are therefore treated as a lookup index, never as evidence — every purchase they point at is
- * re-verified against its transaction receipt before it counts.
+ * Two grades of quest, kept apart everywhere:
+ *
+ * - **Checked** — proven from the chain or a signature. App-side records (`trade_records`) are a
+ *   lookup index, never evidence: every purchase they point at is re-read from its receipt.
+ * - **Self-declared** — X steps. The free X API cannot prove a follow, a repost or a like, so the
+ *   claimant confirms these about themselves and the app stores who declared what, with the
+ *   timestamp. Nothing in the copy calls that "verified", because it is not.
  */
 
 const DEFAULT_WITHIN_DAYS = 30;
-/** How many candidate purchases we are willing to verify onchain for a single claim. */
+/** How many candidate purchases we are willing to re-read for a single claim. */
 const MAX_RECEIPTS_PER_CHECK = 8;
 
 export interface QuestResult extends QuestStatus {
   /** Recorded on the claim row so the creator can audit who got in and why. */
   proof?: Record<string, unknown>;
 }
+
+/** Attestations a claimant has already made, keyed by quest index. */
+export type Attestations = Record<string, number>;
+
+export function readAttestations(questProof: Record<string, unknown> | undefined): Attestations {
+  const raw = questProof?.attested;
+  return raw && typeof raw === "object" ? (raw as Attestations) : {};
+}
+
+/* -------------------------------- labels --------------------------------- */
 
 function label(q: Quest, symbol?: string): string {
   switch (q.type) {
@@ -38,6 +51,30 @@ function label(q: Quest, symbol?: string): string {
       return `Hold ${symbol ?? "the stock"}`;
     case "buy-asset":
       return `Buy ${q.minUsd ? formatUsd(q.minUsd) : "some"} of ${symbol ?? "the stock"}`;
+    case "follow-bstocks":
+      return `Follow @${BSTOCKS_X_HANDLE} on X`;
+    case "follow-x":
+      return `Follow @${q.handle ?? "the creator"} on X`;
+    case "repost-x":
+      return "Repost the announcement on X";
+    case "like-x":
+      return "Like the announcement on X";
+  }
+}
+
+/** Where a self-declared step sends the claimant. */
+export function questActionUrl(q: Quest): string | undefined {
+  switch (q.type) {
+    case "follow-bstocks":
+      return xProfileUrl(BSTOCKS_X_HANDLE);
+    case "follow-x":
+      return q.handle ? xProfileUrl(q.handle) : undefined;
+    case "repost-x":
+      return q.tweetUrl ? xIntentUrl("repost", q.tweetUrl) : undefined;
+    case "like-x":
+      return q.tweetUrl ? xIntentUrl("like", q.tweetUrl) : undefined;
+    default:
+      return undefined;
   }
 }
 
@@ -49,9 +86,10 @@ async function symbolFor(asset?: Address): Promise<string | undefined> {
 
 /* ------------------------------- verifiers ------------------------------- */
 
-async function verifyHoldBasename(claimant: Address): Promise<QuestResult> {
+async function verifyHoldBasename(index: number, claimant: Address): Promise<QuestResult> {
   const name = await reverseResolve(claimant).catch(() => null);
   return {
+    index,
     type: "hold-basename",
     label: "Own a Basename",
     done: !!name,
@@ -60,10 +98,10 @@ async function verifyHoldBasename(claimant: Address): Promise<QuestResult> {
   };
 }
 
-async function verifyHoldAsset(q: Quest, claimant: Address): Promise<QuestResult> {
+async function verifyHoldAsset(index: number, q: Quest, claimant: Address): Promise<QuestResult> {
   const symbol = await symbolFor(q.assetAddress);
-  const base: QuestResult = { type: "hold-asset", label: label(q, symbol), done: false };
-  if (!q.assetAddress) return { ...base, detail: "This quest is misconfigured; ask the creator to fix it." };
+  const base: QuestResult = { index, type: "hold-asset", label: label(q, symbol), done: false };
+  if (!q.assetAddress) return { ...base, detail: "This step is misconfigured; ask the creator to fix it." };
   const min = BigInt(q.minRawAmount ?? "1");
   const balance = await getServerPublicClient()
     .readContract({ address: q.assetAddress, abi: b20AssetAbi, functionName: "balanceOf", args: [claimant] })
@@ -79,22 +117,23 @@ async function verifyHoldAsset(q: Quest, claimant: Address): Promise<QuestResult
 }
 
 /**
- * "Bought at least $X of this stock recently." The app's own trade rows only tell us which
+ * "Bought at least $X of this stock recently." The app's own trade rows only say which
  * transactions to look at; the proof is the receipt — a successful transaction carrying an ERC-20
  * `Transfer` of that exact asset into the claimant's wallet.
  */
-async function verifyBuyAsset(q: Quest, claimant: Address): Promise<QuestResult> {
+async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promise<QuestResult> {
   const symbol = await symbolFor(q.assetAddress);
-  const base: QuestResult = { type: "buy-asset", label: label(q, symbol), done: false };
-  if (!q.assetAddress) return { ...base, detail: "This quest is misconfigured; ask the creator to fix it." };
+  const base: QuestResult = { index, type: "buy-asset", label: label(q, symbol), done: false };
+  if (!q.assetAddress) return { ...base, detail: "This step is misconfigured; ask the creator to fix it." };
 
-  const since = Date.now() - (q.withinDays ?? DEFAULT_WITHIN_DAYS) * 24 * 3600 * 1000;
+  const withinDays = q.withinDays ?? DEFAULT_WITHIN_DAYS;
+  const since = Date.now() - withinDays * 24 * 3600 * 1000;
   const trades = await getRepos().trades.listByOwner(claimant).catch(() => []);
   const candidates = trades
     .filter((t) => t.side === "buy" && t.assetAddress.toLowerCase() === q.assetAddress!.toLowerCase() && t.createdAt >= since && !!t.txHash)
     .slice(0, MAX_RECEIPTS_PER_CHECK);
   if (candidates.length === 0) {
-    return { ...base, detail: `No ${symbol ?? "purchase"} found in this wallet in the last ${q.withinDays ?? DEFAULT_WITHIN_DAYS} days.` };
+    return { ...base, detail: `No ${symbol ?? "purchase"} found in this wallet in the last ${withinDays} days.` };
   }
 
   const client = getServerPublicClient();
@@ -113,7 +152,7 @@ async function verifyBuyAsset(q: Quest, claimant: Address): Promise<QuestResult>
     }
   }
   if (boughtRaw === 0n) {
-    return { ...base, detail: "We could not verify that purchase onchain yet. If it just went through, wait for the confirmation and retry." };
+    return { ...base, detail: "We could not confirm that purchase onchain yet. If it just went through, wait for the confirmation and retry." };
   }
 
   const minUsd = q.minUsd ?? 0;
@@ -126,7 +165,7 @@ async function verifyBuyAsset(q: Quest, claimant: Address): Promise<QuestResult>
   return {
     ...base,
     done,
-    detail: done ? undefined : `Verified ${formatUsd(usd)} so far — this pool asks for ${formatUsd(minUsd)}.`,
+    detail: done ? undefined : `Confirmed ${formatUsd(usd)} so far — this pool asks for ${formatUsd(minUsd)}.`,
     proof: done ? { txs: verifiedTxs, rawAmount: boughtRaw.toString(), usd } : undefined,
   };
 }
@@ -155,42 +194,106 @@ async function receivedFromReceipt(
   return total;
 }
 
+/** A self-declared X step: done once the claimant has confirmed it for this pool. */
+function readDeclared(index: number, q: Quest, attested: Attestations): QuestResult {
+  const done = typeof attested[String(index)] === "number";
+  return {
+    index,
+    type: q.type,
+    label: label(q),
+    done,
+    selfDeclared: true,
+    actionUrl: questActionUrl(q),
+    detail: done ? undefined : "Open X, do it, and confirm here.",
+    proof: done ? { declaredAt: attested[String(index)] } : undefined,
+  };
+}
+
 /* --------------------------------- API ---------------------------------- */
 
-/** Runs every quest of a pool for one address. Never throws: a failed check reads as "not done". */
-export async function verifyQuests(quests: Quest[], claimant: Address): Promise<QuestResult[]> {
+/**
+ * Runs every quest of a pool for one address. Never throws: a failed check reads as "not done".
+ * `attested` carries the claimant's own confirmations for the self-declared steps.
+ */
+export async function verifyQuests(quests: Quest[], claimant: Address, attested: Attestations = {}): Promise<QuestResult[]> {
   return Promise.all(
-    quests.map(async (q): Promise<QuestResult> => {
+    quests.map(async (q, index): Promise<QuestResult> => {
       try {
+        if (isSelfDeclared(q.type)) return readDeclared(index, q, attested);
         switch (q.type) {
           case "sign-in":
             // Reaching this point already required a valid SIWE session for `claimant`.
-            return { type: "sign-in", label: "Sign in with your wallet", done: true };
+            return { index, type: "sign-in", label: label(q), done: true };
           case "hold-basename":
-            return await verifyHoldBasename(claimant);
+            return await verifyHoldBasename(index, claimant);
           case "hold-asset":
-            return await verifyHoldAsset(q, claimant);
+            return await verifyHoldAsset(index, q, claimant);
           case "buy-asset":
-            return await verifyBuyAsset(q, claimant);
+            return await verifyBuyAsset(index, q, claimant);
           default:
-            return { type: q.type, label: "Unknown requirement", done: false, detail: "This pool asks for something this version cannot check." };
+            return { index, type: q.type, label: "Unknown requirement", done: false, detail: "This pool asks for something this version cannot check." };
         }
       } catch {
-        return { type: q.type, label: label(q), done: false, detail: "We could not check this right now. Try again in a moment." };
+        return { index, type: q.type, label: label(q), done: false, detail: "We could not check this right now. Try again in a moment." };
       }
     }),
   );
 }
 
-/** Quest labels for a pool, without running any check — used on the public pool card. */
+/** Quest labels for a pool without running any check — used on the public pool card. */
 export async function describeQuests(quests: Quest[]): Promise<QuestStatus[]> {
   return Promise.all(
-    quests.map(async (q) => ({ type: q.type, label: label(q, await symbolFor(q.assetAddress)), done: false })),
+    quests.map(async (q, index) => ({
+      index,
+      type: q.type,
+      label: label(q, await symbolFor(q.assetAddress)),
+      done: false,
+      selfDeclared: isSelfDeclared(q.type) || undefined,
+      actionUrl: questActionUrl(q),
+    })),
   );
 }
 
-export function questProof(results: QuestResult[]): Record<string, unknown> {
+/** Strips the internal `proof` field so nothing but the checklist reaches the browser. */
+export function toQuestStatus(r: QuestResult): QuestStatus {
+  return { index: r.index, type: r.type, label: r.label, done: r.done, detail: r.detail, actionUrl: r.actionUrl, selfDeclared: r.selfDeclared };
+}
+
+/**
+ * Merges the evidence for one claim row. Checked quests store under their type; self-declared
+ * confirmations stay in `attested` so the roster can tell the two apart at a glance.
+ */
+export function questProof(results: QuestResult[], attested: Attestations = {}): Record<string, unknown> {
   const proof: Record<string, unknown> = {};
-  for (const r of results) if (r.proof) proof[r.type] = r.proof;
+  for (const r of results) if (r.proof && !r.selfDeclared) proof[r.type] = r.proof;
+  if (Object.keys(attested).length > 0) proof.attested = attested;
   return proof;
+}
+
+/** Human list of what a claim row proves, for the creator's roster. */
+export function proofSummary(questProof: Record<string, unknown>, quests: Quest[]): Array<{ label: string; checked: boolean }> {
+  const out: Array<{ label: string; checked: boolean }> = [];
+  for (const key of Object.keys(questProof)) {
+    if (key === "attested") continue;
+    out.push({ label: key, checked: true });
+  }
+  for (const idx of Object.keys(readAttestations(questProof))) {
+    const q = quests[Number(idx)];
+    if (q) out.push({ label: shortDeclaredLabel(q.type), checked: false });
+  }
+  return out;
+}
+
+function shortDeclaredLabel(type: QuestType): string {
+  switch (type) {
+    case "follow-bstocks":
+    case "follow-x":
+      return "follow";
+    case "repost-x":
+      return "repost";
+    case "like-x":
+      return "like";
+    default:
+      return type;
+  }
 }

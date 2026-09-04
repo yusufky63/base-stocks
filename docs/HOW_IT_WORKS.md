@@ -135,7 +135,9 @@ One deposit, many equal claims — the contract behind `/pools`. Ownerless like 
 - **Packages.** Up to 8 legs (`MAX_LEGS`), each paying a fixed raw amount per claim, all in one claim transaction. B20 `balanceOf` is the raw balance and does not rebase, so a share promised at creation is the same share at claim time.
 - **Closing is two steps on purpose.** `cancel` only flips a flag and moves nothing, so a stock its issuer has paused can never keep the creator from closing the pool; `withdrawLeg` then brings tokens home one at a time and `withdraw` batches the healthy ones. Base Account does both in one atomic confirmation.
 - **`lockedUntil`** lets a creator give up the right to cancel for a period — an onchain-verifiable promise, shown as a Locked badge.
-- **Quests** never reach the contract. `src/services/quest-service.ts` only offers checks provable from the chain or a signature (Basename ownership, a minimum balance, a purchase re-verified against its transaction receipt, a SIWE sign-in). App-side `trade_records` are used as a lookup index, never as evidence. A "follow us on X" task cannot be verified with the free API and is deliberately absent.
+- **Quests** never reach the contract, so a new requirement is server work rather than a new deployment (`src/services/quest-service.ts`). They come in two grades and the app labels them everywhere — picker, claim page and creator roster:
+  - **Checked on Base** — `hold-basename` (reverse + forward resolution), `hold-asset` (`balanceOf`), `buy-asset` (candidate transactions come from `trade_records`, but each one is re-read from its receipt and only an ERC-20 `Transfer` of that asset into the claimant counts, because `/api/trades` is unauthenticated), `sign-in` (SIWE).
+  - **Declared by the claimant** — `follow-bstocks`, `follow-x`, `repost-x`, `like-x`. X's free API exposes none of these, so `POST /api/pools/[id]/attest` records the claimant's own confirmation against their signed-in wallet with a timestamp, in `questProof.attested` keyed by quest index. The claim page opens X, waits out a five-second confirmation window and then attests; the row reads "Confirmed by you", never "verified", and the creator's roster tags it `declared`. Nothing about this is a check and the copy never says it is.
 - **Who claimed.** `PoolClaimed` logs are the truth; the claim page reports its own transaction for speed (`confirmed`) and the daily cron sweep matches rows against logs (`reconciled`). Only the creator sees the roster.
 
 ---
@@ -224,6 +226,7 @@ No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp 
 | `GET/POST /api/gifts`, `GET/PATCH /api/gifts/[id]` | Gift records and receipts |
 | `GET/POST /api/pools`, `GET/PATCH /api/pools/[id]` | Gift pools: public directory, a creator's own pools, create and presentation edits |
 | `GET/POST /api/pools/[id]/ticket` | Quest checklist for the signed-in wallet, and the campaign signer's claim ticket |
+| `POST /api/pools/[id]/attest` | The claimant's own confirmation of one X step (declared, never verified) |
 | `GET/POST/PUT /api/pools/[id]/claims` | Claim roster (creator only), a claim page reporting its transaction, and the log reconciliation |
 | `GET /api/basename/resolve`, `/reverse` | Recipient resolution with profile |
 | `GET /api/activity/[address]` | Timeline with onchain verification |

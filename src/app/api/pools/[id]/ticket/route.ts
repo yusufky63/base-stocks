@@ -2,7 +2,7 @@ import type { Address } from "viem";
 import { route, json } from "@/lib/api";
 import { getRepos } from "@/db/repositories";
 import { requirePool, readPoolOnchain } from "@/services/pool-service";
-import { questProof, verifyQuests } from "@/services/quest-service";
+import { questProof, readAttestations, toQuestStatus, verifyQuests } from "@/services/quest-service";
 import { b20Guard } from "@/services/b20-guard-service";
 import { issueTicket } from "@/lib/pool/gate";
 import { GIFT_POOL_ADDRESS } from "@/lib/pool";
@@ -28,34 +28,37 @@ async function assertClaimable(pool: PoolRecord, claimant: Address) {
   return onchain;
 }
 
-/** Quest checklist for the signed-in wallet, so the claim page can show what is still missing. */
+/** Checklist for the signed-in wallet: what is done, what is missing, and where to go do it. */
 export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "pools.quests", limit: 60, windowMs: 60_000 } }, async (req, { params }) => {
   const claimant = requireSession(req);
   const pool = await requirePool((await params).id);
-  const results = await verifyQuests(pool.quests, claimant);
   const claim = await getRepos().poolClaims.get(pool.id, claimant).catch(() => null);
+  const results = await verifyQuests(pool.quests, claimant, readAttestations(claim?.questProof));
   return json({
-    quests: results.map(({ type, label, done, detail }) => ({ type, label, done, detail })),
+    quests: results.map(toQuestStatus),
     eligible: results.every((r) => r.done),
     alreadyClaimed: claim?.status === "confirmed" || claim?.status === "reconciled",
   });
 });
 
 /**
- * Issues a claim ticket for the signed-in wallet — the one place where quest verification and
- * the campaign signer meet. The signature is only ever produced after every quest passes, is
- * bound to this pool and this recipient, and expires in fifteen minutes.
+ * Issues a claim ticket for the signed-in wallet — the one place where quest verification and the
+ * campaign signer meet. The signature is only produced once every step passes, is bound to this
+ * pool and this recipient, and expires in fifteen minutes.
  */
 export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "pools.ticket", limit: 10, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const claimant = requireSession(req);
   const pool = await requirePool((await params).id);
   await assertClaimable(pool, claimant);
 
-  const results = await verifyQuests(pool.quests, claimant);
+  const repos = getRepos();
+  const existing = await repos.poolClaims.get(pool.id, claimant).catch(() => null);
+  const attested = readAttestations(existing?.questProof);
+  const results = await verifyQuests(pool.quests, claimant, attested);
   const failed = results.filter((r) => !r.done);
   if (failed.length > 0) {
     throw new AppError("QUEST_INCOMPLETE", failed[0]!.detail ?? `Not done yet: ${failed[0]!.label}.`, 403, {
-      quests: results.map(({ type, label, done, detail }) => ({ type, label, done, detail })),
+      quests: results.map(toQuestStatus),
     });
   }
 
@@ -65,14 +68,13 @@ export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { ke
     await b20Guard.preSendCheck({ assetAddress: leg.token, sender: GIFT_POOL_ADDRESS as Address, recipient: claimant });
   }
 
-  const claim: PoolClaim = {
-    poolId: pool.id,
-    claimant,
-    status: "issued",
-    questProof: questProof(results),
-    createdAt: Date.now(),
-  };
-  await getRepos().poolClaims.claimOnce(claim).catch(() => null);
+  const proof = questProof(results, attested);
+  if (existing) {
+    await repos.poolClaims.update(pool.id, claimant, { questProof: proof }).catch(() => null);
+  } else {
+    const claim: PoolClaim = { poolId: pool.id, claimant, status: "issued", questProof: proof, createdAt: Date.now() };
+    await repos.poolClaims.claimOnce(claim).catch(() => null);
+  }
 
   const ticket = await issueTicket(pool.onchainId, claimant);
   return json({ ticket, poolId: pool.onchainId });

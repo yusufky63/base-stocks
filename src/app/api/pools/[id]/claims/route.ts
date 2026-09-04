@@ -4,6 +4,7 @@ import { route, json, parseBody, addressSchema, hashSchema } from "@/lib/api";
 import { getRepos } from "@/db/repositories";
 import { reconcilePool, requirePool } from "@/services/pool-service";
 import { reverseResolve } from "@/services/basename-service";
+import { proofSummary } from "@/services/quest-service";
 import { sessionAddress } from "@/lib/auth/session";
 import type { PoolClaim } from "@/domain/pool";
 
@@ -31,7 +32,12 @@ export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key
   }
   const claims = await repos.poolClaims.listByPool(pool.id).catch(() => []);
   const named = await Promise.all(
-    claims.map(async (c) => ({ ...c, basename: await reverseResolve(c.claimant).catch(() => null) })),
+    claims.map(async (c) => ({
+      ...c,
+      basename: await reverseResolve(c.claimant).catch(() => null),
+      // `checked` separates what the chain proved from what the claimant told us.
+      proof: proofSummary(c.questProof, pool.quests),
+    })),
   );
   return json({ claims: named, count: claims.length, creatorOnly: false });
 });

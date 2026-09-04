@@ -56,6 +56,8 @@ export interface ConfigResponse {
   /** 0x tokenized-stock status (refused until 0x approves the opt-in). */
   zeroX?: { configured: boolean; refusesTokenizedStocks: boolean; since: number | null; retryAt: number | null; lastError: string | null };
   geoblockCountries?: string[];
+  /** False when no campaign signer is configured: pools cannot ask for steps here. */
+  poolQuestsEnabled?: boolean;
   storage: "memory" | "supabase";
   minTradeUsd: number;
   defaultSlippageBps: number;

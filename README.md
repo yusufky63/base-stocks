@@ -1,6 +1,6 @@
 # BStocks
 
-A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 standard). Live prices and charts, best-route trading across several DEX aggregators, baskets and recurring plans, yield discovery, sending stock to a Basename, and a fenced AI assistant — all without holding keys or funds.
+A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 standard). Live prices and charts, best-route trading across several DEX aggregators, baskets and recurring plans, yield discovery, gifting stock to a Basename or a whole group at once, and a fenced AI assistant — all without holding keys or funds.
 
 > Coinbase Tokenized Stocks are available only to eligible persons outside the United States. BStocks is an independent interface built on Base, not an official Base or Coinbase product, and does not provide investment advice.
 
@@ -14,6 +14,7 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 | Earn | Idle USDC into Morpho vaults, Aave V3 and Compound v3 from the app; stock pools, LP positions and lending venues discovered at runtime, never hardcoded |
 | Portfolio | Value (stocks + USDC + Earn + LP), allocation, history, rebalance against a template, verified activity, daily AI summary and badges |
 | Send & gift | To a Basename or address with the recipient's profile shown first, or a claim link for someone without a wallet: the stock waits in an ownerless escrow, they claim it with a passkey Base Account and the gas is sponsored. Public receipt pages to share |
+| Gift pools | One deposit, many equal shares of one stock or a package of several: a share link, a public directory or steps to finish first. Onchain steps (a Basename, a holding, a verified purchase) are read from Base; X steps are recorded as the claimant's own confirmation and labelled that way. Close a pool any time — or lock it so you cannot — and the unclaimed remainder comes home |
 | News | Headlines per stock and market-wide plus one shared AI brief every six hours |
 | Compliance | Eligibility notice for restricted regions (`attest` or `block` mode), issuer policies and pauses read before every action |
 | Status | Live, smoothed checks of every dependency at `/status` |
@@ -43,6 +44,8 @@ Without any keys the app still runs: assets, multipliers, pause flags, policies 
 | `AI_PROVIDER`, `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` (or `ANTHROPIC_API_KEY`), `AI_MONTHLY_BUDGET_USD` | The assistant: basket and plan drafts, market and portfolio briefs |
 | `GEOBLOCK_COUNTRIES`, `GEOBLOCK_MODE` | Compliance: which countries see the eligibility notice, and whether they may self-certify |
 | `NEXT_PUBLIC_BASE_BUILDER_CODE` | ERC-8021 attribution on every transaction |
+| `NEXT_PUBLIC_GIFT_POOL_ADDRESS` | Gift pools; unset hides the feature entirely |
+| `POOL_GATE_SIGNER_KEY` | Steps in front of a gift pool; without it, link and open pools still work |
 | `ADMIN_API_TOKEN` | The `/admin` page for verifying newly discovered tokens |
 
 The full list with explanations is in [.env.example](.env.example). Apply the database schema to a Supabase project with `pnpm db:apply` (see the script in `scripts/db-apply.mjs`) or through the Supabase MCP.

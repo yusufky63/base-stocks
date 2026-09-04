@@ -16,11 +16,27 @@ export type PoolVisibility = "public" | "unlisted";
 export type PoolStatus = "draft" | "submitted" | "live" | "cancelled" | "expired" | "failed";
 
 /**
- * A quest is verified offchain and gates the ticket signature, never the contract. Only checks
- * that can be proven from the chain or from a signature are listed here on purpose: a "follow us
- * on X" style task cannot be verified with the free API, and promising it would be a lie.
+ * A quest gates the ticket signature, never the contract, so a new requirement is server work
+ * rather than a new deployment.
+ *
+ * Quests come in two grades and the app never blurs them:
+ *
+ * - **Checked** (`hold-basename`, `hold-asset`, `buy-asset`, `sign-in`) are proven from the chain
+ *   or from a signature. A purchase is re-read from its transaction receipt, never trusted from
+ *   our own `trade_records`, which an unauthenticated route writes.
+ * - **Self-declared** (`follow-bstocks`, `follow-x`, `repost-x`, `like-x`) are steps the claimant
+ *   confirms about themselves. X's free API cannot prove a follow, a repost or a like, so nothing
+ *   here pretends otherwise: the app records who declared what and says so on both the claim page
+ *   and the creator's roster.
  */
-export type QuestType = "sign-in" | "hold-basename" | "hold-asset" | "buy-asset";
+export type QuestType = "sign-in" | "hold-basename" | "hold-asset" | "buy-asset" | "follow-bstocks" | "follow-x" | "repost-x" | "like-x";
+
+/** The quest types the claimant confirms about themselves; everything else is checked. */
+export const SELF_DECLARED_QUESTS = ["follow-bstocks", "follow-x", "repost-x", "like-x"] as const satisfies readonly QuestType[];
+
+export function isSelfDeclared(type: QuestType): boolean {
+  return (SELF_DECLARED_QUESTS as readonly string[]).includes(type);
+}
 
 export interface Quest {
   type: QuestType;
@@ -32,6 +48,10 @@ export interface Quest {
   minUsd?: number;
   /** `buy-asset`: how far back purchases count (default 30 days). */
   withinDays?: number;
+  /** `follow-x`: the account to follow, without the @. */
+  handle?: string;
+  /** `repost-x` / `like-x`: the post to act on. */
+  tweetUrl?: string;
 }
 
 export interface PoolLeg {
@@ -72,7 +92,11 @@ export interface PoolClaim {
   poolId: string;
   claimant: Address;
   status: PoolClaimStatus;
-  /** What the quest verifier saw, kept for the creator's audit view. */
+  /**
+   * What the verifier saw, kept for the creator's audit view. Checked quests store their evidence
+   * under their own type key; self-declared steps land in `attested` as `{ [questIndex]: unixMs }`
+   * so the roster can show what someone said versus what we could prove.
+   */
   questProof: Record<string, unknown>;
   txHash?: Hash;
   blockNumber?: number;
@@ -116,9 +140,15 @@ export interface PoolView {
 
 /** What a claimant is told about their own eligibility, before they spend gas. */
 export interface QuestStatus {
+  /** Position in the pool's quest list; how an attestation addresses one step. */
+  index: number;
   type: QuestType;
   label: string;
   done: boolean;
   /** Why it is not done yet, in the claimant's language. */
   detail?: string;
+  /** Self-declared steps: where the claimant goes to actually do the thing. */
+  actionUrl?: string;
+  /** True when this step is confirmed by the claimant rather than checked by us. */
+  selfDeclared?: boolean;
 }

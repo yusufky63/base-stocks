@@ -13,11 +13,11 @@ import { withAttribution, attributionCapabilities } from "@/lib/attribution";
 import { GIFT_POOL_ADDRESS, giftPoolAbi } from "@/lib/pool";
 import { humanizeError, type HumanError } from "@/lib/errors";
 import { formatTokenAmount, shortenAddress } from "@/lib/format";
-import { Badge, Button, Module, ModuleHeader, Skeleton } from "@/components/ui/primitives";
+import { Badge, Button, Module, ModuleHeader, Skeleton, cx } from "@/components/ui/primitives";
 import { ErrorBanner, TxLink } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 
-type ClaimRow = PoolClaim & { basename?: string | null };
+type ClaimRow = PoolClaim & { basename?: string | null; proof?: Array<{ label: string; checked: boolean }> };
 
 /**
  * The creator's side of a pool: who took a share, and the two-step close.
@@ -244,8 +244,23 @@ export function PoolManagePanel({
                   <span className="block text-[13px] font-medium truncate">{c.basename ?? shortenAddress(c.claimant)}</span>
                   <span className="block text-[11px] text-ink-muted font-mono">
                     <TimeAgo value={c.createdAt} />
-                    {Object.keys(c.questProof).length > 0 && ` · ${Object.keys(c.questProof).join(", ")} verified`}
                   </span>
+                  {(c.proof?.length ?? 0) > 0 && (
+                    <span className="flex flex-wrap gap-1 mt-1">
+                      {c.proof!.map((p) => (
+                        <span
+                          key={`${p.label}-${String(p.checked)}`}
+                          className={cx(
+                            "inline-block font-mono text-[10px] leading-none px-1.5 py-1 rounded-[4px]",
+                            p.checked ? "bg-positive-soft text-positive-fg" : "bg-surface-muted text-ink-muted",
+                          )}
+                          title={p.checked ? "Read from Base" : "Declared by the claimant; X cannot be checked from outside"}
+                        >
+                          {p.checked ? p.label : `${p.label} · declared`}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </span>
                 <Badge tone={c.status === "reconciled" ? "positive" : c.status === "confirmed" ? "primary" : "neutral"}>
                   {c.status === "reconciled" ? "Onchain" : c.status === "confirmed" ? "Reported" : "Ticket issued"}
@@ -256,7 +271,7 @@ export function PoolManagePanel({
           </ul>
         )}
         <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">
-          “Onchain” rows were matched against a <span className="font-mono">PoolClaimed</span> log — those are proof. The others are what the app was told; Sync turns them into the former.
+          “Onchain” rows were matched against a <span className="font-mono">PoolClaimed</span> log — those are proof. The others are what the app was told; Sync turns them into the former. Green step tags were read from Base; grey “declared” tags are the claimant&apos;s own word about X, which nobody can check from outside.
         </p>
       </Module>
     </div>

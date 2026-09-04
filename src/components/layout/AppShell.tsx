@@ -8,20 +8,15 @@ import { ConnectButton } from "./ConnectButton";
 import { useTheme } from "./ThemeProvider";
 import { cx } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
-import { Wordmark } from "@/components/brand/Logo";
+import { Wordmark, XMark } from "@/components/brand/Logo";
+import { BSTOCKS_X_URL } from "@/content/social";
 import { TopTicker } from "./TopTicker";
 import { IntegrationsStrip } from "@/components/common/Integrations";
 
-const X_URL = "https://x.com/BaseOnStocks";
+const X_URL = BSTOCKS_X_URL;
 
-/** X (Twitter) mark, drawn to match the outline icon set's 14px size. */
-function XLogo() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
-  );
-}
+/** Kept as a local alias so the JSX below reads the same as before the mark moved to Logo.tsx. */
+const XLogo = () => <XMark size={14} />;
 
 /** Mobile bar: five destinations. Strategies groups Build, Community and Automate as tabs. */
 const NAV = [
@@ -41,6 +36,7 @@ const FOOTER_LINKS = [
   ["/build", "Strategies"],
   ["/earn", "Earn"],
   ["/gifts", "Gifts"],
+  ["/pools", "Gift pools"],
   ["/portfolio", "Portfolio"],
   ["/news", "News"],
   ["/how-it-works", "How it works"],
@@ -54,6 +50,8 @@ function isActive(path: string, href: string): boolean {
   if (href === "/") return path === "/";
   if (href === "/markets") return path.startsWith("/markets") || path.startsWith("/stocks");
   if (href === "/build") return path.startsWith("/build") || path.startsWith("/community") || path.startsWith("/baskets") || path.startsWith("/automate") || path.startsWith("/u/");
+  // Pools live under the Gifts tab: they are made there and shared from there.
+  if (href === "/gifts") return path.startsWith("/gifts") || path.startsWith("/pools");
   return path.startsWith(href);
 }
 

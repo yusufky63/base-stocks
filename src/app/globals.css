@@ -23,6 +23,7 @@
 
   --grid: rgba(10, 11, 13, 0.045);
   --primary-soft: rgba(3, 112, 253, 0.08);
+  --positive-soft: rgba(102, 200, 0, 0.14);
   --ink-soft: rgba(10, 11, 13, 0.06);
 
   --radius-sm: 6px;
@@ -53,6 +54,7 @@ html[data-theme="dark"] {
   --danger-fg: #ff6a4d;
   --grid: rgba(255, 255, 255, 0.045);
   --primary-soft: rgba(43, 134, 255, 0.16);
+  --positive-soft: rgba(125, 220, 26, 0.16);
   --ink-soft: rgba(255, 255, 255, 0.07);
 }
 
@@ -74,6 +76,7 @@ html[data-theme="dark"] {
     --danger-fg: #ff6a4d;
     --grid: rgba(255, 255, 255, 0.045);
     --primary-soft: rgba(43, 134, 255, 0.16);
+    --positive-soft: rgba(125, 220, 26, 0.16);
     --ink-soft: rgba(255, 255, 255, 0.07);
   }
 }
@@ -93,6 +96,7 @@ html[data-theme="dark"] {
   --color-primary-contrast: var(--primary-contrast);
   --color-positive: var(--positive);
   --color-positive-fg: var(--positive-fg);
+  --color-positive-soft: var(--positive-soft);
   --color-danger: var(--danger);
   --color-danger-fg: var(--danger-fg);
 
@@ -565,5 +569,25 @@ input[type="number"]::-webkit-outer-spin-button {
 @media (prefers-reduced-motion: reduce) {
   .footer-wordmark tspan {
     transition: none;
+  }
+}
+
+/* Gift-pool quest confirmation: a bar that fills over the confirmation window. */
+@keyframes quest-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.quest-fill {
+  transform-origin: left center;
+  animation: quest-fill var(--quest-duration, 5s) linear forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-fill {
+    animation: none;
+    transform: scaleX(1);
   }
 }

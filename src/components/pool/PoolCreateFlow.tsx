@@ -17,13 +17,15 @@ import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, giftPoolAbi, makePoolLinkSecret, poolPath, poolSalt, splitIntoShares } from "@/lib/pool";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { useAuth } from "@/hooks/useAuth";
+import { useConfigFlags } from "@/hooks/queries";
 import { parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { Input } from "@/components/ui/Input";
-import { Button, Chip, KeyValue, Skeleton, cx } from "@/components/ui/primitives";
+import { Button, Chip, KeyValue, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { AssetLogo, ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ShareActions } from "@/components/common/ShareSheet";
+import { QuestPicker, questsValid } from "./QuestPicker";
 
 const EXPIRY_DAYS: Array<[number, string]> = [
   [7, "7 days"],
@@ -54,6 +56,7 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
   const { isSignedIn, ensureSignedIn } = useAuth();
+  const questsEnabled = useConfigFlags().data?.poolQuestsEnabled ?? false;
 
   const [picked, setPicked] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, LegDraft>>({});
@@ -92,7 +95,7 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked, drafts, slots, holdings, assets]);
 
-  const ready = legs.length > 0 && legs.every((l) => l.perClaim > 0n) && slots > 0;
+  const ready = legs.length > 0 && legs.every((l) => l.perClaim > 0n) && slots > 0 && (gateMode !== "signer" || (quests.length > 0 && questsValid(quests)));
   const usdTotal = legs.reduce((sum, l) => {
     const price = l.holding.priceUsd;
     return price === null ? sum : sum + Number(formatUnits(l.funded, l.asset.decimals)) * price;
@@ -104,6 +107,12 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
   };
 
   const setTotal = (addr: string, total: string) => setDrafts((d) => ({ ...d, [addr]: { total } }));
+
+  /** A lock can never outlast the claim window, so shortening the window releases it. */
+  const setWindow = (d: number) => {
+    setDays(d);
+    if (lockDays >= d) setLockDays(0);
+  };
 
   const setMax = (addr: string) => {
     const holding = holdings.find((h) => h.assetAddress.toLowerCase() === addr);
@@ -316,23 +325,26 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
 
       {/* 2 · how many people */}
       <div className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">How many people</span>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {SLOT_PRESETS.map((n) => (
-            <Chip key={n} active={slots === n} onClick={() => setSlots(n)} className="h-9 min-h-[36px] px-3 text-[12px] num">
-              {n}
-            </Chip>
-          ))}
-          <span className="w-[110px]">
-            <Input
-              value={String(slots)}
-              onChange={(e) => setSlots(Math.max(1, Math.min(10_000, Number(e.target.value.replace(/\D/g, "")) || 1)))}
-              inputMode="numeric"
-              aria-label="Number of shares"
-              className="!h-9 text-[13px]"
-            />
-          </span>
-          <span className="text-[12px] text-ink-secondary">{`= ${(100 / slots).toFixed(slots > 100 ? 2 : 1)}% each`}</span>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">How many people</span>
+          <span className="font-mono num text-[11px] text-ink-secondary">{`${(100 / slots).toFixed(slots > 100 ? 2 : 1)}% each`}</span>
+        </div>
+        <div className="flex items-stretch gap-2">
+          <Segmented<number>
+            size="sm"
+            className="flex-1"
+            ariaLabel="How many people"
+            value={SLOT_PRESETS.includes(slots) ? slots : null}
+            onChange={setSlots}
+            options={SLOT_PRESETS.map((n) => ({ value: n, label: String(n) }))}
+          />
+          <Input
+            value={String(slots)}
+            onChange={(e) => setSlots(Math.max(1, Math.min(10_000, Number(e.target.value.replace(/\D/g, "")) || 1)))}
+            inputMode="numeric"
+            aria-label="Number of shares"
+            className="!h-10 w-[92px] text-[13px] num text-center"
+          />
         </div>
       </div>
 
@@ -350,7 +362,12 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
           options={[
             { value: "link", label: "With the link" },
             { value: "open", label: "Anyone" },
-            { value: "signer", label: "After a task" },
+            {
+              value: "signer",
+              label: "After a task",
+              disabled: !questsEnabled,
+              title: questsEnabled ? undefined : "This deployment has no campaign signer, so it cannot check anything.",
+            },
           ]}
         />
         <p className="text-[12px] text-ink-muted">
@@ -368,25 +385,19 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Claimable for</span>
-          <div className="flex flex-wrap gap-1.5">
-            {EXPIRY_DAYS.map(([d, label]) => (
-              <Chip key={d} active={days === d} onClick={() => setDays(d)} className="h-8 min-h-[32px] px-2.5 text-[12px]">
-                {label}
-              </Chip>
-            ))}
-          </div>
+          <Segmented<number> size="sm" ariaLabel="How long the pool stays claimable" value={days} onChange={setWindow} options={EXPIRY_DAYS.map(([d, label]) => ({ value: d, label }))} />
         </div>
         <div className="flex flex-col gap-2">
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted inline-flex items-center gap-1.5">
             <Lock size={11} strokeWidth={2} /> You can close it
           </span>
-          <div className="flex flex-wrap gap-1.5">
-            {LOCK_DAYS.filter(([d]) => d < days).map(([d, label]) => (
-              <Chip key={d} active={lockDays === d} onClick={() => setLockDays(d)} className="h-8 min-h-[32px] px-2.5 text-[12px]">
-                {d === 0 ? label : `Not for ${label}`}
-              </Chip>
-            ))}
-          </div>
+          <Segmented<number>
+            size="sm"
+            ariaLabel="When the creator may close the pool"
+            value={lockDays}
+            onChange={setLockDays}
+            options={LOCK_DAYS.map(([d, label]) => ({ value: d, label: d === 0 ? label : `Not for ${label}`, disabled: d >= days }))}
+          />
         </div>
       </div>
       {lockDays > 0 && (
@@ -434,65 +445,6 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
         <Link2 size={12} strokeWidth={1.75} className="inline mr-1" />
         The stocks move into the BStocks gift pool, an ownerless contract that can only pay a claimant their exact share or return the remainder to you. On Base Account this is a single confirmation.
       </p>
-    </div>
-  );
-}
-
-/* ------------------------------ quest picker ------------------------------ */
-
-function QuestPicker({ assets, quests, onChange }: { assets: B20AssetDTO[]; quests: Quest[]; onChange: (q: Quest[]) => void }) {
-  const [buyAsset, setBuyAsset] = useState<string>(assets[0]?.address ?? "");
-  const [buyUsd, setBuyUsd] = useState("5");
-
-  const has = (type: Quest["type"]) => quests.some((q) => q.type === type);
-  const toggleSimple = (type: "sign-in" | "hold-basename") => {
-    onChange(has(type) ? quests.filter((q) => q.type !== type) : [...quests, { type }]);
-  };
-  const toggleBuy = () => {
-    if (has("buy-asset")) return onChange(quests.filter((q) => q.type !== "buy-asset"));
-    if (!buyAsset) return;
-    onChange([...quests, { type: "buy-asset", assetAddress: buyAsset as Address, minUsd: Math.max(1, Number(buyUsd) || 5), withinDays: 30 }]);
-  };
-
-  if (assets.length === 0) return <Skeleton className="h-24" />;
-
-  return (
-    <div className="border border-line rounded-[8px] p-4 flex flex-col gap-3">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">What people must do first</span>
-      <p className="text-[12px] text-ink-muted">
-        Only checks that can be proven from the chain are offered here. A “follow us on X” task cannot be verified with the free API, so this app does not pretend to.
-      </p>
-      <label className="flex items-center gap-2.5 text-[13px] cursor-pointer">
-        <input type="checkbox" checked={has("hold-basename")} onChange={() => toggleSimple("hold-basename")} className="accent-[var(--primary)] w-4 h-4" />
-        Own a Basename <span className="text-ink-muted text-[12px]">— costs money to get, so it is the strongest filter against one person with fifty wallets</span>
-      </label>
-      <label className="flex items-center gap-2.5 text-[13px] cursor-pointer">
-        <input type="checkbox" checked={has("sign-in")} onChange={() => toggleSimple("sign-in")} className="accent-[var(--primary)] w-4 h-4" />
-        Sign in to BStocks <span className="text-ink-muted text-[12px]">— proves the wallet, nothing more</span>
-      </label>
-      <div className="flex flex-wrap items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={has("buy-asset")} onChange={toggleBuy} className="accent-[var(--primary)] w-4 h-4" aria-label="Require a purchase" />
-        <span>Buy at least</span>
-        <span className="w-[84px]">
-          <Input value={buyUsd} onChange={(e) => setBuyUsd(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" prefix="$" aria-label="Minimum purchase in dollars" className="!h-9 text-[13px]" disabled={has("buy-asset")} />
-        </span>
-        <span>of</span>
-        <select
-          value={buyAsset}
-          onChange={(e) => setBuyAsset(e.target.value)}
-          disabled={has("buy-asset")}
-          aria-label="Stock to buy"
-          className="h-9 rounded-[6px] border border-line bg-canvas px-2 text-[13px] disabled:opacity-60"
-        >
-          {assets.map((a) => (
-            <option key={a.address} value={a.address}>
-              {a.underlying}
-            </option>
-          ))}
-        </select>
-        <span className="text-ink-muted text-[12px]">in the last 30 days — verified against the transaction receipt</span>
-      </div>
-      {quests.length === 0 && <p className="text-[12px] text-danger-fg">Pick at least one requirement, or switch back to a link or open pool.</p>}
     </div>
   );
 }

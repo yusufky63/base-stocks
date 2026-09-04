@@ -6,6 +6,7 @@ import { zeroXUnauthorizedAssets, zeroXStatus } from "@/providers/trading/zero-x
 import { marketDataConfigured, marketDataProviderId } from "@/services/market-service";
 import { getRepos } from "@/db/repositories";
 import { MIN_TRADE_USD, DEFAULT_SLIPPAGE_BPS } from "@/config/chain";
+import { isGateSignerConfigured } from "@/lib/pool/gate";
 
 /** Public feature flags. Never includes secrets. */
 export const GET = route({}, async () => {
@@ -21,6 +22,9 @@ export const GET = route({}, async () => {
       geoblockCountries: (env.GEOBLOCK_COUNTRIES ?? "US").split(",").map((c) => c.trim().toUpperCase()).filter(Boolean),
       marketDataEnabled: marketDataConfigured(),
       marketDataProvider: marketDataProviderId(),
+      /** Quest-gated pools need a campaign signer; without one the app hides that option
+       *  instead of letting someone build a campaign that fails at the last step. */
+      poolQuestsEnabled: isGateSignerConfigured(),
       storage: getRepos().backend,
       minTradeUsd: MIN_TRADE_USD,
       defaultSlippageBps: DEFAULT_SLIPPAGE_BPS,

@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAccount, usePublicClient, useReadContract, useWalletClient } from "wagmi";
 import { encodeFunctionData, type Address, type Hash, type Hex } from "viem";
 import { base } from "viem/chains";
-import { Check, Circle, Gift, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Gift, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
 import type { PoolView, QuestStatus } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { publicEnv } from "@/config/env";
@@ -17,11 +17,12 @@ import { humanizeError, type HumanError } from "@/lib/errors";
 import { useAuth } from "@/hooks/useAuth";
 import { useRegion } from "@/hooks/queries";
 import { formatTokenAmount, formatUsd, shortenAddress } from "@/lib/format";
-import { Badge, Button, LinkButton, Module, Skeleton } from "@/components/ui/primitives";
+import { Badge, Button, LinkButton, Module } from "@/components/ui/primitives";
 import { AddressLabel, AssetLogo, TxLink } from "@/components/common/display";
 import { RegionNotice } from "@/components/common/RegionNotice";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { PoolManagePanel } from "./PoolManagePanel";
+import { QuestChecklist } from "./QuestChecklist";
 
 type Phase = "idle" | "preparing" | "awaiting" | "submitted" | "confirmed" | "failed";
 
@@ -312,7 +313,16 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
             </>
           ) : (
             <>
-              {pool.gateMode === "signer" && <QuestChecklist id={id} isSignedIn={isSignedIn} data={questsQ.data} loading={questsQ.isLoading} onSignIn={() => void ensureSignedIn().then(refresh)} />}
+              {pool.gateMode === "signer" && (
+                <QuestChecklist
+                  poolId={id}
+                  isSignedIn={isSignedIn}
+                  data={questsQ.data}
+                  loading={questsQ.isLoading}
+                  onSignIn={() => void ensureSignedIn().then(refresh)}
+                  onChanged={() => void questsQ.refetch()}
+                />
+              )}
               <Button full size="lg" loading={busy} disabled={questsBlocked} onClick={() => void claim()}>
                 {busy ? PHASE_COPY[phase] : `Claim ${shareLabel || "your share"}`}
               </Button>
@@ -340,47 +350,5 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
         </Link>
       </p>
     </div>
-  );
-}
-
-/* ----------------------------- quest checklist ---------------------------- */
-
-function QuestChecklist({
-  id,
-  isSignedIn,
-  data,
-  loading,
-  onSignIn,
-}: {
-  id: string;
-  isSignedIn: boolean;
-  data?: { quests: QuestStatus[]; eligible: boolean; alreadyClaimed: boolean };
-  loading: boolean;
-  onSignIn: () => void;
-}) {
-  if (!isSignedIn) {
-    return (
-      <div className="border border-line rounded-[8px] p-4 flex flex-col gap-2.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">This pool has requirements</span>
-        <p className="text-[13px] text-ink-secondary">Sign in with your wallet so we can check them. It is one signature, costs nothing and approves no transaction.</p>
-        <Button size="sm" onClick={onSignIn}>
-          Sign in to check
-        </Button>
-      </div>
-    );
-  }
-  if (loading || !data) return <Skeleton className="h-20" />;
-  return (
-    <ul className="border border-line rounded-[8px] overflow-hidden" data-pool={id}>
-      {data.quests.map((q) => (
-        <li key={q.type} className="flex items-start gap-2.5 px-3.5 py-2.5 border-b border-line last:border-b-0">
-          {q.done ? <Check size={15} strokeWidth={2.5} className="text-positive-fg mt-0.5 shrink-0" /> : <Circle size={15} strokeWidth={1.75} className="text-ink-muted mt-0.5 shrink-0" />}
-          <span className="min-w-0">
-            <span className={`block text-[13px] ${q.done ? "text-ink-secondary line-through" : "font-medium"}`}>{q.label}</span>
-            {!q.done && q.detail && <span className="block text-[12px] text-ink-muted">{q.detail}</span>}
-          </span>
-        </li>
-      ))}
-    </ul>
   );
 }

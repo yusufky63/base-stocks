@@ -7,8 +7,20 @@ import { buildPoolView, listPublicPools } from "@/services/pool-service";
 import { gateSignerAddress, isGateSignerConfigured } from "@/lib/pool/gate";
 import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, MAX_POOL_SLOTS, MAX_POOL_DURATION_S, ZERO_ADDRESS, isPoolDeployed, onchainIdFor, poolMemo, poolSalt } from "@/lib/pool";
 import { sessionAddress } from "@/lib/auth/session";
+import { isXPostUrl, normalizeXHandle } from "@/content/social";
 import { AppError } from "@/lib/errors";
 import type { PoolRecord } from "@/domain/pool";
+
+const xHandleSchema = z
+  .string()
+  .trim()
+  .transform((v) => normalizeXHandle(v))
+  .refine((v) => v.length >= 1, "Enter an X handle");
+const xPostSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine((v) => isXPostUrl(v), "Paste the link to a post on X, not a profile");
 
 const questSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sign-in") }),
@@ -20,6 +32,11 @@ const questSchema = z.discriminatedUnion("type", [
     minUsd: z.number().positive().max(100_000),
     withinDays: z.number().int().min(1).max(90).optional(),
   }),
+  // Self-declared X steps: the claimant confirms these about themselves (see quest-service).
+  z.object({ type: z.literal("follow-bstocks") }),
+  z.object({ type: z.literal("follow-x"), handle: xHandleSchema }),
+  z.object({ type: z.literal("repost-x"), tweetUrl: xPostSchema }),
+  z.object({ type: z.literal("like-x"), tweetUrl: xPostSchema }),
 ]);
 
 const createSchema = z.object({
@@ -37,7 +54,7 @@ const createSchema = z.object({
   visibility: z.enum(["public", "unlisted"]).default("unlisted"),
   title: z.string().max(80).optional(),
   message: z.string().max(280).optional(),
-  quests: z.array(questSchema).max(4).default([]),
+  quests: z.array(questSchema).max(8).default([]),
 });
 
 /**

@@ -19,7 +19,8 @@ import { callAfterApproval } from "@/lib/trade/execute";
 import { bpsOf, parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AmountInput, Input } from "@/components/ui/Input";
-import { Button, Chip, KeyValue } from "@/components/ui/primitives";
+import { Button, KeyValue } from "@/components/ui/primitives";
+import { Segmented } from "@/components/ui/Segmented";
 import { ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ShareActions } from "@/components/common/ShareSheet";
 
@@ -28,6 +29,7 @@ const EXPIRY_DAYS: Array<[number, string]> = [
   [7, "7 days"],
   [30, "30 days"],
 ];
+const PCT_PRESETS = [25, 50, 75, 100];
 
 type Phase = "form" | "signing" | "submitted" | "ready" | "failed";
 
@@ -43,6 +45,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
 
   const [shares, setShares] = useState("");
+  const [pct, setPct] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [days, setDays] = useState(7);
   const [phase, setPhase] = useState<Phase>("form");
@@ -60,7 +63,14 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
     return r > raw ? raw : r;
   }, [shares, asset.decimals, multiplier, wad, raw]);
   const valueUsd = priceUsd !== null ? Number(formatUnits(rawAmount, asset.decimals)) * priceUsd : null;
-  const setPct = (pct: number) => setShares(formatUnits((bpsOf(raw, pct * 100) * multiplier) / wad, asset.decimals));
+  const applyPct = (p: number) => {
+    setPct(p);
+    setShares(formatUnits((bpsOf(raw, p * 100) * multiplier) / wad, asset.decimals));
+  };
+  const typeShares = (v: string) => {
+    setPct(null); // a typed amount is no longer one of the presets
+    setShares(v);
+  };
 
   const link = gift && secret ? claimPath(gift.id, secret.privateKey) : null;
   const fullLink = link ? `${typeof window !== "undefined" ? window.location.origin : publicEnv.appUrl}${link}` : null;
@@ -179,14 +189,14 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
         <Link2 size={15} strokeWidth={1.75} className="text-primary shrink-0" />
         For someone without a wallet: they open your link, create a passkey wallet in seconds and the stock is theirs. Gas on the claim is covered where sponsorship allows.
       </div>
-      <AmountInput value={shares} onChange={setShares} unit={asset.underlying} ariaLabel={`Amount of ${asset.underlying} to gift`} />
-      <div className="flex gap-2 flex-wrap">
-        {[25, 50, 75, 100].map((p) => (
-          <Chip key={p} onClick={() => setPct(p)} disabled={raw === 0n}>
-            {p === 100 ? "Max" : `${p}%`}
-          </Chip>
-        ))}
-      </div>
+      <AmountInput value={shares} onChange={typeShares} unit={asset.underlying} ariaLabel={`Amount of ${asset.underlying} to gift`} />
+      <Segmented<number>
+        size="sm"
+        ariaLabel="Share of your position"
+        value={pct}
+        onChange={applyPct}
+        options={PCT_PRESETS.map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: raw === 0n }))}
+      />
       <div className="flex items-center justify-between text-[13px] text-ink-secondary">
         <span>Available</span>
         <span className="font-mono num">
@@ -194,13 +204,9 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
           {valueUsd !== null && rawAmount > 0n ? ` · sending ${formatUsd(valueUsd)}` : ""}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[12px] text-ink-secondary mr-1">Claimable for</span>
-        {EXPIRY_DAYS.map(([d, label]) => (
-          <Chip key={d} active={days === d} onClick={() => setDays(d)} className="h-8 min-h-[32px] px-2.5 text-[12px]">
-            {label}
-          </Chip>
-        ))}
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Claimable for</span>
+        <Segmented<number> size="sm" ariaLabel="How long the link stays claimable" value={days} onChange={setDays} options={EXPIRY_DAYS.map(([d, label]) => ({ value: d, label }))} />
       </div>
       <Input label="Message (optional, stored offchain)" placeholder="Welcome to onchain stocks!" value={message} maxLength={280} onChange={(e) => setMessage(e.target.value)} />
       <p className="text-[12px] text-ink-muted">The stock moves into the BStocks gift escrow, an ownerless contract that can only pay whoever holds the claim link, or refund you. You can cancel any time before it is claimed.</p>

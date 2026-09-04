@@ -16,7 +16,8 @@ import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AmountInput, Input } from "@/components/ui/Input";
-import { Button, Chip, KeyValue } from "@/components/ui/primitives";
+import { Button, KeyValue } from "@/components/ui/primitives";
+import { Segmented } from "@/components/ui/Segmented";
 import { ErrorBanner, InfoBanner } from "@/components/common/display";
 
 const COUNTS = [2, 3, 5, 10];
@@ -180,13 +181,9 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[13px] text-ink-secondary">Equal gifts for a group — every link claimable by whoever opens it, each with its own key.</p>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[12px] text-ink-secondary mr-1">How many</span>
-        {COUNTS.map((c) => (
-          <Chip key={c} active={count === c} onClick={() => setCount(c)} className="h-8 min-h-[32px] px-3 text-[12px] num">
-            {c}
-          </Chip>
-        ))}
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">How many links</span>
+        <Segmented<number> size="sm" ariaLabel="How many links" value={count} onChange={setCount} options={COUNTS.map((c) => ({ value: c, label: String(c) }))} />
       </div>
       <AmountInput value={sharesPer} onChange={setSharesPer} unit={`${asset.underlying} each`} ariaLabel={`Amount of ${asset.underlying} per link`} />
       <div className="flex items-center justify-between text-[13px] text-ink-secondary">
@@ -196,13 +193,9 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
           {totalUsd !== null && totalRaw > 0n ? ` · ${formatUsd(totalUsd)}` : ""} · available {formatTokenAmount(scaled, asset.decimals)}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[12px] text-ink-secondary mr-1">Claimable for</span>
-        {EXPIRY_DAYS.map(([d, label]) => (
-          <Chip key={d} active={days === d} onClick={() => setDays(d)} className="h-8 min-h-[32px] px-2.5 text-[12px]">
-            {label}
-          </Chip>
-        ))}
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Claimable for</span>
+        <Segmented<number> size="sm" ariaLabel="How long the links stay claimable" value={days} onChange={setDays} options={EXPIRY_DAYS.map(([d, label]) => ({ value: d, label }))} />
       </div>
       <Input label="Message on every link (optional)" placeholder="Thanks for coming!" value={message} maxLength={280} onChange={(e) => setMessage(e.target.value)} />
       {insufficient && <p className="text-[13px] text-danger-fg">{TRADE_ERROR_COPY.INSUFFICIENT_BALANCE}</p>}
