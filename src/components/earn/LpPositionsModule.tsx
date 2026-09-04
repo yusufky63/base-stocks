@@ -25,7 +25,7 @@ const fmtAmt = (n: number) => (n >= 1000 ? n.toLocaleString("en-US", { maximumFr
 
 /**
  * Your LP positions (Aerodrome Slipstream, Uniswap v3) that hold a tokenized stock — read-only:
- * value, range, in/out-of-range and uncollected fees, managed on the venue for now.
+ * value, range, in/out-of-range and uncollected fees — with collect, withdraw and collect-all in-app.
  */
 export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
   const { address } = useAccount();
@@ -134,7 +134,7 @@ export function LpPositionsModule({ compact = false }: { compact?: boolean }) {
           </div>
         );
       })}
-      {positions.length > 0 && <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Values use current pool prices; fees are what a collect would pay right now. Collect fees and withdraw right here; opening a new position still happens on the venue.</p>}
+      {positions.length > 0 && <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Values use current pool prices; fees are what a collect would pay right now. Collect fees and withdraw right here; open a new position from any stock’s Earn tab.</p>}
       {managing && <LpManageSheet open onClose={() => setManaging(null)} position={managing} />}
     </Module>
   );

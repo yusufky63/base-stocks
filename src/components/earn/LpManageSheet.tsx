@@ -29,7 +29,7 @@ type Phase = "idle" | "simulating" | "awaiting" | "submitted" | "done" | "failed
 /**
  * Manage a concentrated-liquidity position in-app: collect the uncollected fees, or withdraw a
  * share of the liquidity (decreaseLiquidity + collect, batched atomically on Base Account).
- * Minting new positions still happens on the venue; this covers the exits.
+ * Minting lives in LpMintSheet; this covers the exits.
  */
 export function LpManageSheet({ open, onClose, position }: { open: boolean; onClose: () => void; position: LpPositionDTO }) {
   const { address, chainId } = useAccount();
