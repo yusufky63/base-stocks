@@ -175,6 +175,66 @@ contract ReentrantToken {
     }
 }
 
+/// @dev Token that reenters the pool while the pool is pulling its deposit in. Slither flags the
+///      balance-delta check in `create` as reentrancy-prone because it cannot see through the
+///      custom guard; these prove what the guard actually does.
+contract DepositReentrantToken {
+    enum Mode {
+        None,
+        Create,
+        Cancel,
+        Withdraw,
+        Claim
+    }
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    GiftPool public pool;
+    bytes32 public targetId;
+    Mode public mode;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function arm(GiftPool p, bytes32 id, Mode m) external {
+        pool = p;
+        targetId = id;
+        mode = m;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        if (mode == Mode.Create) {
+            address[] memory t = new address[](1);
+            t[0] = address(this);
+            uint256[] memory a = new uint256[](1);
+            a[0] = 1;
+            pool.create("reenter", address(0), 1, uint64(block.timestamp + 1 days), 0, t, a, bytes32(0));
+        } else if (mode == Mode.Cancel) {
+            pool.cancel(targetId);
+        } else if (mode == Mode.Withdraw) {
+            pool.withdraw(targetId);
+        } else if (mode == Mode.Claim) {
+            pool.claim(targetId, address(this), type(uint64).max, 27, bytes32(0), bytes32(0));
+        }
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+}
+
 /* ================================= tests ================================ */
 
 contract GiftPoolTest {
@@ -777,6 +837,95 @@ contract GiftPoolTest {
         vm.prank(CREATOR);
         vm.expectRevert(GiftPool.Reentered.selector);
         pool.withdraw(id);
+    }
+
+    /* ------------------- reentrancy during the deposit pull ------------------ */
+
+    /// Sets up a pool whose only leg is a token that reenters while `create` pulls the deposit.
+    function _armDeposit(DepositReentrantToken evil, DepositReentrantToken.Mode m, bytes32 salt) internal returns (bytes32 id) {
+        id = pool.poolId(CREATOR, salt);
+        evil.mint(CREATOR, TOTAL);
+        vm.prank(CREATOR);
+        evil.approve(address(pool), type(uint256).max);
+        evil.arm(pool, id, m);
+    }
+
+    function test_create_blocks_reentering_create() public {
+        DepositReentrantToken evil = new DepositReentrantToken();
+        _armDeposit(evil, DepositReentrantToken.Mode.Create, "d1");
+        vm.prank(CREATOR);
+        vm.expectRevert(GiftPool.Reentered.selector);
+        pool.create("d1", address(0), SLOTS, expiry, 0, _one(address(evil)), _one(PER), bytes32(0));
+    }
+
+    /// The pool row exists by the time the deposit is pulled, so a token could try to close it
+    /// mid-creation. It is not the creator, and the contract only ever listens to the creator.
+    function test_create_blocks_reentering_cancel() public {
+        DepositReentrantToken evil = new DepositReentrantToken();
+        bytes32 id = _armDeposit(evil, DepositReentrantToken.Mode.Cancel, "d2");
+        vm.prank(CREATOR);
+        vm.expectRevert(GiftPool.NotCreator.selector);
+        pool.create("d2", address(0), SLOTS, expiry, 0, _one(address(evil)), _one(PER), bytes32(0));
+        (address creator,,,,,,) = pool.pools(id);
+        require(creator == address(0), "nothing was stored");
+    }
+
+    /**
+     * `withdraw` is the one entry point without the guard — it cannot have one, because it calls
+     * `withdrawLeg`, which does, and two guards on one stack would deadlock. Reentered from a
+     * token during `create` it is therefore reachable, and it does nothing: the leg array is still
+     * empty at that point, so the loop has no body to run and no token moves.
+     *
+     * Harmless, but only by arithmetic rather than by construction, so it is pinned here. A future
+     * deployment should route both through an unguarded internal helper and guard the two public
+     * functions instead (see docs/ROADMAP.md).
+     */
+    function test_create_reentering_withdraw_is_a_no_op() public {
+        DepositReentrantToken evil = new DepositReentrantToken();
+        bytes32 id = _armDeposit(evil, DepositReentrantToken.Mode.Withdraw, "d3");
+        uint256 creatorBefore = evil.balanceOf(CREATOR);
+        vm.prank(CREATOR);
+        pool.create("d3", address(0), SLOTS, expiry, 0, _one(address(evil)), _one(PER), bytes32(0));
+
+        // The pool funded normally and the reentrant call took nothing out on its way through.
+        _eq(evil.balanceOf(address(pool)), PER * SLOTS, "pool funded in full");
+        _eq(evil.balanceOf(CREATOR), creatorBefore - PER * SLOTS, "creator paid exactly the deposit");
+        GiftPool.Leg[] memory legs = pool.legsOf(id);
+        require(legs.length == 1 && !legs[0].withdrawn, "leg registered and still funded");
+        _eq(pool.remainingSlots(id), SLOTS, "every share still claimable");
+    }
+
+    /// The moment there IS a leg to take, the guard fires: a second leg that reenters `withdraw`
+    /// trips `withdrawLeg`'s lock and the whole create unwinds.
+    function test_create_blocks_reentering_withdraw_once_a_leg_exists() public {
+        DepositReentrantToken evil = new DepositReentrantToken();
+        _armDeposit(evil, DepositReentrantToken.Mode.Withdraw, "d3b");
+        uint256 nvdaBefore = nvda.balanceOf(CREATOR);
+        vm.prank(CREATOR);
+        vm.expectRevert(GiftPool.Reentered.selector);
+        pool.create("d3b", address(0), SLOTS, expiry, 0, _two(address(nvda), address(evil)), _two(PER, PER), bytes32(0));
+        _eq(nvda.balanceOf(CREATOR), nvdaBefore, "first leg refunded with the revert");
+    }
+
+    function test_create_blocks_reentering_claim() public {
+        DepositReentrantToken evil = new DepositReentrantToken();
+        _armDeposit(evil, DepositReentrantToken.Mode.Claim, "d4");
+        vm.prank(CREATOR);
+        vm.expectRevert(GiftPool.Reentered.selector);
+        pool.create("d4", address(0), SLOTS, expiry, 0, _one(address(evil)), _one(PER), bytes32(0));
+    }
+
+    /// A leg that reenters cannot leave a half-funded pool behind: the whole create reverts, so a
+    /// healthy first leg is returned with it.
+    function test_reentrant_second_leg_leaves_nothing_behind() public {
+        DepositReentrantToken evil = new DepositReentrantToken();
+        _armDeposit(evil, DepositReentrantToken.Mode.Create, "d5");
+        uint256 nvdaBefore = nvda.balanceOf(CREATOR);
+        vm.prank(CREATOR);
+        vm.expectRevert(GiftPool.Reentered.selector);
+        pool.create("d5", address(0), SLOTS, expiry, 0, _two(address(nvda), address(evil)), _two(PER, PER), bytes32(0));
+        _eq(nvda.balanceOf(CREATOR), nvdaBefore, "first leg refunded with the revert");
+        _eq(nvda.balanceOf(address(pool)), 0, "pool holds nothing");
     }
 
     /* -------------------------------- fuzz ------------------------------- */
