@@ -80,11 +80,11 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
     allowFailure: false,
     query: { enabled: open, refetchInterval: 15_000 },
     contracts: [
-      { address: target.pool, abi: poolTokensAbi, functionName: "token0", chainId: BASE_CHAIN_ID },
-      { address: target.pool, abi: poolTokensAbi, functionName: "token1", chainId: BASE_CHAIN_ID },
+      { address: target.pool, abi: poolTokensAbi, functionName: "token0" },
+      { address: target.pool, abi: poolTokensAbi, functionName: "token1" },
       target.kind === "v3"
-        ? { address: target.pool, abi: uniswapV3PoolSlot0Abi, functionName: "slot0", chainId: BASE_CHAIN_ID }
-        : { address: target.pool, abi: slipstreamPoolSlot0Abi, functionName: "slot0", chainId: BASE_CHAIN_ID },
+        ? { address: target.pool, abi: uniswapV3PoolSlot0Abi, functionName: "slot0" }
+        : { address: target.pool, abi: slipstreamPoolSlot0Abi, functionName: "slot0" },
     ],
   });
 
@@ -158,6 +158,14 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
   if (!asset) return null;
   const multiplier = BigInt(asset.multiplier);
   const wad = BigInt(asset.wadPrecision);
+  // Pool price vs Chainlink reference, per share: minting brackets the POOL price by necessity,
+  // so a big premium/discount deserves a loud line before anyone concentrates capital around it.
+  const priceView = assets.data?.prices[asset.canonicalId];
+  const multNumber = Number(multiplier) / Number(wad || 1n);
+  const refPerShare = priceView?.referenceUsd != null && multNumber > 0 ? priceView.referenceUsd / multNumber : null;
+  const refUsable = refPerShare !== null && priceView !== undefined && !priceView.referenceStale && !priceView.referencePaused;
+  const poolDeviationPct = refUsable && model && refPerShare! > 0 ? ((model.perShare - refPerShare!) / refPerShare!) * 100 : null;
+  const thinPool = (opportunity.liquidityUsd ?? 0) > 0 && (opportunity.liquidityUsd ?? 0) < 10_000;
   const stockShares = quoteAmounts ? (quoteAmounts.stockRaw * Number(multiplier)) / Number(wad) / 10 ** asset.decimals : 0;
   const usdcHuman = quoteAmounts ? quoteAmounts.usdcRaw / 10 ** USDC_DECIMALS : 0;
   const totalUsd = model && quoteAmounts ? usdcHuman + (quoteAmounts.stockRaw / 10 ** asset.decimals) * model.tokenPriceUsd : 0;
@@ -289,6 +297,8 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
         </div>
       ) : restricted ? (
         <RegionNotice region={region.data!} />
+      ) : reads.isError ? (
+        <ErrorBanner message="The pool could not be read right now." detail="RPC request failed — close and try again." />
       ) : !model || !asset ? (
         <p className="text-[14px] text-ink-secondary">Reading the pool…</p>
       ) : (
@@ -297,6 +307,11 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
             <span className="text-ink-secondary">{opportunity.title}</span>
             <span className="font-mono num text-ink-secondary">{`1 ${symbol} share ≈ ${formatUsd(model.perShare, { precise: true })}`}</span>
           </div>
+
+          {poolDeviationPct !== null && Math.abs(poolDeviationPct) >= 15 && (
+            <InfoBanner tone="warning">{`This pool prices ${symbol} ${poolDeviationPct > 0 ? `${poolDeviationPct.toFixed(0)}% above` : `${Math.abs(poolDeviationPct).toFixed(0)}% below`} the Chainlink reference (${formatUsd(refPerShare ?? 0)}/share). Your range brackets the pool price — if it snaps back toward the reference, the position goes out of range and one-sided.`}</InfoBanner>
+          )}
+          {thinPool && <InfoBanner tone="warning">{`Nearly empty pool (≈ ${formatUsd(opportunity.liquidityUsd ?? 0)} of liquidity): its current price can be arbitrary and a single trade can move it far. Best suited to seeding, not yield.`}</InfoBanner>}
 
           <div className="flex flex-col gap-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Price range · USD per share</div>
@@ -320,8 +335,8 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
           </div>
 
           <div className="flex flex-col gap-3">
-            <div>
-              <AmountInput value={stockText} onChange={setStock} unit={`${symbol} shares`} ariaLabel={`${symbol} shares to add`} />
+            <div className={cx(quoteAmounts?.onlyUsdc && "opacity-40 pointer-events-none select-none")} aria-disabled={quoteAmounts?.onlyUsdc || undefined}>
+              <AmountInput value={quoteAmounts?.onlyUsdc ? "0" : stockText} onChange={setStock} unit={`${symbol} shares`} ariaLabel={`${symbol} shares to add`} />
               <div className="mt-1 flex items-center justify-between text-[11px] text-ink-muted font-mono">
                 <span>{`balance ${formatTokenAmount(balances.scaled, asset.decimals)}`}</span>
                 <span className="flex gap-1">
@@ -333,8 +348,8 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
                 </span>
               </div>
             </div>
-            <div>
-              <AmountInput value={usdcText} onChange={setUsdc} unit="USDC" ariaLabel="USDC to add" />
+            <div className={cx(quoteAmounts?.onlyStock && "opacity-40 pointer-events-none select-none")} aria-disabled={quoteAmounts?.onlyStock || undefined}>
+              <AmountInput value={quoteAmounts?.onlyStock ? "0" : usdcText} onChange={setUsdc} unit="USDC" ariaLabel="USDC to add" />
               <div className="mt-1 flex items-center justify-between text-[11px] text-ink-muted font-mono">
                 <span>{`balance ${formatUsd(Number(formatUnits(balances.usdc, USDC_DECIMALS)))}`}</span>
                 <span className="flex gap-1">
