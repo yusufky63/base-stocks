@@ -14,12 +14,13 @@ import { Segmented } from "@/components/ui/Segmented";
 import { isPoolDeployed } from "@/lib/pool";
 import { PoolCreateFlow } from "@/components/pool/PoolCreateFlow";
 import { PoolHistory } from "@/components/pool/PoolHistory";
+import { PoolList, usePublicPools, remainingShares } from "@/components/pool/PoolList";
 import { ClaimLinkFlow } from "./ClaimLinkFlow";
 import { BulkClaimLinks } from "./BulkClaimLinks";
 import { GiftHistory } from "./GiftHistory";
 import { SendSheet } from "./SendSheet";
 
-type Tab = "create" | "history";
+type Tab = "create" | "discover" | "history";
 type Mode = "address" | "link" | "bulk" | "pool";
 
 /**
@@ -35,6 +36,9 @@ export function GiftsView() {
   const portfolio = usePortfolio(address);
   const assets = useAssets();
   const poolsEnabled = isPoolDeployed();
+  // The tab count is the point of the label: "Claim (3)" is an invitation, "Claim" is furniture.
+  const publicPools = usePublicPools();
+  const openCount = (publicPools.data ?? []).filter((v) => v.pool.status === "live" && remainingShares(v) > 0).length;
 
   const holdings = useMemo(() => (portfolio.data?.holdings ?? []).filter((h) => BigInt(h.rawBalance) > 0n), [portfolio.data]);
   const holding: PortfolioHolding | null = holdings.find((h) => h.assetAddress.toLowerCase() === picked) ?? holdings[0] ?? null;
@@ -47,17 +51,25 @@ export function GiftsView() {
       <PageTitle index="Gift" title="Give stock" lead="To a Basename, to an address, or as a claim link that needs no wallet at all — the stock stays self-custodial the whole way." />
 
       <Segmented<Tab>
-        className="max-w-[360px]"
+        className="max-w-[440px]"
         ariaLabel="Gift sections"
         value={tab}
         onChange={setTab}
         options={[
           { value: "create", label: "Create" },
+          ...(poolsEnabled ? ([{ value: "discover" as Tab, label: openCount > 0 ? `Claim (${openCount})` : "Claim" }] as const) : []),
           { value: "history", label: "History" },
         ]}
       />
 
-      {tab === "history" ? (
+      {tab === "discover" ? (
+        <div className="flex flex-col gap-4">
+          <p className="text-[14px] text-ink-secondary max-w-[70ch]">
+            Pools anyone can take a share of, listed by the people who funded them. One share per wallet; whatever nobody claims goes back to the creator.
+          </p>
+          <PoolList columns={2} />
+        </div>
+      ) : tab === "history" ? (
         <div className="flex flex-col gap-6">
           {poolsEnabled && address && <PoolHistory owner={address} />}
           <Module>{address ? <GiftHistory owner={address} /> : <div className="p-6 flex flex-col items-start gap-3"><p className="text-[14px] text-ink-secondary">Connect a wallet to see your gifts.</p><ConnectButton /></div>}</Module>
