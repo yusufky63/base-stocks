@@ -16,6 +16,7 @@ import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, giftPoolAbi, makePoolLinkSecret, poolPath, poolSalt, splitIntoShares } from "@/lib/pool";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
+import { callAfterApproval } from "@/lib/trade/execute";
 import { useAuth } from "@/hooks/useAuth";
 import { useConfigFlags } from "@/hooks/queries";
 import { parseAmountSafe, toRaw } from "@/lib/b20/math";
@@ -173,10 +174,24 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
           pool.memo,
         ],
       });
-      const approvals = legs.map((l) => ({
-        to: l.asset.address as Address,
-        data: withAttribution(encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_POOL_ADDRESS as Address, l.funded] })),
-      }));
+      // Only approve what is not approved already. A retry after a failed create — the common
+      // case, since the previous attempt's approvals are still on the chain — then costs nothing
+      // but the create itself, and asks for one confirmation instead of one per leg.
+      const existing = await publicClient
+        .multicall({
+          contracts: legs.map((l) => ({ address: l.asset.address as Address, abi: erc20Abi, functionName: "allowance" as const, args: [address, GIFT_POOL_ADDRESS as Address] as const })),
+          allowFailure: true,
+        })
+        .catch(() => null);
+      const approvals = legs
+        .filter((l, i) => {
+          const current = existing?.[i];
+          return !(current && current.status === "success" && (current.result as bigint) >= l.funded);
+        })
+        .map((l) => ({
+          to: l.asset.address as Address,
+          data: withAttribution(encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_POOL_ADDRESS as Address, l.funded] })),
+        }));
 
       let atomic = false;
       let paymaster = false;
@@ -206,8 +221,12 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
           const ah = await walletClient.sendTransaction({ account: address, chain: base, to: a.to, data: a.data });
           await publicClient.waitForTransactionReceipt({ hash: ah });
         }
-        // Dry run before spending gas on the real thing.
-        await publicClient.call({ account: address, to: GIFT_POOL_ADDRESS as Address, data: createData });
+        // Dry run before spending gas on the real thing. `callAfterApproval`, not a plain `call`:
+        // the fallback transport spreads reads across RPCs, so the node that answers this one can
+        // still be a block behind the approvals we just mined and report InsufficientAllowance for
+        // an allowance that exists. A pool approves one token per leg, so there is more of that
+        // lag to absorb here than on a single-token trade — hence the longer retry budget.
+        await callAfterApproval(publicClient, address, { to: GIFT_POOL_ADDRESS as Address, data: createData }, approvals.length > 0 ? 6 : 2);
         hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_POOL_ADDRESS as Address, data: withAttribution(createData) });
         setPhase("submitted");
         await publicClient.waitForTransactionReceipt({ hash });
@@ -218,7 +237,13 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
       setCreated({ pool, link: `${window.location.origin}${poolPath(pool.id, secret?.privateKey)}` });
       setPhase("ready");
     } catch (err) {
-      setError(err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message } : humanizeError(err));
+      const humanized = err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message } : humanizeError(err);
+      if (humanized.code === "ALLOWANCE_REQUIRED") {
+        // Telling someone to approve right after they approved is never the truth here: the
+        // allowance is on the chain, the node answering us just has not seen it yet.
+        humanized.message = "Your approvals are on the chain, but the network has not caught up yet. Wait a few seconds and press Create again — already-approved stocks are skipped, so you will not pay for them twice.";
+      }
+      setError(humanized);
       setPhase("form");
     }
   };
