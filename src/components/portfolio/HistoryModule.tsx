@@ -54,7 +54,7 @@ export function HistoryModule({ address }: { address: Address }) {
     <ModuleHeader
       index="H"
       title="Value history"
-      action={<Segmented<Range> size="sm" className="w-[200px]" ariaLabel="History range" value={range} onChange={setRange} options={RANGES} />}
+      action={<Segmented<Range> size="sm" className="w-[224px] shrink-0" ariaLabel="History range" value={range} onChange={setRange} options={RANGES} />}
     />
   );
 

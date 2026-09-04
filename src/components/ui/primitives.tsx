@@ -76,12 +76,15 @@ export function Module({ className, children, as: Tag = "section", ticks, ...res
 
 export function ModuleHeader({ title, action, index, className }: { title: ReactNode; action?: ReactNode; index?: string; className?: string }) {
   return (
-    <div className={cx("flex items-center justify-between gap-3 px-4 py-3 border-b border-line", className)}>
-      <h2 className="eyebrow">
+    // The action holds a control — a segmented range, a select, a button — and a control squeezed
+    // by a long title is a broken one. The title gives way first, and on a narrow screen the row
+    // wraps rather than crushing either.
+    <div className={cx("flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-line", className)}>
+      <h2 className="eyebrow min-w-0">
         {index && <span className="text-primary">{index}</span>}
         {title}
       </h2>
-      {action}
+      {action && <span className="shrink-0">{action}</span>}
     </div>
   );
 }

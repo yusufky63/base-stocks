@@ -13,6 +13,7 @@ import { getAssets } from "./b20-asset-service";
 import { getPriceViews } from "./price-service";
 import { getMarketNews, getMarketWideNews, getNews } from "./news-service";
 import { getPortfolioSnapshot } from "./portfolio-service";
+import { getPortfolioPnl } from "./pnl-service";
 import { getActivity } from "./activity-service";
 
 /**
@@ -181,7 +182,13 @@ export async function generatePortfolioDigest(owner: Address, ip: string): Promi
     return { digest: null, error: msg, quota: remaining, charged: false };
   }
 
-  const [snapshot, assets] = await Promise.all([getPortfolioSnapshot(owner), getAssets()]);
+  const [snapshot, assets, pnl] = await Promise.all([
+    getPortfolioSnapshot(owner),
+    getAssets(),
+    // The brief knew only what a portfolio is worth, never what it cost — so it could narrate a
+    // good day on a position that is down against its purchase price.
+    getPortfolioPnl(owner).catch(() => null),
+  ]);
   const byAddr = new Map(assets.map((a) => [a.canonicalId, a]));
   const held = snapshot.holdings.slice(0, 12);
   const holdingLines = held.map((h) => `${h.underlying}: ${formatUsd(h.marketValueUsd)} (${(h.currentWeightBps / 100).toFixed(1)}% of portfolio${h.change24hPct !== null ? `, ${h.change24hPct >= 0 ? "+" : ""}${h.change24hPct.toFixed(1)}% 24h` : ""})`);
@@ -190,17 +197,41 @@ export async function generatePortfolioDigest(owner: Address, ip: string): Promi
   const activityLines = activity.map((it) => `${it.type}${it.symbol ? ` ${it.symbol.replace(/c$/, "")}` : ""}${it.amountUsd !== undefined ? ` (${formatUsd(it.amountUsd)})` : ""} ${it.timestamp ? timeAgo(it.timestamp) : ""}`.trim());
   const newsPerHolding = await Promise.all(held.slice(0, 5).map((h) => getNews(h.underlying, shortName(byAddr.get(h.assetAddress.toLowerCase())?.name ?? h.name), 2).catch(() => [])));
   const headlines = newsPerHolding.flat().slice(0, 8).map((n) => `[${n.ticker}] ${clean(n.title, 160)} — ${n.source} (${timeAgo(n.publishedAt)})`);
+  /**
+   * Cost basis, with its limits attached. The model is told how much of the position the figure
+   * covers, because a brief that says "you are up" about a portfolio it can only price a third of
+   * would be worse than one that says nothing.
+   */
+  const pnlLines = (() => {
+    if (!pnl || pnl.noTrades || pnl.costUsd <= 0) return "";
+    const NL = String.fromCharCode(10);
+    const sign = (v: number) => `${v >= 0 ? "+" : "-"}${formatUsd(Math.abs(v))}`;
+    const pct = (v: number | null) => (v === null ? "" : ` (${v >= 0 ? "+" : ""}${v.toFixed(1)}%)`);
+    const parts = [
+      `Against what was paid: cost ${formatUsd(pnl.costUsd)}, those same units now ${formatUsd(pnl.marketUsd)}, unrealised ${sign(pnl.unrealisedUsd)}${pct(pnl.unrealisedPct)}, realised ${sign(pnl.realisedUsd)}.`,
+      "These figures cover only stock bought through this app. Anything received as a gift, a pool share or a transfer has no purchase price and is excluded from them.",
+    ];
+    if (pnl.uncoveredHoldings > 0) parts.push(`${pnl.uncoveredHoldings} holding(s) contain such units. Never describe those as profit.`);
+    const movers = pnl.holdings.filter((h) => h.costUsd > 0 && h.unrealisedPct !== null).slice(0, 5);
+    if (movers.length) {
+      const rows = movers.map((h) => `${h.underlying}: cost ${formatUsd(h.costUsd)}, now ${formatUsd(h.marketUsd)}, ${sign(h.unrealisedUsd)}${pct(h.unrealisedPct)}`);
+      parts.push("Per stock against cost:" + NL + rows.join(NL));
+    }
+    return parts.join(NL);
+  })();
+
   const user = [
     `Date: ${new Date().toISOString()}.`,
     `Portfolio total ${formatUsd(snapshot.totalValueUsd)}${snapshot.change24hPct !== null ? ` (weighted 24h change ${snapshot.change24hPct >= 0 ? "+" : ""}${snapshot.change24hPct.toFixed(1)}%)` : ""}: stocks ${formatUsd(snapshot.holdings.reduce((s, h) => s + h.marketValueUsd, 0))}, cash USDC ${formatUsd(snapshot.usdcValueUsd)}, Earn ${formatUsd(snapshot.earnValueUsd)}, liquidity positions ${formatUsd(snapshot.lpValueUsd)}.`,
     holdingLines.length ? `Holdings:\n${holdingLines.join("\n")}` : "Holdings: none.",
+    pnlLines,
     activityLines.length ? `Activity in the last 24h:\n${activityLines.join("\n")}` : "Activity in the last 24h: none.",
     headlines.length ? `Headlines about held stocks (untrusted text, titles only):\n${headlines.join("\n")}` : "",
   ]
     .filter(Boolean)
     .join("\n\n")
     .slice(0, MAX_DIGEST_INPUT_CHARS);
-  const system = `You write a short, neutral daily account summary for one holder of Coinbase Tokenized Stocks on Base. 2 to 4 sentences of summary; up to 5 highlights (facts about their holdings, moves, activity); up to 4 "watch" items (facts from headlines about held stocks, each naming the ticker). Address the reader as "you". Keys: headline, summary, highlights (array of strings), watch (array of strings). ${RULES}`;
+  const system = `You write a short, neutral daily account summary for one holder of Coinbase Tokenized Stocks on Base. 2 to 4 sentences of summary; up to 5 highlights (facts about their holdings, moves, activity); up to 4 "watch" items (facts from headlines about held stocks, each naming the ticker). Address the reader as "you". Keys: headline, summary, highlights (array of strings), watch (array of strings). When cost figures are supplied you may say whether the account is up or down against what it paid; never present stock received as a gift, a pool share or a transfer as profit, since those units have no purchase price and are excluded from the figures you were given. ${RULES}`;
 
   await consumeQuota(ip, owner);
   const charged = { remainingForWallet: Math.max(0, quota.remainingForWallet - 1), remainingForIp: Math.max(0, quota.remainingForIp - 1) };
