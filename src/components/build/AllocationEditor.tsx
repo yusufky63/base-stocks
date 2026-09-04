@@ -12,6 +12,8 @@ import { Select } from "@/components/ui/Select";
 import { Slider } from "@/components/ui/Slider";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { assetColor } from "@/lib/colors";
+import { tradingStatus } from "@/lib/trading-status";
+import { useAssets } from "@/hooks/queries";
 
 interface Props {
   assets: B20AssetDTO[];
@@ -21,6 +23,8 @@ interface Props {
 
 /** Custom allocation editor: sliders + exact inputs, arranged as clear financial blocks (spec §4.4, §46). */
 export function AllocationEditor({ assets, value, onChange }: Props) {
+  // Already in the query cache from the page above; this is a read, not another request.
+  const prices = useAssets().data?.prices;
   const byId = useMemo(() => new Map(assets.map((a) => [a.canonicalId, a])), [assets]);
   const total = value.reduce((s, a) => s + a.weightBps, 0);
   const validation = validateAllocations(value);
@@ -61,8 +65,33 @@ export function AllocationEditor({ assets, value, onChange }: Props) {
     onChange(scaled);
   };
 
+  // What the picker offers is decided by the same status the Markets page shows, not by a raw
+  // supply check: a stock with supply and no pool is just as unbuyable as one with no supply, and
+  // a $108 pool will fill a basket leg at a price nobody meant to accept.
+  const statusOf = (a: B20AssetDTO) => tradingStatus(a, prices?.[a.canonicalId]).status;
+  const rank: Record<string, number> = { tradable: 0, thin: 1, "very-thin": 2, "no-pool": 3, "not-issued": 4, paused: 5 };
+  const describe = (a: B20AssetDTO) => {
+    switch (statusOf(a)) {
+      case "not-issued":
+        return "not issued yet · cannot be bought until Coinbase mints it";
+      case "no-pool":
+        return "issued, but no DEX pool yet · nothing can fill this leg";
+      case "very-thin":
+        return "very thin pool · a normal leg would move the price sharply";
+      case "thin":
+        return `thin pool · ${a.tags.join(" · ")}`;
+      case "paused":
+        return "transfers paused by the issuer";
+      default:
+        return a.tags.join(" · ");
+    }
+  };
+  const unbuyable = (a: B20AssetDTO) => ["not-issued", "no-pool", "paused"].includes(statusOf(a));
+
   const options = [
-    ...[...available].sort((a, b) => Number(BigInt(a.totalSupply ?? "0") === 0n) - Number(BigInt(b.totalSupply ?? "0") === 0n)).map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}`, description: BigInt(a.totalSupply ?? "0") === 0n ? "not issued yet · cannot be bought until Coinbase mints it" : a.tags.join(" · "), disabled: BigInt(a.totalSupply ?? "0") === 0n })),
+    ...[...available]
+      .sort((a, b) => (rank[statusOf(a)] ?? 9) - (rank[statusOf(b)] ?? 9))
+      .map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}`, description: describe(a), disabled: unbuyable(a) })),
     ...(hasUsdc ? [] : [{ value: USDC_ALLOCATION_KEY as string, label: "USDC cash", description: "Kept as cash for later buys" }]),
   ];
 
@@ -73,9 +102,21 @@ export function AllocationEditor({ assets, value, onChange }: Props) {
         {value.map((a, i) => {
           const key = keyOf(a);
           const asset = a.assetAddress === USDC_ALLOCATION_KEY ? null : byId.get(a.assetAddress.toLowerCase());
-          const notIssued = asset ? BigInt(asset.totalSupply ?? "0") === 0n : false;
+          const rowStatus = asset ? tradingStatus(asset, prices?.[asset.canonicalId]).status : null;
+          const blocked = rowStatus === "not-issued" || rowStatus === "no-pool" || rowStatus === "paused";
+          const rowNote =
+            rowStatus === "not-issued"
+              ? "Kept as USDC until Coinbase mints it"
+              : rowStatus === "no-pool"
+                ? "Issued, but no pool can fill this leg yet"
+                : rowStatus === "very-thin"
+                  ? "Pool is very thin — expect a poor fill"
+                  : rowStatus === "paused"
+                    ? "Transfers paused by the issuer"
+                    : null;
+          const rowTag = rowStatus === "not-issued" ? "not issued" : rowStatus === "no-pool" ? "no pool" : rowStatus === "very-thin" ? "very thin" : rowStatus === "paused" ? "paused" : null;
           return (
-            <div key={key} className={cx("grid grid-cols-[1fr_44px] md:grid-cols-[220px_1fr_112px_44px] items-center gap-3 px-3 py-3 border-b border-line last:border-b-0", notIssued && "opacity-70")}>
+            <div key={key} className={cx("grid grid-cols-[1fr_44px] md:grid-cols-[220px_1fr_112px_44px] items-center gap-3 px-3 py-3 border-b border-line last:border-b-0", blocked && "opacity-70")}>
               <div className="flex items-center gap-3 min-w-0">
                 <span className="font-mono text-[11px] text-ink-muted w-5">{String(i + 1).padStart(2, "0")}</span>
                 <ColorDot k={key} />
@@ -83,9 +124,9 @@ export function AllocationEditor({ assets, value, onChange }: Props) {
                 <div className="min-w-0">
                   <div className="font-medium text-[14px] truncate">
                     {asset ? asset.underlying : "USDC cash"}
-                    {notIssued && <span className="ml-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-warning-fg">not issued</span>}
+                    {rowTag && <span className="ml-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-warning-fg">{rowTag}</span>}
                   </div>
-                  <div className="text-[12px] text-ink-secondary truncate">{asset ? (notIssued ? "Kept as USDC until Coinbase mints it" : asset.name) : "Kept as cash"}</div>
+                  <div className="text-[12px] text-ink-secondary truncate">{asset ? (rowNote ?? asset.name) : "Kept as cash"}</div>
                 </div>
               </div>
               <div className="md:hidden row-start-2 col-span-2">

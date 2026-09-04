@@ -41,7 +41,16 @@ export function TemplateCard({ template, assets, onLoad, compact = false }: { te
             Details <ArrowRight size={12} strokeWidth={1.75} />
           </Link>
         </div>
-        {!allLive && live.waiting.length > 0 && <p className="text-[11px] text-ink-muted leading-snug">Waiting for issuance: {live.waiting.join(", ")}. Kept as USDC in the plan.</p>}
+        {live.notIssued.length > 0 && (
+          <p className="text-[11px] text-ink-muted leading-snug">
+            {`${live.notIssued.join(", ")}: not issued on Base yet — ${live.notIssuedBps / 100}% of this stays as USDC until Coinbase mints ${live.notIssued.length === 1 ? "it" : "them"}.`}
+          </p>
+        )}
+        {live.illiquid.length > 0 && (
+          <p className="text-[11px] text-ink-muted leading-snug">
+            {`${live.illiquid.join(", ")}: issued, but the pool is too shallow to fill a normal leg yet.`}
+          </p>
+        )}
         {onLoad && (
           <Button size="sm" full variant={noneLive ? "secondary" : "primary"} onClick={() => onLoad(template)}>
             <Layers size={14} strokeWidth={1.75} />

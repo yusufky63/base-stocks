@@ -17,7 +17,7 @@ import { AllocationEditor } from "./AllocationEditor";
 import { PlanExecutor } from "./PlanExecutor";
 import { AiIntentInput } from "./AiIntentInput";
 import { TemplateCard } from "./TemplateCard";
-import { sortTemplatesByLiveness } from "@/lib/templates";
+import { partitionTemplates } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
 import { Dither } from "@/components/fx/Dither";
 import { SignInButton } from "@/components/layout/SignInButton";
@@ -109,15 +109,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
           }
         />
         <div className="p-4">
-          {activeMode === "template" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {sortTemplatesByLiveness(templates ?? [], assets).map((t) => (
-                <TemplateCard key={t.id} template={t} assets={assets} compact onLoad={(tpl) => load(tpl.allocations, tpl.name, "template")} />
-              ))}
-              {!templates && <Skeleton className="h-36" />}
-              {templates && templates.length === 0 && <p className="text-[13px] text-ink-secondary">No templates yet.</p>}
-            </div>
-          )}
+          {activeMode === "template" && <TemplateShelf templates={templates} assets={assets} onLoad={(tpl) => load(tpl.allocations, tpl.name, "template")} />}
           {activeMode === "ai" && <AiIntentInput onIntent={(intent) => load(intent.allocations, intent.name || "AI draft", "ai")} />}
           {activeMode === "scratch" && <p className="text-[13px] text-ink-secondary">Add stocks and a USDC share in the basket below; weights must total 100%.</p>}
         </div>
@@ -179,6 +171,48 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
           Community baskets →
         </Link>
       </p>
+    </div>
+  );
+}
+
+/**
+ * Templates on two shelves. The default one holds what your money can actually go into today; the
+ * second holds the ones stalled on an issuer, collapsed but counted, because hiding them silently
+ * would be its own kind of lie. A stalled template returns to the first shelf on its own the day
+ * Coinbase mints what it was waiting for — nothing here is a hand-edited list.
+ */
+function TemplateShelf({ templates, assets, onLoad }: { templates?: PortfolioTemplate[]; assets?: AssetsResponse; onLoad: (t: PortfolioTemplate) => void }) {
+  const [showStalled, setShowStalled] = useState(false);
+  if (!templates) return <Skeleton className="h-36" />;
+  if (templates.length === 0) return <p className="text-[13px] text-ink-secondary">No templates yet.</p>;
+  const { ready, stalled } = partitionTemplates(templates, assets);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {ready.map((t) => (
+          <TemplateCard key={t.id} template={t} assets={assets} compact onLoad={onLoad} />
+        ))}
+      </div>
+      {ready.length === 0 && <p className="text-[13px] text-ink-secondary">Every template is waiting on a stock that is not issued on Base yet. Build one from scratch below, or open the list.</p>}
+      {stalled.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setShowStalled((v) => !v)}
+            className="self-start text-[12px] text-ink-secondary hover:text-ink transition-fast"
+          >
+            {showStalled ? "Hide" : "Show"} {stalled.length} template{stalled.length === 1 ? "" : "s"} waiting on a stock Coinbase has not issued yet
+          </button>
+          {showStalled && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {stalled.map((t) => (
+                <TemplateCard key={t.id} template={t} assets={assets} compact onLoad={onLoad} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
