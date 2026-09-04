@@ -22,6 +22,7 @@ import { ActivityList } from "@/components/activity/ActivityList";
 import { GiftInbox } from "@/components/gift/GiftInbox";
 import { AutomationCard } from "./AutomationCard";
 import { PortfolioDigestCard } from "./PortfolioDigestCard";
+import { PnlModule } from "./PnlModule";
 import { LpPositionsModule } from "@/components/earn/LpPositionsModule";
 import { OrdersModule } from "@/components/trade/OrdersModule";
 import { FundWallet } from "@/components/common/FundWallet";
@@ -182,6 +183,8 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                 </div>
               )}
             </Module>
+
+            {data && data.holdings.length > 0 && <PnlModule address={address} />}
 
             <Module>
               <ModuleHeader title="Earn" action={<Link href="/earn" className="text-[13px] text-primary font-medium">Manage →</Link>} />
