@@ -46,6 +46,8 @@ export const OG = {
   muted: "#717886",
   positive: "#2f7d00",
   danger: "#c62a0f",
+  border: "#dee1e7",
+  surface: "#f8f9fb",
   size: { width: 1200, height: 630 },
   display: "Space Grotesk",
   body: "DM Sans",
