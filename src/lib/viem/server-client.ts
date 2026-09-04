@@ -4,15 +4,17 @@ import { serverEnv } from "@/config/env";
 import { PUBLIC_BASE_RPC_URLS } from "@/config/chain";
 
 /**
- * Dedicated RPC first (2 retries), then the CDP endpoint when one is configured, then the public
- * endpoints (1 retry each), tried in order. The CDP paymaster URL doubles as a full Base JSON-RPC
- * node; it only ever sees traffic while the dedicated RPC is down, so it costs nothing in normal
- * operation but is far more reliable than the public endpoints during an outage.
+ * Keyed RPCs first — the primary (Alchemy, 2 retries) then the secondary (dRPC) — followed by the
+ * CDP endpoint when one is configured, then the public endpoints (1 retry each), tried in order.
+ * The CDP paymaster URL doubles as a full Base JSON-RPC node; the fallbacks only ever see traffic
+ * while everything ahead of them is down, so they cost nothing in normal operation but are far
+ * more reliable than the public endpoints during an outage.
  */
-function buildTransport(url: string | undefined, timeoutMs: number) {
+function buildTransport(url: string | undefined, secondaryUrl: string | undefined, timeoutMs: number) {
   const cdp = process.env.NEXT_PUBLIC_PAYMASTER_URL?.trim();
   const chain = [
     ...(url ? [http(url, { timeout: timeoutMs, batch: true, retryCount: 2 })] : []),
+    ...(secondaryUrl && secondaryUrl !== url ? [http(secondaryUrl, { timeout: timeoutMs, batch: true, retryCount: 1 })] : []),
     ...(cdp && cdp !== url ? [http(cdp, { timeout: timeoutMs, batch: true, retryCount: 1 })] : []),
     ...PUBLIC_BASE_RPC_URLS.filter((u) => u !== url).map((u) => http(u, { timeout: timeoutMs, batch: true, retryCount: 1 })),
   ];
@@ -39,7 +41,7 @@ let flashblocksClient: BasePublicClient | null = null;
 export function getServerPublicClient(): BasePublicClient {
   if (publicClient) return publicClient;
   const env = serverEnv();
-  publicClient = createBaseClient(buildTransport(env.BASE_RPC_URL, 10_000), true);
+  publicClient = createBaseClient(buildTransport(env.BASE_RPC_URL, env.DRPC_RPC_URL, 10_000), true);
   return publicClient;
 }
 

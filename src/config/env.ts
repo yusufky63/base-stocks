@@ -6,6 +6,8 @@ import { z } from "zod";
  */
 const serverSchema = z.object({
   BASE_RPC_URL: z.string().url().optional(),
+  /** Second keyed RPC (dRPC); slots in between the primary and the CDP fallback. */
+  DRPC_RPC_URL: z.string().url().optional(),
   FLASHBLOCKS_RPC_URL: z.string().url().optional(),
   ZEROX_API_KEY: z.string().min(1).optional(),
   /** Uniswap Trading API key (developers.uniswap.org); enables the Uniswap route behind KyberSwap. */
