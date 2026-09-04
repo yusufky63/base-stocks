@@ -16,6 +16,7 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { RebalanceExecutor } from "./RebalanceExecutor";
+import { useTargetAllocation, TargetControls, maxDriftBps, MY_TARGET_ID } from "./TargetAllocation";
 import { HistoryModule } from "./HistoryModule";
 import { ProfileSettings } from "./ProfileSettings";
 import { ActivityList } from "@/components/activity/ActivityList";
@@ -30,7 +31,7 @@ import { FundWallet } from "@/components/common/FundWallet";
 type Tab = "overview" | "rebalance" | "activity" | "profile";
 const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "overview", label: "Overview", hint: "Value · allocation · history" },
-  { id: "rebalance", label: "Rebalance", hint: "Drift against a template" },
+  { id: "rebalance", label: "Rebalance", hint: "Drift against a target" },
   { id: "activity", label: "Activity", hint: "Trades, sends, earn, builds" },
   { id: "profile", label: "Profile", hint: "Your page and badges" },
 ];
@@ -47,7 +48,19 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
   const [tab, setTab] = useState<Tab>("overview");
   const [templateId, setTemplateId] = useState<string>("");
 
-  const target = useMemo(() => templates?.find((t) => t.id === templateId), [templates, templateId]);
+  const savedTarget = useTargetAllocation();
+  const driftBps = useMemo(() => (data ? maxDriftBps(data, savedTarget.allocations) : null), [data, savedTarget.allocations]);
+  /**
+   * The thing being compared against. A saved target is the wallet's own mix and outranks a
+   * template, so it is selected by default the moment one exists — a template you once looked at
+   * should not keep winning over the target you deliberately set.
+   */
+  const target = useMemo(() => {
+    if (templateId === MY_TARGET_ID || (templateId === "" && savedTarget.allocations)) {
+      return savedTarget.allocations ? { id: MY_TARGET_ID, name: "your target", allocations: savedTarget.allocations } : undefined;
+    }
+    return templates?.find((t) => t.id === templateId);
+  }, [templates, templateId, savedTarget.allocations]);
   const drift: RebalanceSuggestion[] = useMemo(
     () => (data && target ? rebalanceSuggestions(data, target.allocations, (addr) => assets?.assets.find((a) => a.canonicalId === addr.toLowerCase())?.underlying) : []),
     [data, target, assets],
@@ -114,6 +127,19 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
           </button>
         ))}
       </div>
+
+      {/* Drift is the one thing worth interrupting the overview for: it is the only number here
+          that asks the holder to do something. */}
+      {tab === "overview" && data && driftBps !== null && driftBps > savedTarget.thresholdBps && (
+        <button
+          type="button"
+          onClick={() => setTab("rebalance")}
+          className="text-left border border-warning-fg/50 rounded-[8px] px-4 py-3 text-[13px] hover:bg-surface transition-fast"
+        >
+          <span className="font-medium">{`Your mix has drifted ${(driftBps / 100).toFixed(1)}% from your target.`}</span>{" "}
+          <span className="text-ink-secondary">Open Rebalance to see which stock moved and by how much — nothing trades without your confirmation.</span>
+        </button>
+      )}
 
       {tab === "overview" && <GiftInbox address={address} />}
       {tab === "overview" && (
@@ -261,9 +287,20 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
         <Module>
           <ModuleHeader
             index="C"
-            title="Drift against a template"
+            title="Drift against a target"
             action={
-              <Select size="sm" className="w-[220px]" ariaLabel="Compare with template" placeholder="Pick a template…" value={templateId} onChange={setTemplateId} options={(templates ?? []).map((t) => ({ value: t.id, label: t.name }))} />
+              <Select
+                size="sm"
+                className="w-[220px]"
+                ariaLabel="Compare with"
+                placeholder="Pick a target…"
+                value={target?.id ?? ""}
+                onChange={setTemplateId}
+                options={[
+                  ...(savedTarget.allocations ? [{ value: MY_TARGET_ID, label: "My target", description: "The mix you saved" }] : []),
+                  ...(templates ?? []).map((t) => ({ value: t.id, label: t.name })),
+                ]}
+              />
             }
           />
           {target && drift.length > 0 && data ? (
@@ -285,10 +322,14 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                 </div>
               ))}
               <RebalanceExecutor snapshot={data} suggestions={drift} templateName={target.name} />
-              <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Suggestions only. Rebalancing is manual: every trade goes through the same quote, guard and wallet confirmation. {target.name} is a template, not a recommendation.</p>
+              <TargetControls snapshot={data} target={target} saved={savedTarget} />
+              <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Suggestions only. Rebalancing is manual: every trade goes through the same quote, guard and wallet confirmation. {target.id === MY_TARGET_ID ? "Your target is a note to yourself, not advice." : `${target.name} is a template, not a recommendation.`}</p>
             </div>
           ) : (
-            <p className="px-4 py-6 text-[14px] text-ink-secondary">Pick a template to see how your holdings compare, then rebalance with one confirmation per trade.</p>
+            <div className="px-4 py-6 flex flex-col gap-3">
+              <p className="text-[14px] text-ink-secondary">Pick a template to see how your holdings compare, or save the mix you are holding now as your own target and let the page tell you when it drifts.</p>
+              {data && <TargetControls snapshot={data} target={undefined} saved={savedTarget} />}
+            </div>
           )}
         </Module>
       )}
