@@ -11,7 +11,7 @@ This document is the technical reference. The product narrative and FAQ are on t
 | Area | Route | What it does |
 | --- | --- | --- |
 | Home | `/` | Quick buy (live stocks first), movers, news brief, portfolio summary, ticker rows (prices on by default, headlines opt-in). |
-| Markets | `/markets` | All 13 stocks with status chip (Live / Thin / No pool / Not issued / Paused), sparkline, price, 24h, Chainlink reference, single Buy action. Region notice for restricted visitors. |
+| Markets | `/markets` | All 13 stocks with status chip (Live / Thin / Very thin / No pool / Not issued / Paused), sparkline, price, 24h, Chainlink reference, single Buy action. Region notice for restricted visitors. |
 | Stock | `/stocks/[address]` | Price header with freshness, candles + volume with zoom, trade panel (USDC or ETH, route picker, gift mode), tabs: Your position (+ LP line, your trades), Earn or borrow, Details (contract, oracle, liquidity map). |
 | Strategies | `/build`, `/community`, `/automate` | One section with three routed tabs: Build (guided AI draft, allocation editor, plan preview, templates, publish), Community (7-day pulse, published baskets, votes, clones), Automate (plans you approve, guided or AI-drafted). Template pages live under `/build/[slug]`, community baskets under `/baskets/[id]`. |
 | Earn | `/earn` | Idle-USDC venues executed in-app (Morpho vaults, Aave V3, Compound v3), your liquidity positions, stock-specific venues with type filters and an honest scan note. |
@@ -96,7 +96,7 @@ Feeds are looked up from the Chainlink Base directory (`https://reference-data-d
 | Chainlink | Reference price and freshness | onchain |
 | OKX DEX API | optional candles/trades fallback (only when the project is entitled) | signed |
 
-Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market price when a pool exists, otherwise the Chainlink reference (marked *reference*); `executablePriceUsd` comes from the provider quote; price impact is measured against the reference or market basis. Sparklines are 7-day closes. The status model (`src/lib/trading-status.ts`) turns liquidity into Live (≥ $100k), Thin ($10k–100k), No pool, Not issued, Paused.
+Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market price when a pool exists, otherwise the Chainlink reference (marked *reference*); `executablePriceUsd` comes from the provider quote; price impact is measured against the reference or market basis. Sparklines are 7-day closes. The status model (`src/lib/trading-status.ts`) turns liquidity into Live (≥ $100k), Thin ($10k–100k), Very thin (a pool under $10k — labelled with a slippage warning rather than "No pool yet", which would contradict the size printed beside it), No pool (nothing at all), Not issued (zero supply), Paused. Only Live and Thin count towards "live markets" in the hero and market totals, so a $108 pool never inflates them.
 
 ---
 

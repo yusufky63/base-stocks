@@ -9,7 +9,7 @@ import { IntegrationsSection } from "@/components/common/Integrations";
 export const metadata: Metadata = { title: "How it works" };
 
 const FEATURES = [
-  { icon: LineChart, title: "Markets", body: "13 Coinbase Tokenized Stocks with live DEX price, Chainlink reference, candles, volume, liquidity and a Live / Thin / Not issued status.", href: "/markets" },
+  { icon: LineChart, title: "Markets", body: "13 Coinbase Tokenized Stocks with live DEX price, Chainlink reference, candles, volume, liquidity and a Live / Thin / Very thin / No pool / Not issued status.", href: "/markets" },
   { icon: BarChart3, title: "Trade", body: "Every quote asks KyberSwap, Velora, Uniswap, Aerodrome and, when enabled, 0x and OKX at once; you pick auto (best net) or a provider, including gasless CoW signed orders. Limit orders at your own price. Pay with USDC or ETH.", href: "/markets" },
   { icon: Blocks, title: "Build", body: "Baskets from sliders or templates, previewed with live quotes, executed leg by leg. Not-issued names stay as USDC or spread across live ones.", href: "/build" },
   { icon: Repeat, title: "Automate", body: "Recurring buys and basket plans, guided or drafted from a sentence; every run waits for your wallet confirmation.", href: "/automate" },

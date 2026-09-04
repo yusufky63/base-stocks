@@ -8,7 +8,7 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 
 | Area | Highlights |
 | --- | --- |
-| Markets | 13 stocks with live DEX price, Chainlink reference and freshness, candles and volume, a Live / Thin / Not issued status, single Buy action |
+| Markets | 13 stocks with live DEX price, Chainlink reference and freshness, candles and volume, a Live / Thin / Very thin / No pool / Not issued status, single Buy action |
 | Trade | Every quote asks KyberSwap, Velora, the Uniswap Trading API, Aerodrome directly, CoW Protocol and, when enabled, 0x and OKX; you pick auto (best net output) or a provider. Pay with USDC or ETH. Exact approvals, simulation before signing, atomic batches on Base Account. CoW orders are signed, not sent: solvers pay the gas. Limit orders at your own price, cancellable any time |
 | Strategies | Build baskets (sliders, templates, guided AI drafts with live market context), community baskets with votes and clones, recurring plans you approve run by run |
 | Earn | Idle USDC into Morpho vaults, Aave V3 and Compound v3 from the app; stock pools, LP positions and lending venues discovered at runtime, never hardcoded |
