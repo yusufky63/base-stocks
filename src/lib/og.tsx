@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { coinSrc } from "@/lib/coins";
+import { findCuratedAsset } from "@/lib/b20/registry";
+import { USDC_ALLOCATION_KEY } from "@/domain/portfolio";
 
 /**
  * Shared pieces for the share cards rendered with next/og (Satori): the site's own fonts,
@@ -156,4 +158,78 @@ export function OgCoins({ tickers }: { tickers: (string | undefined)[] }) {
 export function ogHeadlineSize(text: string, maxWidth = 580, max = 66): number {
   if (text.length === 0) return max;
   return Math.max(30, Math.min(max, Math.floor(maxWidth / (text.length * 0.56))));
+}
+
+/**
+ * The tickers behind an allocation, heaviest first.
+ *
+ * The USDC sleeve and anything not in the curated registry drop out: a share card should name the
+ * companies, and a cash position is not one of them.
+ */
+export function allocationTickers(allocations: { assetAddress: string; weightBps: number }[]): { ticker: string; weightBps: number }[] {
+  return [...allocations]
+    .sort((a, b) => b.weightBps - a.weightBps)
+    .map((a) => ({ ticker: findCuratedAsset(a.assetAddress)?.underlying, weightBps: a.weightBps }))
+    .filter((a): a is { ticker: string; weightBps: number } => a.ticker !== undefined);
+}
+
+/**
+ * "AAPL 40% · NVDA 35% · +2 more" — the allocation in one line.
+ *
+ * The remainder counts *every* leg that is not shown, including the USDC sleeve and any token with
+ * no entry in the registry. Counting only the ones we could name would print percentages that do
+ * not add up and read as the whole basket, which is worse than saying there is more.
+ */
+export function allocationSummary(allocations: { assetAddress: string; weightBps: number }[], max = 3): string | null {
+  if (allocations.length === 0) return null;
+  const labelled = [...allocations]
+    .sort((a, b) => b.weightBps - a.weightBps)
+    .map((a) => ({ label: a.assetAddress === USDC_ALLOCATION_KEY ? "USDC" : (findCuratedAsset(a.assetAddress)?.underlying ?? null), weightBps: a.weightBps }));
+  const shown = labelled.filter((l) => l.label !== null).slice(0, max);
+  if (shown.length === 0) return null;
+  const rest = allocations.length - shown.length;
+  const head = shown.map((l) => `${l.label} ${Math.round(l.weightBps / 100)}%`).join(" · ");
+  return rest > 0 ? `${head} · +${rest} more` : head;
+}
+
+/**
+ * Whether any of these tickers actually has a 3D coin to show.
+ *
+ * `OgCoins` renders nothing when none do, but the card cannot see that through a React element —
+ * it would keep the narrow text column and leave half the card empty. Asking first lets the text
+ * take the full width instead.
+ */
+export function hasCoinArt(tickers: (string | undefined)[]): boolean {
+  return tickers.some((t) => coinSrc(t, "full") !== null);
+}
+
+/**
+ * The allocation drawn as weighted bars, for cards whose stocks have no 3D coin.
+ *
+ * A basket is its mix, and half an empty card says nothing about it. This is the same weight bar
+ * the app draws on the basket page, reduced to what survives at thumbnail size: four rows, the
+ * ticker, the bar, the number. Bars are scaled against the largest leg rather than 100% so a
+ * spread of small positions still reads as a shape.
+ */
+export function OgWeights({ allocations, accent = OG.blue }: { allocations: { assetAddress: string; weightBps: number }[]; accent?: string }) {
+  const rows = [...allocations]
+    .sort((a, b) => b.weightBps - a.weightBps)
+    .map((a) => ({ label: a.assetAddress === USDC_ALLOCATION_KEY ? "USDC" : (findCuratedAsset(a.assetAddress)?.underlying ?? null), weightBps: a.weightBps }))
+    .filter((r): r is { label: string; weightBps: number } => r.label !== null)
+    .slice(0, 4);
+  if (rows.length === 0) return null;
+  const top = rows[0]!.weightBps || 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 18, width: 340 }}>
+      {rows.map((r) => (
+        <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ display: "flex", width: 78, fontFamily: OG.mono, fontSize: 20, color: OG.ink }}>{r.label}</div>
+          <div style={{ display: "flex", flex: 1, height: 12, borderRadius: 999, background: OG.surface, border: `1px solid ${OG.border}` }}>
+            <div style={{ display: "flex", width: `${Math.max(6, Math.round((r.weightBps / top) * 100))}%`, borderRadius: 999, background: accent }} />
+          </div>
+          <div style={{ display: "flex", width: 62, justifyContent: "flex-end", fontFamily: OG.mono, fontSize: 20, color: OG.secondary }}>{`${Math.round(r.weightBps / 100)}%`}</div>
+        </div>
+      ))}
+    </div>
+  );
 }

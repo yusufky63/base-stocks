@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { OG, OgCard, OgChip, OgCoins, OgCta, ogFonts, ogHeadlineSize } from "@/lib/og";
+import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts, ogHeadlineSize } from "@/lib/og";
 import { getPoolView } from "@/services/pool-service";
 import { formatTokenAmount } from "@/lib/format";
 
@@ -20,10 +20,11 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const share = view && view.legs.length > 0 ? view.legs.map((l) => `${formatTokenAmount(BigInt(l.scaledPerClaim), l.decimals)} ${l.underlying}`).join(" + ") : "A tokenized stock";
   const remaining = view?.onchain?.remainingSlots ?? view?.pool.slots ?? 0;
   const slots = view?.pool.slots ?? 0;
+  const legTickers = (view?.legs ?? []).map((l) => l.underlying);
   const soldOut = slots > 0 && remaining === 0;
   return new ImageResponse(
     (
-      <OgCard accent={OG.green} footer="One share per wallet · a passkey wallet takes seconds · not investment advice" art={<OgCoins tickers={(view?.legs ?? []).map((l) => l.underlying)} />}>
+      <OgCard accent={OG.green} footer="One share per wallet · a passkey wallet takes seconds · not investment advice" art={hasCoinArt(legTickers) ? <OgCoins tickers={legTickers} /> : undefined}>
         <div style={{ display: "flex", gap: 12 }}>
           <OgChip label="Gift pool" color={OG.green} filled />
           {slots > 0 && <OgChip label={soldOut ? "All shares claimed" : `${remaining} of ${slots} left`} color={OG.green} />}

@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { OG, OgCard, OgChip, OgCoins, OgCta, ogFonts, ogHeadlineSize } from "@/lib/og";
+import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts, ogHeadlineSize } from "@/lib/og";
 import { getGiftReceipt, giftAmountLabel, giftPartyLabel } from "@/services/gift-service";
 
 export const alt = "A gift on BStocks";
@@ -21,7 +21,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const sender = r ? giftPartyLabel(r.sender) : null;
   return new ImageResponse(
     (
-      <OgCard accent={OG.green} footer="Self-custodial from the moment you claim · not investment advice" art={<OgCoins tickers={[r?.asset?.underlying]} />}>
+      <OgCard accent={OG.green} footer="Self-custodial from the moment you claim · not investment advice" art={hasCoinArt([r?.asset?.underlying]) ? <OgCoins tickers={[r?.asset?.underlying]} /> : undefined}>
         <div style={{ display: "flex", gap: 12 }}>
           <OgChip label="A gift for you" color={OG.green} filled />
           {sender && <OgChip label={`from ${sender}`} color={OG.green} />}

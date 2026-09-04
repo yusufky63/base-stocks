@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { OG, OgCard, OgChip, OgCoins, OgCta, ogFonts } from "@/lib/og";
+import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts } from "@/lib/og";
 import { findCuratedAsset } from "@/lib/b20/registry";
 import { loadAssetResponse } from "@/lib/server-data";
 
@@ -21,7 +21,7 @@ export default async function Image({ params }: { params: Promise<{ address: str
   const nameSize = name.length > 22 ? 46 : name.length > 14 ? 56 : 66;
   return new ImageResponse(
     (
-      <OgCard footer="Self-custodial · quotes from Base DEX liquidity · not investment advice" art={<OgCoins tickers={[entry?.underlying]} />}>
+      <OgCard footer="Self-custodial · quotes from Base DEX liquidity · not investment advice" art={hasCoinArt([entry?.underlying]) ? <OgCoins tickers={[entry?.underlying]} /> : undefined}>
         <div style={{ display: "flex", gap: 12 }}>
           {ticker && <OgChip label={ticker} filled />}
           <OgChip label="Coinbase Tokenized Stock" />
