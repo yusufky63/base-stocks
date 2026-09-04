@@ -58,9 +58,6 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
   const onSort = (key: SortKey) => setSort((s) => (s.key !== key ? { key, dir: "desc" } : s.dir === "desc" ? { key, dir: "asc" } : { key: "default", dir: "desc" }));
 
   const all = useMemo(() => (data ? sortByTradingStatus(data.assets.map((a) => ({ asset: a, price: data.prices[a.canonicalId] })), (x) => x) : []), [data]);
-  // "Live" here means a working market you can trade — tradable or thin — matching the header stats and home.
-  const liveCount = useMemo(() => all.filter((x) => { const s = tradingStatus(x.asset, x.price).status; return s === "tradable" || s === "thin"; }).length, [all]);
-  const notIssued = useMemo(() => all.filter((x) => tradingStatus(x.asset, x.price).status === "not-issued").length, [all]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -86,14 +83,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         title="Markets"
         lead={
           <span className="inline-flex items-center gap-2 flex-wrap">
-            <span className="live-dot" /> Live · {data ? <>updated <TimeAgo value={data.readAt} placeholder="just now" /></> : "loading"} ·{" "}
-            {data ? (
-              <>
-                {liveCount} market{liveCount === 1 ? "" : "s"} live{notIssued > 0 ? `, ${notIssued} not issued yet` : ""} of {data.assets.length} Coinbase Tokenized Stocks
-              </>
-            ) : (
-              "Coinbase Tokenized Stocks on Base"
-            )}
+            <span className="live-dot" /> Live · {data ? <>updated <TimeAgo value={data.readAt} placeholder="just now" /></> : "loading"}
           </span>
         }
         action={
