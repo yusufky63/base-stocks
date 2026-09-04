@@ -107,12 +107,12 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
       {restricted && region.data && <RegionNotice region={region.data} compact />}
       {data && <MarketStats rows={all} />}
       <div className="border border-line rounded-[8px] overflow-hidden bg-canvas ticks">
-        <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] gap-3 px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
+        <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] gap-3 px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted whitespace-nowrap items-center">
           <span>Stock</span>
           <span className="text-right">7d</span>
           <SortHeader label="Price" col="price" sort={sort} onSort={onSort} />
           <SortHeader label="24h" col="change24h" sort={sort} onSort={onSort} />
-          <SortHeader label="Liquidity · vol" col="liquidity" sort={sort} onSort={onSort} />
+          <SortHeader label="Liq · vol" col="liquidity" sort={sort} onSort={onSort} />
           <span className="text-right">Reference</span>
           <span />
         </div>
