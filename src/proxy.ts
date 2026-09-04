@@ -50,8 +50,15 @@ export function proxy(req: NextRequest) {
         const mode = geoblockMode();
         const attested = mode === "attest" && req.cookies.get(ELIGIBILITY_COOKIE)?.value === "confirmed";
         if (!attested) {
+          // In `attest` — the default, and the mode this deployment runs — a blocked region is not
+          // banned, it is asked. The wording has to say that, or a 451 that a checkbox clears reads
+          // like a wall. `block` is the only mode where there is genuinely nothing to do.
+          const message =
+            mode === "attest"
+              ? "Confirm your eligibility to continue. Coinbase Tokenized Stocks are offered only to eligible persons outside the United States."
+              : "This is not available in your region. Coinbase Tokenized Stocks are offered only to eligible persons outside the United States.";
           return NextResponse.json(
-            { error: { code: "REGION_RESTRICTED", message: "This is not available in your region. Coinbase Tokenized Stocks are only for eligible persons outside the United States.", details: { country, mode } } },
+            { error: { code: "REGION_RESTRICTED", message, details: { country, mode } } },
             { status: 451, headers: { "cache-control": "no-store" } },
           );
         }

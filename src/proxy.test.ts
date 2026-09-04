@@ -50,6 +50,20 @@ describe("compliance geoblock", () => {
     expect(blocked("/pools/pool_abc", US)).toBe(false);
   });
 
+  /**
+   * The default mode asks, it does not ban. A 451 a checkbox clears must not be worded like a wall,
+   * or the copy tells a visitor the opposite of what the product does.
+   */
+  it("asks rather than refuses while the mode is attest", async () => {
+    const res = proxy(request("/api/pools", { ...US, method: "POST" }));
+    expect(res.status).toBe(451);
+    const body = (await res.json()) as { error: { code: string; message: string; details: { mode: string } } };
+    expect(body.error.code).toBe("REGION_RESTRICTED");
+    expect(body.error.details.mode).toBe("attest");
+    expect(body.error.message).toMatch(/confirm your eligibility/i);
+    expect(body.error.message).not.toMatch(/not available/i);
+  });
+
   it("opens once the visitor has confirmed eligibility", () => {
     expect(blocked("/api/pools", { ...US, method: "POST", attested: true })).toBe(false);
     expect(blocked("/api/gifts", { ...US, method: "POST", attested: true })).toBe(false);

@@ -49,7 +49,7 @@ export const TRADE_ERROR_COPY: Record<TradeErrorCode, string> = {
   SIMULATION_FAILED: "We couldn't simulate this transaction. Nothing was sent.",
   WALLET_NOT_CONNECTED: "Connect a wallet to continue.",
   UNKNOWN: "Something went wrong. Nothing was sent.",
-  REGION_RESTRICTED: "Trading and Earn are not available in your region. Coinbase Tokenized Stocks are only for eligible persons outside the United States.",
+  REGION_RESTRICTED: "Coinbase Tokenized Stocks are offered only to eligible persons outside the United States. Confirm your eligibility to continue.",
 };
 
 export interface HumanError {
