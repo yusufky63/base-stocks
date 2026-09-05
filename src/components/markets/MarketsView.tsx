@@ -16,6 +16,7 @@ import { PageTitle, Skeleton, cx } from "@/components/ui/primitives";
 import { assetColor } from "@/lib/colors";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
+import { Heatmap, applyFilters, type ScreenerFilters } from "./Heatmap";
 
 type SortKey = "default" | "price" | "change24h" | "liquidity";
 
@@ -53,6 +54,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
   const region = useRegion();
   const restricted = region.data?.restricted === true;
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<ScreenerFilters>({ tag: "all", status: "all" });
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "default", dir: "desc" });
   // Click cycles a column: unsorted → high-to-low → low-to-high → back to the default status order.
   const onSort = (key: SortKey) => setSort((s) => (s.key !== key ? { key, dir: "desc" } : s.dir === "desc" ? { key, dir: "asc" } : { key: "default", dir: "desc" }));
@@ -61,7 +63,8 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = q ? all.filter(({ asset }) => asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q) || asset.underlying.toLowerCase().includes(q)) : all;
+    const screened = applyFilters(all, filters);
+    let list = q ? screened.filter(({ asset }) => asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q) || asset.underlying.toLowerCase().includes(q)) : screened;
     if (sort.key !== "default") {
       const val = (p?: AssetsResponse["prices"][string]) => (sort.key === "price" ? p?.displayUsd : sort.key === "change24h" ? p?.marketChange24hPct : p?.liquidityUsd);
       list = [...list].sort((a, b) => {
@@ -74,7 +77,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
       });
     }
     return list;
-  }, [all, query, sort]);
+  }, [all, query, sort, filters]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -96,6 +99,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
 
       {restricted && region.data && <RegionNotice region={region.data} compact />}
       {data && <MarketStats rows={all} />}
+      {data && <Heatmap rows={all} filters={filters} onFilters={setFilters} />}
       <div className="border border-line rounded-[8px] overflow-hidden bg-canvas ticks">
         <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] gap-3 px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted whitespace-nowrap items-center">
           <span>Stock</span>
@@ -117,7 +121,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         {rows.map(({ asset, price }) => (
           <MarketRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} watched={watchlist.has(asset.address)} onToggleWatch={address ? () => watchlist.toggle(asset.address as Address) : undefined} restricted={restricted} />
         ))}
-        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{query ? `No stocks match “${query}”.` : "No stocks match."}</p>}
+        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{query ? `No stocks match “${query}”.` : "No stock matches this screen."}</p>}
       </div>
       <p className="text-[12px] text-ink-muted">Live = a DEX pool with $100k+ liquidity; Thin = $10k–100k; Not issued yet = the contract exists but Coinbase has not minted tokens on Base. Price is the DEX market price when a pool exists, otherwise the Chainlink reference (marked). Executable prices come from a live quote when you trade.</p>
     </div>

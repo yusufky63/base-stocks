@@ -54,7 +54,18 @@ export interface PortfolioCurve {
   missing: string[];
   /** True when the whole window is flat because no feed updated — a weekend, typically. */
   flat: boolean;
+  /** The equal-weight index of every listed stock over the same window, scaled to start where the portfolio starts. */
+  benchmark: BenchmarkCurve | null;
   readAt: number;
+}
+
+export interface BenchmarkCurve {
+  name: string;
+  /** Same buckets as `points`; USD-scaled so the two lines share a scale. */
+  points: number[];
+  changePct: number | null;
+  /** How many stocks had a feed with history for the window. */
+  members: number;
 }
 
 /**
@@ -64,7 +75,7 @@ export interface PortfolioCurve {
 async function seriesFor(asset: B20Asset, spec: WindowSpec, startS: number, bucket: number): Promise<number[] | null> {
   if (!asset.oracle) return null;
   const key = `curve:${asset.oracle.feed}:${spec.seconds}:${spec.points}`;
-  return cached(key, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000 }, async () => {
+  return cached(key, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000, shared: true }, async () => {
     try {
       const rounds = await readRoundHistory(asset.oracle!.feed, spec.rounds);
       if (rounds.length === 0) return null;
@@ -89,13 +100,40 @@ async function seriesFor(asset: B20Asset, spec: WindowSpec, startS: number, buck
   });
 }
 
+/**
+ * The benchmark: every listed stock with a reference feed, equal-weighted, each normalised to 1 at
+ * the window's start. One shared-cached series per window for the whole platform — a thousand
+ * portfolio pages read the same thirteen feed histories once — and each wallet scales it to its
+ * own starting value at request time, which is arithmetic, not RPC.
+ */
+/** Each series normalised to 1 at its first point, then averaged: every member counts the same, whatever its price. Pure. */
+export function equalWeightIndex(series: readonly (readonly number[])[], points: number): { points: number[]; members: number } | null {
+  const usable = series.filter((s) => s.length === points && s[0]! > 0);
+  if (usable.length === 0) return null;
+  const out = new Array<number>(points).fill(0);
+  for (const s of usable) for (let i = 0; i < points; i++) out[i]! += s[i]! / s[0]!;
+  return { points: out.map((p) => p / usable.length), members: usable.length };
+}
+
+export async function getBenchmarkIndex(window: CurveWindow): Promise<{ points: number[]; members: number } | null> {
+  const spec = WINDOWS[window];
+  return cached(`curve:index:${window}`, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000, shared: true }, async () => {
+    const nowS = Math.floor(Date.now() / 1000);
+    const startS = nowS - spec.seconds;
+    const bucket = spec.seconds / spec.points;
+    const assets = (await getAssets()).filter((a) => a.oracle);
+    const series = (await Promise.all(assets.map((a) => seriesFor(a, spec, startS, bucket)))).filter((s): s is number[] => !!s);
+    return equalWeightIndex(series, spec.points);
+  });
+}
+
 export async function getPortfolioCurve(owner: Address, window: CurveWindow): Promise<PortfolioCurve> {
   const spec = WINDOWS[window];
   const nowS = Math.floor(Date.now() / 1000);
   const startS = nowS - spec.seconds;
   const bucket = spec.seconds / spec.points;
 
-  const [snapshot, assets] = await Promise.all([getPortfolioSnapshot(owner), getAssets()]);
+  const [snapshot, assets, index] = await Promise.all([getPortfolioSnapshot(owner), getAssets(), getBenchmarkIndex(window).catch(() => null)]);
   const held = snapshot.holdings.filter((h) => BigInt(h.rawBalance) > 0n);
 
   const totals = new Array<number>(spec.points).fill(0);
@@ -123,6 +161,10 @@ export async function getPortfolioCurve(owner: Address, window: CurveWindow): Pr
   const firstUsd = points[0]?.usd ?? null;
   const latestUsd = points[points.length - 1]?.usd ?? null;
   const flat = points.length > 1 && points.every((p) => Math.abs(p.usd - points[0]!.usd) < 1e-9);
+  const benchmark: BenchmarkCurve | null =
+    index && firstUsd !== null && firstUsd > 0 && index.points.length === points.length
+      ? { name: `Equal-weight ${index.members}`, points: index.points.map((p) => p * firstUsd), changePct: (index.points[index.points.length - 1]! - 1) * 100, members: index.members }
+      : null;
 
   return {
     window,
@@ -132,6 +174,7 @@ export async function getPortfolioCurve(owner: Address, window: CurveWindow): Pr
     changePct: firstUsd !== null && latestUsd !== null && firstUsd > 0 ? ((latestUsd - firstUsd) / firstUsd) * 100 : null,
     missing,
     flat,
+    benchmark,
     readAt: Date.now(),
   };
 }

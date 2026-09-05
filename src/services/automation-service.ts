@@ -29,6 +29,8 @@ export interface CreateRuleInput {
   thresholdBps?: number;
   templateId?: string;
   mode?: "manual" | "auto";
+  /** Manual basket plans only: buy toward the allocations as a target instead of buying them as weights. */
+  towardTarget?: boolean;
   /** Auto plans: the id the contract assigned, and the transaction that created it. */
   onchainPlanId?: string;
   txHash?: Hash;
@@ -49,7 +51,11 @@ export function isAutoRule(rule: Pick<AutomationRule, "config">): boolean {
 
 export async function createRule(owner: Address, input: CreateRuleInput): Promise<AutomationRule> {
   const now = Date.now();
-  if (input.mode === "auto") return createAutoMirror(owner, input, now);
+  if (input.mode === "auto") {
+    if (input.towardTarget) throw new AppError("BAD_REQUEST", "A toward-target plan is confirmed run by run; it cannot be automatic.", 400);
+    return createAutoMirror(owner, input, now);
+  }
+  if (input.towardTarget && input.type !== "recurring-basket") throw new AppError("BAD_REQUEST", "A toward-target plan needs a target mix.", 400);
   const cadence = input.cadenceDays ?? 7;
   if (input.type === "recurring-buy") {
     if (!input.assetAddress || !isCuratedAsset(input.assetAddress)) throw new AppError("BAD_REQUEST", "Pick a verified stock.", 400);
@@ -79,6 +85,7 @@ export async function createRule(owner: Address, input: CreateRuleInput): Promis
       thresholdBps: input.thresholdBps ?? DEFAULT_THRESHOLD_BPS,
       templateId: input.templateId,
       mode: input.type === "drift-alert" ? undefined : "manual",
+      ...(input.towardTarget ? { towardTarget: true } : {}),
     },
     status: "active",
     nextRunAt: input.type === "drift-alert" ? undefined : now,
@@ -251,6 +258,7 @@ export interface RunSummary {
   legs?: AutomationRunRecord["legs"];
   ok?: boolean;
   error?: string;
+  inBalance?: boolean;
 }
 
 /**
@@ -264,8 +272,10 @@ export async function markRun(owner: Address, id: string, summary: RunSummary = 
   if (!isPlanRule(rule)) throw new AppError("BAD_REQUEST", "Your target mix is not a plan; there is nothing to run.", 400);
   if (isAutoRule(rule)) throw new AppError("BAD_REQUEST", "Auto plans are run by the contract; the app does not mark them by hand.", 400);
   const now = Date.now();
-  const ok = summary.ok !== false && (summary.spentUsd ?? 0) > 0;
-  const record: AutomationRunRecord = { at: now, ok, via: "wallet", txHash: summary.txHashes?.[0], spentUsd: summary.spentUsd, legs: summary.legs, error: ok ? undefined : (summary.error ?? "Nothing was bought.") };
+  // A toward-target run that found the mix in balance did its job without buying: it counts, and the date moves on.
+  const inBalance = summary.inBalance === true && !!rule.config.towardTarget;
+  const ok = summary.ok !== false && ((summary.spentUsd ?? 0) > 0 || inBalance);
+  const record: AutomationRunRecord = { at: now, ok, via: "wallet", txHash: summary.txHashes?.[0], spentUsd: summary.spentUsd, legs: summary.legs, error: ok ? undefined : (summary.error ?? "Nothing was bought."), ...(inBalance ? { note: "In balance — nothing under target, nothing bought." } : {}) };
   const history = [record, ...(rule.config.history ?? [])].slice(0, HISTORY_CAP);
   return getRepos().automation.update(id, owner, {
     ...(ok ? { lastRunAt: now, nextRunAt: nextRunAfter(rule.nextRunAt, rule.config.cadenceDays ?? 7, now) } : {}),

@@ -14,7 +14,7 @@ import type { ManualRun } from "@/hooks/useManualRun";
 import { CADENCES, cadenceLabel, usdcToUsd } from "@/lib/auto-invest";
 import { formatUsd, timeAgo } from "@/lib/format";
 import { BASE_EXPLORER_URL, MIN_TRADE_USD } from "@/config/chain";
-import { AssetLogo, ErrorBanner, TxLink } from "@/components/common/display";
+import { AssetLogo, ErrorBanner, InfoBanner, TxLink } from "@/components/common/display";
 import { Button, Badge, KeyValue, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
@@ -116,6 +116,8 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
         </section>
 
         {(manual.error || autoInvest.error) && <ErrorBanner message={manual.error ?? autoInvest.error ?? ""} />}
+        {manual.notice && <InfoBanner>{manual.notice}</InfoBanner>}
+        {rule.config.towardTarget && <p className="text-[12px] text-ink-secondary">This plan buys toward your saved target: each run reads the holdings of the day, buys only what is under target, up to {formatUsd(rule.config.amountUsd)}, and never sells.</p>}
         {manual.execution && manual.summary && <ExecutionProgress execution={manual.execution} currentStepId={manual.currentStepId} running={manual.running} summary={manual.summary} onRetry={() => manual.retry()} onClose={() => manual.reset()} verb="buys" />}
 
         {/* Run */}
@@ -252,7 +254,7 @@ function History({ items }: { items: AutomationRunRecord[] }) {
       {items.slice(0, 20).map((h, i) => (
         <li key={`${h.at}-${i}`} className="px-3 py-2 border-b border-line last:border-b-0 text-[12px] flex flex-col gap-0.5">
           <span className="flex items-center gap-2 flex-wrap">
-            <span className={cx("font-mono", h.ok ? "text-positive-fg" : "text-danger-fg")}>{h.ok ? "bought" : "failed"}</span>
+            <span className={cx("font-mono", h.ok ? "text-positive-fg" : "text-danger-fg")}>{h.ok ? (h.note ? "in balance" : "bought") : "failed"}</span>
             <span className="text-ink-secondary">{new Date(h.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
             {h.spentUsd !== undefined && h.spentUsd > 0 && <span className="font-mono num">{formatUsd(h.spentUsd)}</span>}
             <span className="text-ink-muted">via {h.via === "keeper" ? "keeper" : "your wallet"}</span>
@@ -262,6 +264,7 @@ function History({ items }: { items: AutomationRunRecord[] }) {
             <span className="text-ink-secondary">{h.legs.map((l) => `${(l.symbol ?? l.assetAddress.slice(0, 6)).replace(/c$/, "")}${l.skipped ? ` skipped (${l.skipped})` : ` ${formatUsd(l.spentUsd)}`}`).join(" · ")}</span>
           )}
           {h.error && <span className="text-warning-fg">{h.error}</span>}
+          {h.note && <span className="text-ink-muted">{h.note}</span>}
         </li>
       ))}
     </ul>

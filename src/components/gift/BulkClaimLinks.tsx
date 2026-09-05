@@ -20,6 +20,7 @@ import { AmountInput, Input } from "@/components/ui/Input";
 import { Button, KeyValue } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { ErrorBanner, InfoBanner } from "@/components/common/display";
+import { PrintCardsButton } from "@/components/common/PrintCardsButton";
 
 const COUNTS = [2, 3, 5, 10];
 const EXPIRY_DAYS: Array<[number, string]> = [
@@ -206,9 +207,12 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
             </li>
           ))}
         </ul>
-        <Button full onClick={() => void copy("all", links.map((l, i) => `Gift ${i + 1}: ${l.url}`).join("\n"))}>
-          {copied === "all" ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={2} />} {copied === "all" ? "All links copied" : "Copy all links"}
-        </Button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <Button full onClick={() => void copy("all", links.map((l, i) => `Gift ${i + 1}: ${l.url}`).join("\n"))}>
+            {copied === "all" ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={2} />} {copied === "all" ? "All links copied" : "Copy all links"}
+          </Button>
+          <PrintCardsButton full count={links.length} cards={() => links.map((l, i) => ({ url: l.url, amount: perLabel, eyebrow: `Gift ${i + 1} of ${links.length}`, message: message.trim() || undefined, validDays: days }))} />
+        </div>
         {txHash && <KeyValue k="Escrow tx" v={txHash} />}
         <p className="text-[12px] text-ink-muted">Unclaimed links can be cancelled one by one from Gift history; the stock comes straight back.</p>
       </div>

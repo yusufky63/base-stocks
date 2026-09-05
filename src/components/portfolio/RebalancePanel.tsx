@@ -14,6 +14,7 @@ import { Module, ModuleHeader, cx } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/Select";
 import { RebalanceExecutor } from "./RebalanceExecutor";
 import { MY_TARGET_ID, TargetControls, type SavedTarget } from "./TargetAllocation";
+import { TowardTargetPlan } from "./TowardTargetPlan";
 
 export interface TargetChoice {
   id: string;
@@ -110,6 +111,7 @@ export function RebalancePanel({
 
           <RebalanceExecutor snapshot={snapshot} rows={rows} summary={summary} targetName={target.name} />
           <TargetControls snapshot={snapshot} target={target} saved={saved} />
+          {target.id === MY_TARGET_ID && saved.signedIn && saved.allocations && !targetHasCash(saved.allocations) && <TowardTargetPlan allocations={saved.allocations} />}
           <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">
             Suggestions only. Rebalancing is manual: every trade goes through the same quote, guard and wallet confirmation. A leg trades only when it is at least 1% of the measured value and $5 out of line. {target.id === MY_TARGET_ID ? "Your target is a note to yourself, not advice." : `${target.name} is a template, not a recommendation.`}
           </p>

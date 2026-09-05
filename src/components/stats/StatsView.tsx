@@ -1,5 +1,6 @@
 "use client";
 
+import { LEDGER_LABEL } from "@/lib/stats/labels";
 import { useState } from "react";
 import Link from "next/link";
 import type { DailyStat, LedgerEntry, PlatformStats, StatsSummary, StatsWindowKey } from "@/domain/stats";
@@ -25,8 +26,6 @@ const plural = (v: number, one: string, many = `${one}s`) => `${n(v)} ${v === 1 
 
 const PROVIDER_LABEL: Record<string, string> = { kyber: "KyberSwap", okx: "OKX DEX", uniswap: "Uniswap API", velora: "Velora", aerodrome: "Aerodrome", cow: "CoW Protocol", zeroX: "0x", "auto-invest": "AutoInvest contract", basket: "Basket (route not recorded)", morpho: "Morpho", aave: "Aave V3", compound: "Compound v3" };
 const providerLabel = (p: string) => PROVIDER_LABEL[p] ?? p;
-
-const LEDGER_LABEL: Record<LedgerEntry["kind"], string> = { buy: "Bought", sell: "Sold", gift: "Gift", link: "Gift link funded", "link-claim": "Gift link claimed", pool: "Pool funded", "pool-claim": "Pool share claimed", "earn-deposit": "Earn deposit", "earn-withdraw": "Earn withdrawal", "lp-add": "Liquidity added", "lp-remove": "Liquidity withdrawn", "lp-collect": "LP fees collected", basket: "Basket", "plan-run": "Plan run" };
 
 /**
  * Everything done through the app, as numbers a reader can check. The page leads with one

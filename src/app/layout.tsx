@@ -16,6 +16,7 @@ export const metadata: Metadata = {
   title: { default: "BStocks — Stocks, built for onchain", template: "%s · BStocks" },
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BStocks",
+  appleWebApp: { capable: true, title: "BStocks", statusBarStyle: "default" },
   openGraph: {
     type: "website",
     siteName: "BStocks",

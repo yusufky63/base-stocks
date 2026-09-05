@@ -17,10 +17,19 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 | Gift pools | One deposit, many equal shares of one stock or a package of several: a share link, a public directory or steps to finish first. Onchain steps (a Basename, a holding, a verified purchase) are read from Base; X steps are recorded as the claimant's own confirmation and labelled that way. Close a pool any time — or lock it so you cannot — and the unclaimed remainder comes home |
 | News | Headlines per stock and market-wide, a Base & Coinbase feed that follows tokenized-stock listings and venues, and one shared AI brief every six hours that reads ~60 headlines and leads with that ecosystem; the same brief and headlines ground the basket and plan drafts, which come with a "why this mix" commentary |
 | Compliance | Eligibility notice for restricted regions (`attest` or `block` mode), issuer policies and pauses read before every action |
-| Stats | `/stats`: trades, volume, wallets, gifts, pools, Earn and plan runs, every figure verified against its receipt on Base; a six-figure summary on the home page |
+| Stats | `/stats`: trades, volume, wallets, gifts, pools, Earn and plan runs, every figure verified against its receipt on Base; a six-figure summary and an anonymous public feed on the home page |
 | Status | Live, smoothed checks of every dependency at `/status` |
 
 The narrative and FAQ live in the app at `/how-it-works`. The technical reference (contracts, data sources, providers, environment, routes) is [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md); the backlog is [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Also in the box
+
+- **Installable**: a web app manifest with maskable icons and shortcuts; add BStocks to a phone or desktop and it opens in its own window. No service worker, so no stale prices from a cache.
+- **Printable gift cards**: every gift link, bulk link and pool link prints as a QR card (four to an A4 sheet), drawn in the browser — the link never reaches a server.
+- **Public feed**: the latest verified transactions, with no wallet named, on Home and on Activity for visitors without a wallet; the same shared-cached object as the counters and `/stats`.
+- **Screener and heatmap**: Markets filters by status and sector; the heatmap colours each stock by its 24h move and doubles the three deepest markets.
+- **Benchmark**: the equal-weight index of the listed stocks runs dashed behind the portfolio's value history, one shared-cached series per window.
+- **Return to target on a schedule**: a buy-only manual plan from the Rebalance tab, legs computed from live holdings on each run, confirmed in the wallet, never automatic, never a sell.
 
 ## Stack
 

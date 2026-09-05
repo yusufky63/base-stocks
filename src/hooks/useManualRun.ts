@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useAccount } from "wagmi";
 import { parseUnits, type Address } from "viem";
-import { TOTAL_BPS } from "@/domain/portfolio";
-import { apiPatch, apiPost, ApiError, type AutomationRuleDTO, type PlanResponse } from "@/lib/client-api";
+import { TOTAL_BPS, type PortfolioSnapshot } from "@/domain/portfolio";
+import { towardTargetRun } from "@/lib/portfolio/toward-target";
+import { apiGet, apiPatch, apiPost, ApiError, type AutomationRuleDTO, type PlanResponse } from "@/lib/client-api";
 import { USDC_DECIMALS } from "@/config/chain";
 import { humanizeError } from "@/lib/errors";
 import { useAutomation } from "./useAutomation";
@@ -21,14 +22,30 @@ export function useManualRun() {
   const exec = usePortfolioExecution();
   const [preparing, setPreparing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const run = async (r: AutomationRuleDTO) => {
     if (!address) return;
     setPreparing(r.id);
     setError(null);
+    setNotice(null);
     try {
-      const usd = r.config.amountUsd ?? 0;
-      const allocations = r.config.allocations ?? (r.config.assetAddress ? [{ assetAddress: r.config.assetAddress, weightBps: TOTAL_BPS }] : []);
+      let usd = r.config.amountUsd ?? 0;
+      let allocations = r.config.allocations ?? (r.config.assetAddress ? [{ assetAddress: r.config.assetAddress, weightBps: TOTAL_BPS }] : []);
+      if (r.config.towardTarget) {
+        // Buy toward the target as it stands today: only the stocks under weight, split by how far
+        // under they are, capped at the plan's amount. Sells are never proposed.
+        const snapshot = await apiGet<PortfolioSnapshot>(`/api/portfolio/${address}`);
+        const toward = towardTargetRun(snapshot, allocations, usd);
+        if (!toward) {
+          await apiPatch("/api/automation", { id: r.id, action: "ran", summary: { ok: true, inBalance: true, spentUsd: 0, legs: [] } }).catch(() => undefined);
+          await automation.invalidate();
+          setNotice("In balance: nothing is under target today, so nothing was bought. The plan moves to its next date.");
+          return;
+        }
+        usd = toward.totalUsd;
+        allocations = toward.allocations;
+      }
       const res = await apiPost<PlanResponse>("/api/portfolio/plan", { allocations, totalUsd: usd, quote: false, source: "automation", deferredPolicy: "reserve" });
       if (!res.ok || !res.plan) throw new ApiError("BAD_REQUEST", res.errors?.[0] ?? "The run could not be prepared.", 400);
       const legs = res.plan.legs.map((l) => ({ side: "buy" as const, assetAddress: l.assetAddress, symbol: l.symbol, targetUsd: l.targetUsd, amount: parseUnits(l.targetUsd.toFixed(USDC_DECIMALS), USDC_DECIMALS) }));
@@ -60,7 +77,7 @@ export function useManualRun() {
     }
   };
 
-  return { ...exec, run, preparing, error, clearError: () => setError(null) };
+  return { ...exec, run, preparing, error, notice, clearError: () => setError(null), clearNotice: () => setNotice(null) };
 }
 
 export type ManualRun = ReturnType<typeof useManualRun>;

@@ -5,6 +5,7 @@ import { useActivity } from "@/hooks/queries";
 import { Module, ModuleHeader, Skeleton } from "@/components/ui/primitives";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { ActivityList } from "./ActivityList";
+import { PublicFeed } from "./PublicFeed";
 
 export function ActivityView() {
   const { address, isConnected } = useAccount();
@@ -16,10 +17,13 @@ export function ActivityView() {
         <h1 className="display text-[36px] md:text-[48px] leading-none">Activity</h1>
       </div>
       {!isConnected ? (
-        <div className="border border-line rounded-[8px] p-6 flex flex-col gap-3 items-start">
-          <p className="text-ink-secondary">Connect a wallet to see your buys, sells, sends and portfolio builds.</p>
-          <ConnectButton />
-        </div>
+        <>
+          <div className="border border-line rounded-[8px] p-6 flex flex-col gap-3 items-start">
+            <p className="text-ink-secondary">Connect a wallet to see your buys, sells, sends and portfolio builds.</p>
+            <ConnectButton />
+          </div>
+          <PublicFeed limit={20} title="What everyone is doing" />
+        </>
       ) : (
         <Module>
           <ModuleHeader title="Timeline" action={<button className="text-[13px] text-primary font-medium" onClick={() => refetch()}>Refresh</button>} />

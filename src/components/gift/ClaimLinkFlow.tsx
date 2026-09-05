@@ -23,6 +23,7 @@ import { Button, KeyValue } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ShareActions } from "@/components/common/ShareSheet";
+import { PrintCardsButton } from "@/components/common/PrintCardsButton";
 
 const EXPIRY_DAYS: Array<[number, string]> = [
   [3, "3 days"],
@@ -176,6 +177,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
           </span>
         </InfoBanner>
         <ShareActions path={link} text={`A gift for you: ${amountLabel}, a tokenized stock on Base. No wallet needed — open the link to claim it.`} />
+        {fullLink && <PrintCardsButton full cards={() => [{ url: fullLink, amount: amountLabel, eyebrow: "A gift for you", message: message.trim() || undefined, validDays: days }]} />}
         {txHash && <KeyValue k="Escrow tx" v={txHash} />}
         <p className="text-[12px] text-ink-muted">This link is shown once. It is not stored on any server; if you lose it, cancel the gift and create a new one.</p>
       </div>

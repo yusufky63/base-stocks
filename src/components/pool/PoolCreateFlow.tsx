@@ -27,6 +27,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
 import { AssetLogo, ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ShareActions } from "@/components/common/ShareSheet";
+import { PrintCardsButton } from "@/components/common/PrintCardsButton";
 import { QuestPicker, questsValid } from "./QuestPicker";
 
 const EXPIRY_DAYS: Array<[number, string]> = [
@@ -330,6 +331,7 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
           </InfoBanner>
         )}
         <ShareActions path={created.link.replace(window.location.origin, "")} text={`Free stock on Base: ${perLabels.join(" + ")} each, ${slots} shares. No wallet needed — open the link to claim.`} />
+        <PrintCardsButton full cards={() => [{ url: created.link, amount: `${perLabels.join(" + ")} each`, eyebrow: title.trim() || `${slots} shares · one per person`, validDays: days }]} label="Print a card for the table" />
         {txHash && <KeyValue k="Funding tx" v={txHash} />}
         <p className="text-[12px] text-ink-muted">Manage it any time from Gift → History: see who claimed, close it, and take the unclaimed remainder back.</p>
       </div>

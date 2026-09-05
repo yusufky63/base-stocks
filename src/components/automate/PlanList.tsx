@@ -82,6 +82,7 @@ export function PlanList() {
                     </span>
                     <span className="text-[12px] text-ink-secondary">{cadenceLabel(r.config.cadenceDays ?? 7).toLowerCase()}</span>
                     {auto ? <Badge tone="primary">automatic</Badge> : <Badge>you confirm</Badge>}
+                    {r.config.towardTarget && <Badge>toward target</Badge>}
                     <StatusBadge rule={r} expired={expired} />
                   </div>
                   <div className="text-[12px] text-ink-secondary font-mono truncate">

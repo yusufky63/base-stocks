@@ -25,6 +25,7 @@ const createSchema = z.object({
   thresholdBps: z.number().int().min(100).max(5000).optional(),
   templateId: z.string().max(64).optional(),
   mode: z.enum(["manual", "auto"]).optional(),
+  towardTarget: z.boolean().optional(),
   onchainPlanId: z.string().regex(/^\d+$/).optional(),
   txHash: hashSchema.optional(),
 });
@@ -71,6 +72,8 @@ const patchSchema = z.object({
       spentUsd: z.number().min(0).optional(),
       legs: z.array(runLegSchema).max(20).optional(),
       error: z.string().max(300).optional(),
+      /** A toward-target run that found nothing under target: counts as done, advances the date. */
+      inBalance: z.boolean().optional(),
     })
     .optional(),
 });

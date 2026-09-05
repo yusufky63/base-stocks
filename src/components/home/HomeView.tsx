@@ -18,6 +18,7 @@ import { LinkButton, Module, ModuleHeader, Skeleton, Stat, Badge } from "@/compo
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ActivityList } from "@/components/activity/ActivityList";
+import { PublicFeed } from "@/components/activity/PublicFeed";
 import { NewsModule } from "@/components/news/NewsModule";
 import { FundWallet } from "@/components/common/FundWallet";
 import { Coin3D, Dither } from "@/components/fx/lazy";
@@ -196,6 +197,8 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
           )}
 
           <PlatformStatsModule />
+
+          <PublicFeed limit={6} />
 
           <CommunityPulseModule />
         </div>

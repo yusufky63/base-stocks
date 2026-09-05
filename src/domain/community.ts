@@ -62,6 +62,8 @@ export interface AutomationRunRecord {
   spentUsd?: number;
   legs?: AutomationRunLeg[];
   error?: string;
+  /** A run that did its job without buying — the mix was already in balance. */
+  note?: string;
 }
 
 /** Mirror of an onchain AutoInvest plan, refreshed from the chain on every read. */
@@ -98,6 +100,11 @@ export interface AutomationRule {
     thresholdBps?: number;
     templateId?: string;
     mode?: AutomationMode;
+    /**
+     * A manual basket plan that, on each run, buys only what is under the saved target — legs are
+     * computed from the live holdings at run time, never sells, never runs unattended.
+     */
+    towardTarget?: boolean;
     maxSlippageBps?: number;
     /** Unix ms; undefined = no expiry. */
     expiryAt?: number;
