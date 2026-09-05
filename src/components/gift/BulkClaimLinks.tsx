@@ -113,18 +113,45 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
         atomic = false;
       }
 
+    const calls = [{ to: asset.address, data: withAttribution(approveData) }, ...made.map((m) => ({ to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) }))];
+
+      /**
+       * One prompt instead of one per link, wherever the wallet can manage it.
+       *
+       * The check used to insist on atomic batching, which is Base Account and little else, so
+       * every other wallet fell to a signature per link — eleven of them for ten links, which is
+       * the tiring part. A wallet that speaks EIP-5792 without atomic guarantees still bundles the
+       * calls behind a single confirmation and runs them in order, and that is worth having: only
+       * the atomicity is lost, and the sequential fallback never had it either.
+       *
+       * Capability reporting is inconsistent enough that asking is not proof, so this tries and
+       * reads the refusal. A wallet that does not implement the method says so, and we walk.
+       */
+      const sendBatched = async (): Promise<Hash | undefined | null> => {
+        try {
+          const { id } = await walletClient.sendCalls({
+            account: address,
+            chain: base,
+            ...(atomic ? { forceAtomic: true } : {}),
+            calls,
+            capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
+          });
+          const result = await walletClient.waitForCallsStatus({ id, timeout: 240_000 });
+          if (result.status === "failure") throw new Error("Batched transaction failed");
+          return result.receipts?.[result.receipts.length - 1]?.transactionHash;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Not implemented: fall through to one transaction at a time. Anything else — a decline,
+          // a revert — is a real answer and belongs to the caller.
+          if (/unsupported|not supported|does not exist|Method not found|4200|5700/i.test(msg)) return null;
+          throw err;
+        }
+      };
+
       let hash: Hash | undefined;
-      if (atomic) {
-        const { id } = await walletClient.sendCalls({
-          account: address,
-          chain: base,
-          forceAtomic: true,
-          calls: [{ to: asset.address, data: withAttribution(approveData) }, ...made.map((m) => ({ to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) }))],
-          capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
-        });
-        const result = await walletClient.waitForCallsStatus({ id, timeout: 240_000 });
-        if (result.status === "failure") throw new Error("Batched transaction failed");
-        hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
+      const batched = await sendBatched();
+      if (batched !== null) {
+        hash = batched;
       } else {
         const ah = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(approveData) });
         await publicClient.waitForTransactionReceipt({ hash: ah });
@@ -203,7 +230,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
       <Button full size="lg" loading={busy} disabled={rawPer === 0n || insufficient} onClick={() => void create()}>
         {busy ? "Locking in escrow…" : `Create ${count} links${rawPer > 0n ? ` · ${perLabel} each` : ""}`}
       </Button>
-      <p className="text-[12px] text-ink-muted">On Base Account this is one confirmation (approval + all locks, atomic). Other wallets confirm the approval and then each link separately.</p>
+      <p className="text-[12px] text-ink-muted">{`One confirmation on any wallet that can batch — the approval and all ${count} locks together, atomically on Base Account. A wallet that cannot batch falls back to the approval and then one confirmation per link.`}</p>
     </div>
   );
 }

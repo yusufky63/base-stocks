@@ -164,8 +164,8 @@ export function GiftsView() {
                 value={mode}
                 onChange={setMode}
                 options={[
-                  { value: "link", label: "Claim link" },
                   ...(poolsEnabled ? ([{ value: "pool" as Mode, label: "Pool" }] as const) : []),
+                  { value: "link", label: "Claim link" },
                   { value: "bulk", label: "Many links" },
                   { value: "address", label: "To an address" },
                 ]}
