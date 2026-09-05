@@ -22,6 +22,7 @@ import { useMiniApp } from "@/components/layout/MiniAppProvider";
 export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "md" | "lg"; full?: boolean; compact?: boolean }) {
   const { address, isConnected, chainId, status, connector } = useAccount();
   const [open, setOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const [switchError, setSwitchError] = useState<string | null>(null);
   const { disconnect } = useDisconnect();
@@ -50,8 +51,15 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
       return;
     }
     const kit = hasReown ? getAppKit() : null;
-    if (kit) void kit.open();
-    else setOpen(true);
+    if (!kit) {
+      setOpen(true);
+      return;
+    }
+    // open() resolves once the modal is on screen (after its wallet list has loaded); until then the
+    // button shows it is working instead of looking like it ignored the tap.
+    if (opening) return;
+    setOpening(true);
+    void kit.open().finally(() => setOpening(false));
   };
 
   if (isConnected && address) {
@@ -79,7 +87,7 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
     }
     return (
       <>
-        <AccountChip address={address} onClick={openWallet} compact={compact} full={full} />
+        <AccountChip address={address} onClick={openWallet} compact={compact} full={full} busy={opening} />
         {open && <FallbackWalletSheet open={open} onClose={() => setOpen(false)} />}
       </>
     );
@@ -87,7 +95,7 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
 
   return (
     <>
-      <Button size={size} full={full} onClick={openWallet} className={cx(compact && "h-9 min-h-[36px] px-3")}>
+      <Button size={size} full={full} loading={opening} onClick={openWallet} className={cx(compact && "h-9 min-h-[36px] px-3")}>
         <Wallet size={16} strokeWidth={1.75} /> {compact ? "Connect" : "Connect wallet"}
       </Button>
       {open && <FallbackWalletSheet open={open} onClose={() => setOpen(false)} />}
@@ -96,17 +104,19 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
 }
 
 /** Connected identity: wallet icon, Basename or short address, mono, one clean bordered chip. */
-function AccountChip({ address, onClick, compact, full }: { address: Address; onClick: () => void; compact?: boolean; full?: boolean }) {
+function AccountChip({ address, onClick, compact, full, busy }: { address: Address; onClick: () => void; compact?: boolean; full?: boolean; busy?: boolean }) {
   const { data } = useBasename(address);
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label="Wallet menu"
+      aria-busy={busy || undefined}
       className={cx(
         "inline-flex items-center gap-2 rounded-[6px] border border-line bg-canvas hover:border-line-strong transition-fast",
         compact ? "h-9 px-2.5" : "h-11 px-3",
         full && "w-full justify-between",
+        busy && "opacity-70 cursor-progress",
       )}
     >
       <Wallet size={14} strokeWidth={1.75} className="text-ink-secondary" aria-hidden />

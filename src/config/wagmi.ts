@@ -1,5 +1,7 @@
 import { cookieStorage, createConfig, createStorage, fallback, http, type Config } from "wagmi";
+import { getBalance } from "wagmi/actions";
 import { base } from "wagmi/chains";
+import { formatUnits, type Address } from "viem";
 import { baseAccount, injected } from "wagmi/connectors";
 import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -56,10 +58,34 @@ function buildConnectors() {
   ];
 }
 
+/**
+ * AppKit's Wagmi adapter (1.8.x) reads `balance.formatted` from Wagmi's getBalance — a field Wagmi 3
+ * removed — so the account view said "0.000 ETH" for every wallet, whatever it held. The adapter's
+ * contract is a formatted string; it is produced here from the value and decimals Wagmi 3 does return.
+ * One request per address at a time, and a failure reads as zero rather than as an error in the modal.
+ */
+class BalanceAwareWagmiAdapter extends WagmiAdapter {
+  private readonly balanceInFlight = new Map<string, ReturnType<WagmiAdapter["getBalance"]>>();
+
+  override getBalance(params: Parameters<WagmiAdapter["getBalance"]>[0]): ReturnType<WagmiAdapter["getBalance"]> {
+    const chainId = Number(params.chainId);
+    if (!params.address || !Number.isFinite(chainId)) return Promise.resolve({ balance: "0.00", symbol: "ETH" });
+    const key = `${chainId}:${params.address.toLowerCase()}`;
+    const pending = this.balanceInFlight.get(key);
+    if (pending) return pending;
+    const task = getBalance(this.wagmiConfig, { address: params.address as Address, chainId })
+      .then((b) => ({ balance: formatUnits(b.value, b.decimals), symbol: b.symbol }))
+      .catch(() => ({ balance: "0.00", symbol: "ETH" }))
+      .finally(() => this.balanceInFlight.delete(key));
+    this.balanceInFlight.set(key, task);
+    return task;
+  }
+}
+
 const storage = createStorage({ storage: cookieStorage });
 
 export const wagmiAdapter: WagmiAdapter | null = hasReown
-  ? new WagmiAdapter({
+  ? new BalanceAwareWagmiAdapter({
       ssr: true,
       projectId,
       networks,
