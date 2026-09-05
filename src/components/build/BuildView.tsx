@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Repeat, Upload } from "lucide-react";
@@ -18,7 +18,10 @@ import { AllocationEditor } from "./AllocationEditor";
 import { PlanExecutor } from "./PlanExecutor";
 import { AiIntentInput } from "./AiIntentInput";
 import { DraftCommentary } from "./DraftCommentary";
+import { RecentBaskets } from "./RecentBaskets";
 import { StockPicker } from "./StockPicker";
+import { useRecentBaskets } from "@/hooks/useRecentBaskets";
+import type { SavedBasketSource } from "@/lib/recent-baskets";
 import { TemplateCard } from "./TemplateCard";
 import { partitionTemplates } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
@@ -26,7 +29,7 @@ import { automateHref } from "@/lib/automate-link";
 import { Dither } from "@/components/fx/Dither";
 import { SignInButton } from "@/components/layout/SignInButton";
 
-type StartMode = "ai" | "template" | "own";
+type StartMode = "ai" | "template" | "own" | "recent";
 
 /**
  * Build in three moves: pick a starting point (an AI draft, a template, or stocks you tap
@@ -54,6 +57,31 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   /** The assistant's reasoning for its last draft; stays visible after edits, marked as belonging to the draft. */
   const [commentary, setCommentary] = useState<Commentary | null>(null);
   const valid = validateAllocations(allocations).ok;
+  const baskets = useRecentBaskets();
+  const { saveDraft } = baskets;
+
+  // The basket left in the editor last time comes back on its own — once, and only into an empty
+  // editor that was not opened to clone something (adjust-on-prop-change pattern, no effect).
+  const [restored, setRestored] = useState(false);
+  if (!restored && baskets.draft && allocations.length === 0 && !cloneId) {
+    setRestored(true);
+    setAllocations(baskets.draft.allocations);
+    setName(baskets.draft.name);
+    setSource(baskets.draft.source);
+  }
+  // …and what is in the editor is kept on this device as it changes.
+  useEffect(() => {
+    if (allocations.length === 0) return;
+    saveDraft({ id: "draft", name, allocations, source, savedAt: Date.now() });
+  }, [allocations, name, source, saveDraft]);
+
+  const clearEditor = () => {
+    setAllocations([]);
+    setName("Custom portfolio");
+    setSource("custom");
+    setCommentary(null);
+    baskets.saveDraft(null);
+  };
 
   // Clone a community basket into the editor once (URL param → state, adjust-on-prop-change pattern).
   const clonedBasket = cloned.data?.basket;
@@ -68,21 +96,24 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
       await auth.ensureSignedIn();
       return apiPost<{ basket: CommunityBasket }>("/api/baskets", { name, description, allocations });
     },
+    onSuccess: () => baskets.rememberBasket({ name, allocations, source }),
   });
 
-  const load = (next: Allocation[], label: string, from: "template" | "ai", why?: Commentary) => {
+  const load = (next: Allocation[], label: string, from: SavedBasketSource, why?: Commentary) => {
     if (executing) return;
     setAllocations(next);
     setName(label);
     setSource(from);
     setCommentary(from === "ai" ? (why ?? null) : null);
+    baskets.rememberBasket({ name: label, allocations: next, source: from });
     if (typeof document !== "undefined") document.getElementById("basket-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const MODES: Array<{ id: StartMode; label: string; hint: string }> = [
-    { id: "ai", label: "AI draft", hint: "a theme, a risk profile, and it explains why" },
+    { id: "ai", label: "AI draft", hint: "a theme, a risk profile, a reason" },
     { id: "template", label: "Templates", hint: "ready-made mixes, live stocks first" },
     { id: "own", label: "Your own", hint: "tap the stocks, tune the weights below" },
+    { id: "recent", label: "Recent", hint: "kept on this device" },
   ];
 
   return (
@@ -106,7 +137,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
       )}
 
       <Module>
-        <div role="tablist" aria-label="Starting point" className={cx("grid p-1 m-3 rounded-[8px] bg-surface-muted", flags?.aiEnabled === false ? "grid-cols-2" : "grid-cols-3")}>
+        <div role="tablist" aria-label="Starting point" className={cx("grid p-1 m-3 rounded-[8px] bg-surface-muted", flags?.aiEnabled === false ? "grid-cols-3" : "grid-cols-4")}>
           {MODES.filter((m) => m.id !== "ai" || flags?.aiEnabled !== false).map((m) => (
             <button key={m.id} role="tab" aria-selected={activeMode === m.id} onClick={() => setMode(m.id)} className={cx("h-11 rounded-[6px] px-2 text-[13px] font-medium transition-fast flex flex-col items-center justify-center leading-tight", activeMode === m.id ? "bg-canvas border border-line text-primary" : "text-ink-secondary hover:text-ink")}>
               <span>{m.label}</span>
@@ -130,7 +161,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <p className="text-[13px] text-ink-secondary">Tap the stocks you want. They start at equal weights; tune the sliders and add a cash share below.</p>
                 {allocations.length > 0 && (
-                  <button type="button" className="text-[12px] text-ink-secondary hover:text-ink" disabled={executing} onClick={() => setAllocations([])}>
+                  <button type="button" className="text-[12px] text-ink-secondary hover:text-ink" disabled={executing} onClick={clearEditor}>
                     Clear
                   </button>
                 )}
@@ -153,6 +184,11 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
               )}
             </div>
           )}
+          {activeMode === "recent" && (
+            <div className="pt-3">
+              <RecentBaskets items={baskets.recent} assets={assets} disabled={executing} onLoad={(b) => load(b.allocations, b.name, b.source)} onForget={baskets.forget} />
+            </div>
+          )}
         </div>
       </Module>
 
@@ -165,6 +201,14 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
             action={<span className="font-mono text-[11px] text-ink-muted">{executing ? "locked while buying" : `${allocations.length} ${allocations.length === 1 ? "leg" : "legs"}${cloneId ? " · cloned" : ""}`}</span>}
           />
           <div className="p-4 flex flex-col gap-4">
+            {restored && allocations.length > 0 && (
+              <p className="text-[12px] text-ink-muted flex items-center gap-2 flex-wrap">
+                Restored the basket you left here last time.
+                <button type="button" className="text-primary font-medium" disabled={executing} onClick={clearEditor}>
+                  Start fresh
+                </button>
+              </p>
+            )}
             {assets ? (
               <AllocationEditor
                 assets={assets.assets}
@@ -180,7 +224,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
             )}
             {valid && (
               <div className="flex items-center gap-2 flex-wrap text-[13px]">
-                <Link href={automateHref(allocations, name)} className="inline-flex items-center gap-1.5 text-primary font-medium">
+                <Link href={automateHref(allocations, name)} onClick={() => baskets.rememberBasket({ name, allocations, source })} className="inline-flex items-center gap-1.5 text-primary font-medium">
                   <Repeat size={14} strokeWidth={1.75} /> Repeat this basket on a schedule
                 </Link>
                 <span className="text-ink-muted">Weekly, monthly, automatic or confirmed by you — set it up under Automate.</span>
@@ -217,7 +261,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
         <Module className="lg:sticky lg:top-[72px]">
           <ModuleHeader index="C" title="Invest" />
           <div className="p-4">
-            <PlanExecutor allocations={allocations} source={source} disabled={!valid} onExecutingChange={setExecuting} />
+            <PlanExecutor allocations={allocations} source={source} disabled={!valid} onExecutingChange={setExecuting} onStart={() => baskets.rememberBasket({ name, allocations, source })} />
           </div>
         </Module>
       </div>

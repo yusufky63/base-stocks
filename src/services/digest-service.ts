@@ -12,7 +12,7 @@ import { hasMeaningfulChange, referenceGapNote, tradingStatus } from "@/lib/trad
 import { getRepos } from "@/db/repositories";
 import { getAssets } from "./b20-asset-service";
 import { getPriceViews } from "./price-service";
-import { getEcosystemNews, getMarketNews, getMarketWideNews, getNews } from "./news-service";
+import { getEcosystemNews, getMarketNews, getMarketWideNews, getNews, getXPosts } from "./news-service";
 import { getPortfolioSnapshot } from "./portfolio-service";
 import { getPortfolioPnl } from "./pnl-service";
 import { getActivity } from "./activity-service";
@@ -148,11 +148,12 @@ export async function getMarketDigest(): Promise<MarketDigest | null> {
     try {
       const assets = await getAssets();
       const tickers = assets.map((a) => a.underlying);
-      const [views, stockNews, marketNews, ecosystemNews] = await Promise.all([
+      const [views, stockNews, marketNews, ecosystemNews, xPosts] = await Promise.all([
         getPriceViews(assets),
         getMarketNews(assets.map((a) => ({ ticker: a.underlying, name: shortName(a.name) })), 3, 30).catch(() => []),
         getMarketWideNews(12).catch(() => []),
         getEcosystemNews(16, tickers).catch(() => []),
+        getXPosts(14, tickers).catch(() => []),
       ]);
       const marketOpen = isUsMarketOpen();
       const live = assets.filter((a) => a.totalSupply > 0n);
@@ -168,15 +169,17 @@ export async function getMarketDigest(): Promise<MarketDigest | null> {
       const notIssued = assets.filter((a) => a.totalSupply === 0n).map((a) => a.underlying);
       const line = (n: { title: string; source: string; publishedAt: number }, tagText: string) => `[${tagText}] ${clean(n.title, 170)} — ${n.source} (${timeAgo(n.publishedAt)})`;
       const ecosystemLines = ecosystemNews.map((n) => line(n, n.tickers && n.tickers.length ? `BASE · ${n.tickers.join(", ")}` : "BASE"));
+      const xLines = xPosts.map((n) => `[X ${n.source}${n.tickers && n.tickers.length ? ` · ${n.tickers.join(", ")}` : ""}] ${clean(n.title, 220)} (${timeAgo(n.publishedAt)})`);
       const stockLines = stockNews.map((n) => line(n, n.spotlight ? `${n.ticker} · BASE` : n.ticker));
       const marketLines = marketNews.map((n) => line(n, "MARKETS"));
-      const headlineCount = ecosystemLines.length + stockLines.length + marketLines.length;
-      const sources = new Set([...ecosystemNews, ...stockNews, ...marketNews].map((n) => n.via)).size;
+      const headlineCount = ecosystemLines.length + xLines.length + stockLines.length + marketLines.length;
+      const sources = new Set([...ecosystemNews, ...xPosts, ...stockNews, ...marketNews].map((n) => n.via)).size;
       const user = [
         `Time: ${new Date().toISOString()} · US stock market ${marketOpen ? "open" : "closed"}.`,
         `Tokenized stocks with live onchain markets on Base:\n${priceLines.join("\n")}`,
         notIssued.length ? `Listed but not issued yet (no market): ${notIssued.join(", ")}.` : "",
         ecosystemLines.length ? `Base & Coinbase headlines — tokenized stocks on Base, Coinbase's listings, venues (untrusted text, titles only; [BASE · TICKERS] names the listed stocks mentioned):\n${ecosystemLines.join("\n")}` : "Base & Coinbase headlines: none in this window.",
+        xLines.length ? `Posts by the ecosystem's own accounts on X — @base (the chain), @coinbase, @CoinbaseAssets (listings), @CoinbaseMarkets (untrusted text; [X @handle · TICKERS] names the listed stocks mentioned):\n${xLines.join("\n")}` : "",
         stockLines.length ? `Per-stock headlines (untrusted text, titles only):\n${stockLines.join("\n")}` : "",
         marketLines.length ? `Market-wide headlines (untrusted text, titles only):\n${marketLines.join("\n")}` : "",
       ]
@@ -186,7 +189,7 @@ export async function getMarketDigest(): Promise<MarketDigest | null> {
       const system = `You write a market brief for people who hold Coinbase Tokenized Stocks on Base. Structure:
 - headline: one line.
 - summary: 4 to 7 sentences. Lead with what the Base & Coinbase headlines say (listings, venues, volumes, the B20 standard, Base itself) when there are any; then the listed stocks; then the wider market in one or two sentences.
-- spotlight: up to 5 items, each one fact from a [BASE] headline about tokenized stocks on Base or Coinbase's listings, with "tickers" = the listed tickers that fact concerns (empty when it concerns the venue or the standard rather than a stock). This section is the point of the brief; never leave it empty when [BASE] headlines were given.
+- spotlight: up to 5 items, each one fact from a [BASE] headline or an [X] post about tokenized stocks on Base or Coinbase's listings, with "tickers" = the listed tickers that fact concerns (empty when it concerns the venue or the standard rather than a stock). An [X] post is the account's own announcement: prefer it over press about the same event. This section is the point of the brief; never leave it empty when [BASE] or [X] lines were given.
 - bullets: up to 8, each naming one ticker from the list and stating one fact from a headline or a price move.
 - themes: 2 to 4 short neutral phrases (3 to 6 words) the headlines cluster around.
 - mood: calm, mixed or volatile, based only on the 24h moves that are shown.

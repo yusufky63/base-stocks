@@ -55,13 +55,17 @@ export interface ExecuteTradeResult {
   orderUid?: string;
 }
 
-/** Wallet capabilities that change how we submit: atomic batches and sponsored gas (Base Account). */
-export async function walletCapabilities(walletClient: WalletClient, address: Address): Promise<{ atomic: boolean; paymaster: boolean }> {
+/**
+ * Wallet capabilities that change how we submit. `supported`: the wallet answers EIP-5792 at all,
+ * so it can take a batch of calls in one confirmation; `atomic`: that batch is all-or-nothing
+ * (Base Account, wallets upgraded under EIP-7702); `paymaster`: gas can be sponsored.
+ */
+export async function walletCapabilities(walletClient: WalletClient, address: Address): Promise<{ supported: boolean; atomic: boolean; paymaster: boolean }> {
   try {
     const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-    return { atomic: caps.atomic?.status === "supported" || caps.atomic?.status === "ready", paymaster: !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported };
+    return { supported: true, atomic: caps.atomic?.status === "supported" || caps.atomic?.status === "ready", paymaster: !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported };
   } catch {
-    return { atomic: false, paymaster: false };
+    return { supported: false, atomic: false, paymaster: false };
   }
 }
 

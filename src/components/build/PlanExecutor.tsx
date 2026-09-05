@@ -8,6 +8,8 @@ import type { Allocation, DeferredPolicy, PortfolioPlan } from "@/domain/portfol
 import { apiPost, ApiError, type PlanResponse } from "@/lib/client-api";
 import { usePortfolioExecution } from "@/hooks/usePortfolioExecution";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
+import { useWalletBatching } from "@/hooks/useWalletBatching";
+import { confirmationsCopy } from "@/lib/execution/batch-plan";
 import { qk } from "@/hooks/queries";
 import { USDC_ADDRESS, USDC_DECIMALS } from "@/config/chain";
 import { formatTokenAmount, formatUsd, bpsToPct } from "@/lib/format";
@@ -29,6 +31,8 @@ interface Props {
   onComplete?: () => void;
   /** Fires when legs start or stop executing, so the editor above can lock itself meanwhile. */
   onExecutingChange?: (executing: boolean) => void;
+  /** Fires when the user confirms the buy, before any wallet prompt: the moment a basket is worth remembering. */
+  onStart?: () => void;
 }
 
 /**
@@ -39,10 +43,11 @@ interface Props {
  * keeps the amount typed in, instead of remounting and forgetting everything, including a run in
  * progress.
  */
-export function PlanExecutor({ allocations, source, disabled, onComplete, onExecutingChange }: Props) {
+export function PlanExecutor({ allocations, source, disabled, onComplete, onExecutingChange, onStart }: Props) {
   const { address, isConnected } = useAccount();
   const qc = useQueryClient();
   const balances = useTokenBalances(address, USDC_ADDRESS);
+  const batching = useWalletBatching();
   const [amount, setAmount] = useState("250");
   const [plan, setPlan] = useState<PortfolioPlan | null>(null);
   const [planErrors, setPlanErrors] = useState<string[]>([]);
@@ -134,6 +139,7 @@ export function PlanExecutor({ allocations, source, disabled, onComplete, onExec
             <PlanPreview
               plan={plan}
               policy={deferredPolicy}
+              wallet={batching.data}
               onPolicy={(p) => {
                 setDeferredPolicy(p);
                 void preview(p);
@@ -148,7 +154,15 @@ export function PlanExecutor({ allocations, source, disabled, onComplete, onExec
               {!isConnected ? (
                 <ConnectButton full />
               ) : (
-                <Button full size="lg" disabled={insufficient || runnable.length === 0} onClick={() => exec.start(plan)}>
+                <Button
+                  full
+                  size="lg"
+                  disabled={insufficient || runnable.length === 0}
+                  onClick={() => {
+                    onStart?.();
+                    void exec.start(plan);
+                  }}
+                >
                   Buy {runnable.length} {runnable.length === 1 ? "stock" : "stocks"} for {formatUsd(spendUsd)}
                 </Button>
               )}
@@ -162,9 +176,10 @@ export function PlanExecutor({ allocations, source, disabled, onComplete, onExec
   );
 }
 
-function PlanPreview({ plan, policy, onPolicy }: { plan: PortfolioPlan; policy: DeferredPolicy; onPolicy: (p: DeferredPolicy) => void }) {
+function PlanPreview({ plan, policy, wallet, onPolicy }: { plan: PortfolioPlan; policy: DeferredPolicy; wallet?: { supported: boolean; atomic: boolean; paymaster: boolean }; onPolicy: (p: DeferredPolicy) => void }) {
   const deferred = plan.deferred ?? [];
   const unquoted = plan.legs.filter((l) => l.quoteError);
+  const purchases = plan.legs.length - unquoted.length;
   return (
     <div className="flex flex-col gap-3">
       <div className="border border-line rounded-[8px] overflow-hidden">
@@ -210,7 +225,7 @@ function PlanPreview({ plan, policy, onPolicy }: { plan: PortfolioPlan; policy: 
         </div>
       )}
       {plan.keepUsdcUsd > 0 && <KeyValue k="Kept as USDC cash" v={`${formatUsd(plan.keepUsdcUsd)} (${bpsToPct(plan.keepUsdcBps)})`} />}
-      <KeyValue k="Execution" v={`${plan.legs.length - unquoted.length} separate purchases, confirmed one by one`} mono={false} />
+      <KeyValue k="Execution" v={confirmationsCopy(purchases, wallet)} mono={false} />
       {unquoted.length > 0 && (
         <InfoBanner tone="warning">
           {unquoted.map((l) => `${l.symbol.replace(/c$/, "")}: ${l.quoteError}`).join(" · ")}. {unquoted.length === 1 ? "That leg is" : "Those legs are"} left out rather than queued to fail; the money stays as USDC.
@@ -221,7 +236,11 @@ function PlanPreview({ plan, policy, onPolicy }: { plan: PortfolioPlan; policy: 
           {w}
         </InfoBanner>
       ))}
-      <p className="text-[12px] text-ink-muted">Quotes are indicative; each leg gets a fresh executable quote when you confirm it. Legs are not atomic: if one fails, completed legs stay in your wallet and you can retry the rest.</p>
+      <p className="text-[12px] text-ink-muted">
+        {wallet?.atomic
+          ? "Quotes are indicative; every leg is re-quoted the moment you confirm. On this wallet the run is one transaction: either every purchase lands or none does, and nothing is left approved afterwards."
+          : "Quotes are indicative; every leg is re-quoted the moment you confirm. Legs are not atomic: if one fails, completed legs stay in your wallet and you can retry the rest."}
+      </p>
     </div>
   );
 }
