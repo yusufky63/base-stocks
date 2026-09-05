@@ -10,16 +10,17 @@ import { cx } from "@/components/ui/primitives";
 type Row = { asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] };
 
 /**
- * Colour by the day's move, with intensity by its size: a 0.5% move is barely tinted, a 5% move is
- * fully painted. The tint is a translucent overlay of the semantic colour, so it reads on both
- * themes without a second palette. Never colour alone: the signed figure sits on every tile.
+ * Colour by the day's move, with intensity by its size: a 0.5% move is barely tinted, a 5% move
+ * is as deep as the tint goes. The tint is a translucent overlay of the semantic colour on the
+ * surface, capped at 50% so the page's own text colour still reads on it in both themes — no
+ * grey on green. Never colour alone: the signed figure sits on every tile.
  */
-function tileStyle(changePct: number | null): { background: string } {
-  if (changePct === null) return { background: "var(--surface-muted)" };
+function tileStyle(changePct: number | null): { background: string; color: string } {
+  if (changePct === null) return { background: "var(--surface-muted)", color: "var(--text)" };
   const strength = Math.min(1, Math.abs(changePct) / 5);
-  const alpha = 0.12 + strength * 0.68;
+  const alpha = 0.1 + strength * 0.4;
   const tone = changePct > 0 ? "var(--positive-fg)" : changePct < 0 ? "var(--danger-fg)" : "var(--text-muted)";
-  return { background: `color-mix(in oklab, ${tone} ${Math.round(alpha * 100)}%, var(--surface))` };
+  return { background: `color-mix(in oklab, ${tone} ${Math.round(alpha * 100)}%, var(--surface))`, color: "var(--text)" };
 }
 
 /**
@@ -66,11 +67,11 @@ export function Heatmap({ rows }: { rows: Row[] }) {
                 >
                   <span className="flex items-baseline justify-between gap-2">
                     <span className={cx("font-medium leading-none", big ? "text-[20px]" : "text-[14px]")}>{asset.underlying}</span>
-                    {view.status !== "tradable" && <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-muted truncate">{view.status === "thin" ? "thin" : view.status === "paused" ? "paused" : "not issued"}</span>}
+                    {view.status !== "tradable" && <span className={cx("font-mono text-[9px] uppercase tracking-[0.08em] truncate", change === null ? "text-ink-muted" : "opacity-85")}>{view.status === "thin" ? "thin" : view.status === "paused" ? "paused" : "not issued"}</span>}
                   </span>
-                  <span className={cx("block font-mono num leading-none mt-1.5", big ? "text-[18px]" : "text-[13px]", change === null ? "text-ink-muted" : "text-ink")}>{change === null ? "—" : formatPct(change, { sign: true })}</span>
-                  <span className={cx("block font-mono num text-ink-secondary mt-1", big ? "text-[12px]" : "text-[10px]")}>{price?.displayUsd != null ? formatUsd(price.displayUsd) : "—"}</span>
-                  {big && price?.liquidityUsd ? <span className="block font-mono num text-[11px] text-ink-secondary mt-2">liq {formatUsdCompact(price.liquidityUsd)}</span> : null}
+                  <span className={cx("block font-mono num leading-none mt-1.5", big ? "text-[18px]" : "text-[13px]", change === null && "text-ink-muted")}>{change === null ? "—" : formatPct(change, { sign: true })}</span>
+                  <span className={cx("block font-mono num mt-1", big ? "text-[12px]" : "text-[10px]", change === null ? "text-ink-secondary" : "opacity-90")}>{price?.displayUsd != null ? formatUsd(price.displayUsd) : "—"}</span>
+                  {big && price?.liquidityUsd ? <span className={cx("block font-mono num text-[11px] mt-2", change === null ? "text-ink-secondary" : "opacity-90")}>liq {formatUsdCompact(price.liquidityUsd)}</span> : null}
                 </Link>
               </li>
             );
