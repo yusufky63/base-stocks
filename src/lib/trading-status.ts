@@ -115,3 +115,30 @@ export function buyLegBlockedReason(
   if (share !== null && share > MAX_LEG_POOL_SHARE) return `this leg is ${(share * 100).toFixed(0)}% of its pool`;
   return null;
 }
+
+/**
+ * Why a sell leg cannot run today. A sell needs a pool to sell into just as a buy needs one to buy
+ * from; a position priced only by the Chainlink reference has nowhere to go.
+ */
+export function sellLegBlockedReason(status: TradingStatus, targetUsd: number, liquidityUsd: number | null | undefined): string | null {
+  if (status === "not-issued") return "no tokens exist to sell";
+  if (status === "no-pool") return "no pool can take this sale yet";
+  if (status === "paused") return "transfers are paused by the issuer";
+  const share = legPoolShare(targetUsd, liquidityUsd);
+  if (share !== null && share > MAX_LEG_POOL_SHARE) return `this sale is ${(share * 100).toFixed(0)}% of its pool`;
+  return null;
+}
+
+/**
+ * One answer for every place that batches trades — Build, Rebalance, Automate — so a leg that one
+ * screen refuses is refused everywhere, for the same reason, in the same words.
+ */
+export function legBlockedReason(
+  side: "buy" | "sell",
+  asset: Pick<B20AssetDTO, "status" | "totalSupply">,
+  price: Pick<PriceView, "liquidityUsd" | "volume24hUsd"> | null | undefined,
+  targetUsd: number,
+): string | null {
+  const status = tradingStatus(asset, price).status;
+  return side === "buy" ? buyLegBlockedReason(status, targetUsd, price?.liquidityUsd) : sellLegBlockedReason(status, targetUsd, price?.liquidityUsd);
+}

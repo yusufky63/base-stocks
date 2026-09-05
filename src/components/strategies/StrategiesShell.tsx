@@ -7,9 +7,9 @@ import { PageTitle, cx } from "@/components/ui/primitives";
 export type StrategiesTab = "build" | "community" | "automate";
 
 const TABS: Array<{ id: StrategiesTab; href: string; label: string; hint: string }> = [
-  { id: "build", href: "/build", label: "Build", hint: "Sliders or a template" },
+  { id: "build", href: "/build", label: "Build", hint: "Sliders, a template or a draft" },
   { id: "community", href: "/community", label: "Community", hint: "Published baskets · 7-day pulse" },
-  { id: "automate", href: "/automate", label: "Automate", hint: "Recurring plans you approve" },
+  { id: "automate", href: "/automate", label: "Automate", hint: "Runs by itself, or with your OK" },
 ];
 
 /**
@@ -19,7 +19,7 @@ const TABS: Array<{ id: StrategiesTab; href: string; label: string; hint: string
 export function StrategiesShell({ tab, action, compact = false, children }: { tab: StrategiesTab; action?: ReactNode; compact?: boolean; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-6">
-      {!compact && <PageTitle index="03 — Strategies" title="Build, share, repeat." lead="Baskets you build, baskets others published, and plans that buy on a schedule. Every purchase is a trade you confirm." action={action} />}
+      {!compact && <PageTitle index="03 — Strategies" title="Build, share, repeat." lead="Baskets you build, baskets others published, and plans that buy on a schedule — automatically within limits the chain enforces, or with a confirmation per run." action={action} />}
       <div role="tablist" aria-label="Strategy sections" className="grid grid-cols-3 p-1 rounded-[8px] bg-surface-muted">
         {TABS.map((t) => {
           const active = t.id === tab;

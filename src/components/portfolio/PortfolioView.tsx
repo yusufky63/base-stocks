@@ -1,22 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
-import type { PortfolioTemplate, RebalanceSuggestion } from "@/domain/portfolio";
+import type { PortfolioTemplate } from "@/domain/portfolio";
 import { usePortfolio, useTemplates, useSparklines, useAssets, useActivity } from "@/hooks/queries";
-import { rebalanceSuggestions } from "@/services/portfolio-service";
-import { formatTokenAmount, formatUsd, bpsToPct, formatPct } from "@/lib/format";
+import { formatTokenAmount, formatUsd, formatPct } from "@/lib/format";
+import { maxDriftBps } from "@/lib/portfolio/drift";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar, ColorDot } from "@/components/common/AllocationBar";
 import { assetColor } from "@/lib/colors";
 import { Module, ModuleHeader, Skeleton, Stat, LinkButton, PageTitle, cx } from "@/components/ui/primitives";
-import { Select } from "@/components/ui/Select";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ConnectButton } from "@/components/layout/ConnectButton";
-import { RebalanceExecutor } from "./RebalanceExecutor";
-import { useTargetAllocation, TargetControls, maxDriftBps, MY_TARGET_ID } from "./TargetAllocation";
+import { useTargetAllocation, MY_TARGET_ID } from "./TargetAllocation";
+import { RebalancePanel, type TargetChoice } from "./RebalancePanel";
 import { HistoryModule } from "./HistoryModule";
 import { ProfileSettings } from "./ProfileSettings";
 import { ActivityList } from "@/components/activity/ActivityList";
@@ -35,17 +35,35 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "activity", label: "Activity", hint: "Trades, sends, earn, builds" },
   { id: "profile", label: "Profile", hint: "Your page and badges" },
 ];
+const isTab = (v: string | null): v is Tab => TABS.some((t) => t.id === v);
 
 const PROVIDER_LABEL: Record<string, string> = { morpho: "Morpho", aave: "Aave", compound: "Compound", aerodrome: "Aerodrome", uniswap: "Uniswap" };
 
-/** Portfolio (spec §45) as four tabs; Earn and Automate keep their own pages but count here. */
+/**
+ * Portfolio (spec §45) as four tabs. The tab lives in the URL (`?tab=rebalance`) so a link from
+ * Automate or a shared address lands on the right panel and the back button does what it says.
+ */
 export function PortfolioView({ initialTemplates }: { initialTemplates?: PortfolioTemplate[] }) {
   const { address, isConnected } = useAccount();
   const { data, isLoading, isError, refetch } = usePortfolio(address);
   const { data: templates } = useTemplates(initialTemplates);
   const { data: sparks } = useSparklines();
   const { data: assets } = useAssets();
-  const [tab, setTab] = useState<Tab>("overview");
+  const search = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const tabParam = search.get("tab");
+  const tab: Tab = isTab(tabParam) ? tabParam : "overview";
+  const setTab = useCallback(
+    (next: Tab) => {
+      const params = new URLSearchParams(search.toString());
+      if (next === "overview") params.delete("tab");
+      else params.set("tab", next);
+      const q = params.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    },
+    [router, pathname, search],
+  );
   const [templateId, setTemplateId] = useState<string>("");
 
   const savedTarget = useTargetAllocation();
@@ -55,23 +73,21 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
    * template, so it is selected by default the moment one exists — a template you once looked at
    * should not keep winning over the target you deliberately set.
    */
-  const target = useMemo(() => {
-    if (templateId === MY_TARGET_ID || (templateId === "" && savedTarget.allocations)) {
-      return savedTarget.allocations ? { id: MY_TARGET_ID, name: "your target", allocations: savedTarget.allocations } : undefined;
-    }
-    return templates?.find((t) => t.id === templateId);
-  }, [templates, templateId, savedTarget.allocations]);
-  const drift: RebalanceSuggestion[] = useMemo(
-    () => (data && target ? rebalanceSuggestions(data, target.allocations, (addr) => assets?.assets.find((a) => a.canonicalId === addr.toLowerCase())?.underlying) : []),
-    [data, target, assets],
+  const choices = useMemo<TargetChoice[]>(
+    () => [...(savedTarget.allocations ? [{ id: MY_TARGET_ID, name: "your target", allocations: savedTarget.allocations }] : []), ...(templates ?? []).map((t) => ({ id: t.id, name: t.name, allocations: t.allocations }))],
+    [templates, savedTarget.allocations],
   );
+  const target = useMemo(() => {
+    if (templateId === MY_TARGET_ID || (templateId === "" && savedTarget.allocations)) return choices.find((c) => c.id === MY_TARGET_ID);
+    return choices.find((c) => c.id === templateId);
+  }, [choices, templateId, savedTarget.allocations]);
 
   if (!isConnected || !address) {
     return (
       <div className="border border-line rounded-[8px] ticks bg-canvas p-8 md:p-12 flex flex-col gap-4 items-start">
         <div className="eyebrow">04 — Portfolio</div>
         <h1 className="display text-[36px] md:text-[56px] leading-[0.95]">Your stocks, your wallet.</h1>
-        <p className="text-ink-secondary max-w-[48ch]">Connect a wallet to see multiplier-aware holdings, allocation, drift against a template and value history. Browsing markets never requires a wallet.</p>
+        <p className="text-ink-secondary max-w-[48ch]">Connect a wallet to see multiplier-aware holdings, allocation, drift against a target and value history. Browsing markets never requires a wallet.</p>
         <ConnectButton size="lg" />
       </div>
     );
@@ -85,13 +101,11 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
         ...(data.lpValueUsd > 0 ? [{ key: "LP", label: "Liquidity", weightBps: Math.round((data.lpValueUsd / data.totalValueUsd) * 10_000) }] : []),
       ]
     : [];
+  const venuePositions = data ? data.earnPositions.length + data.lpPositions.length : 0;
 
   return (
     <div className="flex flex-col gap-6">
-      <PageTitle
-        index="04 — Portfolio"
-        title="Portfolio"
-      />
+      <PageTitle index="04 — Portfolio" title="Portfolio" />
 
       <div className="module-grid grid-cols-2 md:grid-cols-[2fr_1fr_1fr_1fr] ticks">
         {isLoading && !data ? (
@@ -101,11 +115,20 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
           </div>
         ) : (
           <div className="col-span-2 md:col-span-1">
-            <Stat label="Total value" value={<AnimatedNumber value={data?.totalValueUsd ?? 0} format={(v) => formatUsd(v)} />} size="xl" sub={<span>{data?.change24hPct !== null ? <PriceChange value={data?.change24hPct} /> : "—"} today · stocks + USDC + Earn</span>} />
+            <Stat
+              label="Total value"
+              value={<AnimatedNumber value={data?.totalValueUsd ?? 0} format={(v) => formatUsd(v)} />}
+              size="xl"
+              sub={
+                <span>
+                  {data && data.change24hPct !== null ? <PriceChange value={data.change24hPct} /> : "—"} today · stocks + USDC + Earn + liquidity
+                </span>
+              }
+            />
           </div>
         )}
-        <Stat label="Cash · USDC" value={<AnimatedNumber value={data?.usdcValueUsd ?? 0} format={(v) => formatUsd(v)} />} size="lg" />
-        <Stat label="In Earn & pools" value={<AnimatedNumber value={(data?.earnValueUsd ?? 0) + (data?.lpValueUsd ?? 0)} format={(v) => formatUsd(v)} />} size="lg" sub={data && data.earnPositions.length + data.lpPositions.length > 0 ? `${data.earnPositions.length + data.lpPositions.length} position${data.earnPositions.length + data.lpPositions.length > 1 ? "s" : ""}${data.lpPositions.length > 0 ? ` · ${data.lpPositions.length} LP` : ""}` : "USDC in venues, LP pools"} />
+        <Stat label="Cash · USDC" value={<AnimatedNumber value={data?.usdcValueUsd ?? 0} format={(v) => formatUsd(v)} />} size="lg" sub="ready to buy or rebalance" />
+        <Stat label="In Earn & pools" value={<AnimatedNumber value={(data?.earnValueUsd ?? 0) + (data?.lpValueUsd ?? 0)} format={(v) => formatUsd(v)} />} size="lg" sub={venuePositions > 0 ? `${venuePositions} position${venuePositions > 1 ? "s" : ""}${data && data.lpPositions.length > 0 ? ` · ${data.lpPositions.length} LP` : ""}` : "USDC in venues, LP pools"} />
         <Stat label="Positions" value={data?.holdings.length ?? 0} size="lg" sub={data ? `updated ${new Date(data.readAt).toLocaleTimeString()}` : undefined} />
       </div>
 
@@ -129,15 +152,11 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
       </div>
 
       {/* Drift is the one thing worth interrupting the overview for: it is the only number here
-          that asks the holder to do something. */}
+          that asks the holder to do something. It is measured exactly as the Rebalance tab measures it. */}
       {tab === "overview" && data && driftBps !== null && driftBps > savedTarget.thresholdBps && (
-        <button
-          type="button"
-          onClick={() => setTab("rebalance")}
-          className="text-left border border-warning-fg/50 rounded-[8px] px-4 py-3 text-[13px] hover:bg-surface transition-fast"
-        >
+        <button type="button" onClick={() => setTab("rebalance")} className="text-left border border-warning-fg/50 rounded-[8px] px-4 py-3 text-[13px] hover:bg-surface transition-fast">
           <span className="font-medium">{`Your mix has drifted ${(driftBps / 100).toFixed(1)}% from your target.`}</span>{" "}
-          <span className="text-ink-secondary">Open Rebalance to see which stock moved and by how much — nothing trades without your confirmation.</span>
+          <span className="text-ink-secondary">Open Rebalance to see which leg moved and by how much — nothing trades without your confirmation.</span>
         </button>
       )}
 
@@ -161,6 +180,9 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                     </LinkButton>
                     <LinkButton href="/build" size="sm">
                       Build a portfolio
+                    </LinkButton>
+                    <LinkButton href="/automate" size="sm">
+                      Start a plan
                     </LinkButton>
                   </div>
                 </div>
@@ -244,31 +266,9 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                   })()}
                 </ul>
               ) : (
-                <div className="p-4 flex items-baseline justify-between">
-                  <span className="text-[13px] text-ink-secondary">Idle USDC</span>
-                  <span className="display num text-[22px]">{formatUsd(data?.usdcValueUsd ?? 0)}</span>
-                </div>
+                <p className="px-4 py-4 text-[13px] text-ink-secondary">No USDC in a yield venue yet. Idle cash can earn a variable rate in Morpho, Aave or Compound while staying under your control.</p>
               )}
-              {data && data.lpPositions.length > 0 && (
-                <ul className="border-t border-line">
-                  {data.lpPositions.map((p) => (
-                    <li key={`${p.manager}-${p.tokenId}`} className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-line last:border-b-0">
-                      <span className="min-w-0">
-                        <span className="block text-[14px] font-medium truncate">{p.pair} pool</span>
-                        <span className="block text-[12px] text-ink-secondary truncate">
-                          {p.managerLabel} · {p.inRange ? "in range" : "out of range"}
-                          {p.stockSymbol ? ` · ${p.stockAmount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${p.stockSymbol} + ${p.quoteAmount.toLocaleString("en-US", { maximumFractionDigits: p.quoteAmount >= 1 ? 2 : 6 })} ${p.quoteSymbol}` : ""}
-                          {p.feesUsd ? ` · fees ${formatUsd(p.feesUsd)}` : ""}
-                        </span>
-                      </span>
-                      <span className="display num text-[15px] inline-flex items-center gap-2">
-                        <ColorDot k="LP" /> {formatUsd(p.valueUsd)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Deposits in Morpho, Aave and Compound stay in your wallet and count toward the total above.</p>
+              <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Deposits in Morpho, Aave and Compound stay in your wallet and count toward the total above. Liquidity positions are listed below.</p>
             </Module>
             <LpPositionsModule compact />
           </div>
@@ -283,57 +283,8 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
         </div>
       )}
 
-      {tab === "rebalance" && (
-        <Module>
-          <ModuleHeader
-            index="C"
-            title="Drift against a target"
-            action={
-              <Select
-                size="sm"
-                className="w-[220px]"
-                ariaLabel="Compare with"
-                placeholder="Pick a target…"
-                value={target?.id ?? ""}
-                onChange={setTemplateId}
-                options={[
-                  ...(savedTarget.allocations ? [{ value: MY_TARGET_ID, label: "My target", description: "The mix you saved" }] : []),
-                  ...(templates ?? []).map((t) => ({ value: t.id, label: t.name })),
-                ]}
-              />
-            }
-          />
-          {target && drift.length > 0 && data ? (
-            <div>
-              <div className="px-4 py-3 border-b border-line">
-                <AllocationBar height={8} segments={target.allocations.map((a) => ({ key: a.assetAddress, label: a.assetAddress === "USDC" ? "USDC" : (assets?.assets.find((x) => x.canonicalId === a.assetAddress.toLowerCase())?.underlying ?? "?"), weightBps: a.weightBps }))} />
-              </div>
-              {drift.map((d) => (
-                <div key={String(d.assetAddress)} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-4 py-2.5 border-b border-line last:border-b-0 text-[14px]">
-                  <span className="font-medium inline-flex items-center gap-2">
-                    <ColorDot k={String(d.assetAddress)} /> {d.symbol.replace(/c$/, "")}
-                  </span>
-                  <span className="font-mono num text-[12px] text-ink-secondary">
-                    {bpsToPct(d.currentWeightBps)} → {bpsToPct(d.targetWeightBps)}
-                  </span>
-                  <span className={cx("font-mono num text-[13px] text-right min-w-[110px]", d.action === "hold" ? "text-ink-muted" : d.action === "buy" ? "text-positive-fg" : "text-danger-fg")}>
-                    {d.action === "hold" ? "Keep" : `${d.action === "buy" ? "Buy" : "Sell"} ${formatUsd(Math.abs(d.deltaUsd))}`}
-                  </span>
-                </div>
-              ))}
-              <RebalanceExecutor snapshot={data} suggestions={drift} templateName={target.name} />
-              <TargetControls snapshot={data} target={target} saved={savedTarget} />
-              <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Suggestions only. Rebalancing is manual: every trade goes through the same quote, guard and wallet confirmation. {target.id === MY_TARGET_ID ? "Your target is a note to yourself, not advice." : `${target.name} is a template, not a recommendation.`}</p>
-            </div>
-          ) : (
-            <div className="px-4 py-6 flex flex-col gap-3">
-              <p className="text-[14px] text-ink-secondary">Pick a template to see how your holdings compare, or save the mix you are holding now as your own target and let the page tell you when it drifts.</p>
-              {data && <TargetControls snapshot={data} target={undefined} saved={savedTarget} />}
-            </div>
-          )}
-        </Module>
-      )}
-
+      {tab === "rebalance" && data && <RebalancePanel snapshot={data} assets={assets} target={target} choices={choices} onChoose={setTemplateId} saved={savedTarget} />}
+      {tab === "rebalance" && !data && <Skeleton className="h-64" />}
 
       {tab === "activity" && <ActivityTab address={address} />}
 
@@ -368,7 +319,7 @@ function ActivityTab({ address }: { address: `0x${string}` }) {
       )}
       {isError && <p className="px-4 py-4 text-[14px] text-danger-fg">Activity could not be loaded.</p>}
       {data && <ActivityList items={data} />}
-      <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Buys, sells, sends, basket builds and Earn deposits/withdrawals. App records stay “pending verification” until the matching onchain transfer or receipt is found.</p>
+      <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Buys, sells, sends, basket builds, plan runs and Earn deposits/withdrawals. App records stay “pending verification” until the matching onchain transfer or receipt is found.</p>
     </Module>
   );
 }

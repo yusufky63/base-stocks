@@ -126,7 +126,7 @@ export interface PortfolioIntent {
   name?: string;
   allocations: Allocation[];
   /** Source of the intent for auditing. */
-  source: "template" | "custom" | "ai";
+  source: "template" | "custom" | "ai" | "community" | "automation";
   notes?: string;
 }
 
@@ -145,7 +145,7 @@ export interface PortfolioPlanLeg {
 
 export type DeferredPolicy = "reserve" | "redistribute";
 
-/** An allocation that cannot be bought yet: the token exists but Coinbase has not minted it on Base. */
+/** An allocation that cannot be bought today: not issued, no pool, paused, or too big for its pool. `reason` says which. */
 export interface PortfolioPlanDeferred {
   assetAddress: Address;
   symbol: string;
@@ -159,7 +159,7 @@ export interface PortfolioPlan {
   keepUsdcUsd: number;
   keepUsdcBps: number;
   legs: PortfolioPlanLeg[];
-  /** Not-issued names: money kept as USDC ("reserve") or spread over live names ("redistribute"). */
+  /** Names that cannot be bought today: money kept as USDC ("reserve") or spread over live names ("redistribute"). */
   deferred?: PortfolioPlanDeferred[];
   deferredPolicy?: DeferredPolicy;
   minTradeUsd: number;

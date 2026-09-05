@@ -25,14 +25,20 @@ export function deriveStatus(steps: PortfolioExecutionStep[]): PortfolioExecutio
   return "READY";
 }
 
+/** Legs that could not even be quoted are left out: a step that is known to fail is not a step. */
+export function runnableLegs(plan: Pick<PortfolioPlan, "legs">): PortfolioPlan["legs"] {
+  return plan.legs.filter((l) => !l.quoteError);
+}
+
 export function createExecution(owner: Address, plan: PortfolioPlan, id = newId("exec")): PortfolioExecution {
   const now = Date.now();
+  const legs = runnableLegs(plan);
   return {
     id,
     owner,
     status: "READY",
-    totalUsd: plan.totalUsd,
-    steps: plan.legs.map((leg) => ({
+    totalUsd: legs.reduce((s, l) => s + l.targetUsd, 0),
+    steps: legs.map((leg) => ({
       id: newId("step"),
       assetAddress: leg.assetAddress,
       symbol: leg.symbol,

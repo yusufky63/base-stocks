@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { route, json, parseBody, addressSchema, hashSchema } from "@/lib/api";
+import { requireOwner } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
 import { AppError } from "@/lib/errors";
 import type { Hash } from "viem";
@@ -27,6 +28,9 @@ const patchSchema = z.object({
 export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "exec.write", limit: 120, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const body = await parseBody(req, patchSchema);
+  const existing = await getRepos().executions.get(id);
+  if (!existing) throw new AppError("NOT_FOUND", "Execution not found", 404);
+  requireOwner(req, existing.owner);
   const updated = await getRepos().executions.update(id, {
     status: body.status,
     steps: body.steps?.map((s) => ({ ...s, txHash: s.txHash as Hash | undefined })),
@@ -36,9 +40,10 @@ export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { k
   return json({ execution: updated });
 });
 
-export const GET = route<{ params: Promise<{ id: string }> }>({}, async (_req, { params }) => {
+export const GET = route<{ params: Promise<{ id: string }> }>({}, async (req, { params }) => {
   const { id } = await params;
   const exec = await getRepos().executions.get(id);
   if (!exec) throw new AppError("NOT_FOUND", "Execution not found", 404);
+  requireOwner(req, exec.owner);
   return json({ execution: exec });
 });

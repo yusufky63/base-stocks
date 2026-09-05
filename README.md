@@ -10,9 +10,9 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 | --- | --- |
 | Markets | 13 stocks with live DEX price, Chainlink reference and freshness, candles and volume, a Live / Thin / Very thin / No pool / Not issued status, single Buy action |
 | Trade | Every quote asks KyberSwap, Velora, the Uniswap Trading API, Aerodrome directly, CoW Protocol and, when enabled, 0x and OKX; you pick auto (best net output) or a provider. Pay with USDC or ETH. Exact approvals, simulation before signing, atomic batches on Base Account. CoW orders are signed, not sent: solvers pay the gas. Limit orders at your own price, cancellable any time |
-| Strategies | Build baskets (sliders, templates, guided AI drafts with live market context), community baskets with votes and clones, recurring plans you approve run by run |
+| Strategies | Build baskets (sliders, templates, guided AI drafts with live market context), community baskets with votes and clones, and **auto-invest**: a stock or a basket bought on a schedule by the AutoInvest contract — amount, cadence, routes and minimum output enforced onchain, cancel or revoke any time — or, if you prefer, a plan that waits for your confirmation per run |
 | Earn | Idle USDC into Morpho vaults, Aave V3 and Compound v3 from the app; stock pools, LP positions and lending venues discovered at runtime, never hardcoded |
-| Portfolio | Value (stocks + USDC + Earn + LP), allocation, history, rebalance against a template, verified activity, daily AI summary and badges |
+| Portfolio | Value (stocks + USDC + Earn + LP), allocation, history, profit and loss, rebalance against a template or your own saved target (one drift measure for the banner, the table and the trades), verified activity, daily AI summary and badges |
 | Send & gift | To a Basename or address with the recipient's profile shown first, or a claim link for someone without a wallet: the stock waits in an ownerless escrow, they claim it with a passkey Base Account and the gas is sponsored. Public receipt pages to share |
 | Gift pools | One deposit, many equal shares of one stock or a package of several: a share link, a public directory or steps to finish first. Onchain steps (a Basename, a holding, a verified purchase) are read from Base; X steps are recorded as the claimant's own confirmation and labelled that way. Close a pool any time — or lock it so you cannot — and the unclaimed remainder comes home |
 | News | Headlines per stock and market-wide plus one shared AI brief every six hours |
@@ -46,6 +46,7 @@ Without any keys the app still runs: assets, multipliers, pause flags, policies 
 | `NEXT_PUBLIC_BASE_BUILDER_CODE` | ERC-8021 attribution on every transaction |
 | `NEXT_PUBLIC_GIFT_POOL_ADDRESS` | Gift pools; unset hides the feature entirely |
 | `POOL_GATE_SIGNER_KEY` | Steps in front of a gift pool; without it, link and open pools still work |
+| `NEXT_PUBLIC_AUTO_INVEST_ADDRESS`, `AUTOMATION_KEEPER_KEY` | Auto-invest: the deployed AutoInvest contract and the keeper that runs due plans ([docs/AUTO_INVEST.md](docs/AUTO_INVEST.md)); without them plans are confirmed by hand |
 | `ADMIN_API_TOKEN` | The `/admin` page for verifying newly discovered tokens |
 
 The full list with explanations is in [.env.example](.env.example). Apply the database schema to a Supabase project with `pnpm db:apply` (see the script in `scripts/db-apply.mjs`) or through the Supabase MCP.

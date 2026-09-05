@@ -56,6 +56,17 @@ const serverSchema = z.object({
     .string()
     .regex(/^0x[0-9a-fA-F]{64}$/, "Expected a 32-byte hex private key")
     .optional(),
+  /**
+   * Keeper for AutoInvest plans: the account the contract lets trigger due runs. It pays gas and
+   * chooses timing and route; it can never move more than a plan allows, and never to anywhere but
+   * the plan owner. Server-only. Without it plans can still be run by their owners from the app.
+   */
+  AUTOMATION_KEEPER_KEY: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{64}$/, "Expected a 32-byte hex private key")
+    .optional(),
+  /** How many due plans one keeper tick may execute (serverless budget). */
+  AUTOMATION_MAX_RUNS_PER_TICK: z.coerce.number().int().min(1).max(50).default(6),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
@@ -90,4 +101,6 @@ export const publicEnv = {
   paymasterUrl: process.env.NEXT_PUBLIC_PAYMASTER_URL ?? "",
   /** GiftPool deployment. Empty until the contract is deployed; the app then hides pools. */
   giftPoolAddress: process.env.NEXT_PUBLIC_GIFT_POOL_ADDRESS ?? "",
+  /** AutoInvest deployment. Empty means plans are confirmed by hand only. */
+  autoInvestAddress: process.env.NEXT_PUBLIC_AUTO_INVEST_ADDRESS ?? "",
 } as const;

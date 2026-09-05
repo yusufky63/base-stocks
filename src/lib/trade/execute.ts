@@ -56,7 +56,7 @@ export interface ExecuteTradeResult {
 }
 
 /** Wallet capabilities that change how we submit: atomic batches and sponsored gas (Base Account). */
-async function walletCapabilities(walletClient: WalletClient, address: Address): Promise<{ atomic: boolean; paymaster: boolean }> {
+export async function walletCapabilities(walletClient: WalletClient, address: Address): Promise<{ atomic: boolean; paymaster: boolean }> {
   try {
     const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
     return { atomic: caps.atomic?.status === "supported" || caps.atomic?.status === "ready", paymaster: !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported };

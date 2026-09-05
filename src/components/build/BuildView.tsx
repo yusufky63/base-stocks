@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Upload } from "lucide-react";
+import { Repeat, Upload } from "lucide-react";
 import type { Allocation, PortfolioTemplate } from "@/domain/portfolio";
 import type { CommunityBasket } from "@/domain/community";
 import { apiGet, apiPost, ApiError, type AssetsResponse } from "@/lib/client-api";
@@ -19,6 +19,7 @@ import { AiIntentInput } from "./AiIntentInput";
 import { TemplateCard } from "./TemplateCard";
 import { partitionTemplates } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
+import { automateHref } from "@/lib/automate-link";
 import { Dither } from "@/components/fx/Dither";
 import { SignInButton } from "@/components/layout/SignInButton";
 
@@ -26,7 +27,8 @@ type StartMode = "template" | "ai" | "scratch";
 
 /**
  * Build in three moves: pick a starting point (template, AI draft or from scratch), adjust the
- * basket in the editor, invest with live quotes. Publishing is tucked under the editor.
+ * basket in the editor, invest with live quotes. Publishing is tucked under the editor; a basket
+ * can also be handed to Automate to repeat on a schedule.
  */
 export function BuildView({ initialAssets, initialTemplates, embedded = false }: { initialAssets?: AssetsResponse; initialTemplates?: PortfolioTemplate[]; embedded?: boolean }) {
   const { data: assets } = useAssets(initialAssets);
@@ -35,6 +37,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   const search = useSearchParams();
   const auth = useAuth();
   const cloneId = search.get("basket");
+  const wantsPublish = search.get("publish") === "1";
   const cloned = useQuery({ queryKey: ["basket", cloneId], queryFn: () => apiGet<{ basket: CommunityBasket }>(`/api/baskets/${cloneId}`), enabled: !!cloneId });
   const [mode, setMode] = useState<StartMode>("ai");
   /** AI is the default start; when the operator disabled it the templates take its place. */
@@ -44,6 +47,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   const [description, setDescription] = useState("");
   const [source, setSource] = useState<"template" | "custom" | "ai">("custom");
   const [loadedClone, setLoadedClone] = useState<string | null>(null);
+  const [executing, setExecuting] = useState(false);
   const valid = validateAllocations(allocations).ok;
 
   // Clone a community basket into the editor once (URL param → state, adjust-on-prop-change pattern).
@@ -62,6 +66,7 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   });
 
   const load = (next: Allocation[], label: string, from: "template" | "ai") => {
+    if (executing) return;
     setAllocations(next);
     setName(label);
     setSource(from);
@@ -117,12 +122,17 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
 
       <div id="basket-editor" className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start scroll-mt-24">
         <Module ticks>
-          <ModuleHeader index="B" title={name} action={<span className="font-mono text-[11px] text-ink-muted">{allocations.length} blocks{cloneId ? " · cloned" : ""}</span>} />
+          <ModuleHeader
+            index="B"
+            title={name}
+            action={<span className="font-mono text-[11px] text-ink-muted">{executing ? "locked while buying" : `${allocations.length} blocks${cloneId ? " · cloned" : ""}`}</span>}
+          />
           <div className="p-4 flex flex-col gap-4">
             {assets ? (
               <AllocationEditor
                 assets={assets.assets}
                 value={allocations}
+                disabled={executing}
                 onChange={(next) => {
                   setAllocations(next);
                   setSource("custom");
@@ -131,7 +141,15 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
             ) : (
               <Skeleton className="h-32" />
             )}
-            <Collapsible title="Publish this basket to the community">
+            {valid && (
+              <div className="flex items-center gap-2 flex-wrap text-[13px]">
+                <Link href={automateHref(allocations, name)} className="inline-flex items-center gap-1.5 text-primary font-medium">
+                  <Repeat size={14} strokeWidth={1.75} /> Repeat this basket on a schedule
+                </Link>
+                <span className="text-ink-muted">Weekly, monthly, automatic or confirmed by you — set it up under Automate.</span>
+              </div>
+            )}
+            <Collapsible title="Publish this basket to the community" defaultOpen={wantsPublish}>
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input label="Basket name" value={name} onChange={(e) => setName(e.target.value)} maxLength={48} />
@@ -160,13 +178,13 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
         <Module className="lg:sticky lg:top-[72px]">
           <ModuleHeader index="C" title="Invest" />
           <div className="p-4">
-            <PlanExecutor key={JSON.stringify(allocations)} allocations={allocations} source={source} disabled={!valid} />
+            <PlanExecutor allocations={allocations} source={source} disabled={!valid} onExecutingChange={setExecuting} />
           </div>
         </Module>
       </div>
 
       <p className="text-[12px] text-ink-muted">
-        Templates and drafts are starting points, not investment recommendations. Stocks not issued yet stay as USDC in the plan until Coinbase mints them.{" "}
+        Templates and drafts are starting points, not investment recommendations. Stocks that cannot be bought today stay as USDC in the plan.{" "}
         <Link href="/community" className="text-primary font-medium">
           Community baskets →
         </Link>

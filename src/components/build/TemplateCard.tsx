@@ -35,7 +35,7 @@ export function TemplateCard({ template, assets, onLoad, compact = false }: { te
       <div className="mt-auto flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
           <span className={allLive ? "text-positive-fg" : noneLive ? "text-ink-muted" : "text-ink-secondary"}>
-            {allLive ? `All ${live.total} live` : noneLive ? "Nothing issued yet" : `${live.live} of ${live.total} live · ${readyPct}% buys today`}
+            {allLive ? `All ${live.total} live` : noneLive ? "Nothing issued yet" : `${live.live} of ${live.total} live · ${readyPct}% goes to work today`}
           </span>
           <Link href={`/build/${template.slug}`} className="text-ink-secondary hover:text-ink inline-flex items-center gap-1 shrink-0">
             Details <ArrowRight size={12} strokeWidth={1.75} />

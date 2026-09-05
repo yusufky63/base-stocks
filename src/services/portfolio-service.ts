@@ -2,9 +2,12 @@ import { cached, invalidate } from "@/lib/cache";
 import { formatUnits, parseUnits, type Address } from "viem";
 import { MIN_TRADE_USD, USDC_DECIMALS } from "@/config/chain";
 import type { B20Asset } from "@/domain/asset";
+import type { PriceView } from "@/domain/market";
 import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation, type PortfolioHolding, type PortfolioIntent, type PortfolioPlan, type PortfolioPlanLeg, type PortfolioSnapshot, type RebalanceSuggestion } from "@/domain/portfolio";
 import { isCuratedAsset, findCuratedAsset, allAssetEntries } from "@/lib/b20/registry";
 import { rawValueUsd, splitByWeights } from "@/lib/b20/math";
+import { driftRows } from "@/lib/portfolio/drift";
+import { legBlockedReason } from "@/lib/trading-status";
 import { AppError } from "@/lib/errors";
 import { getAssets, getBalances, getUsdcBalance } from "./b20-asset-service";
 import { getRepos } from "@/db/repositories";
@@ -220,26 +223,39 @@ async function recordDailySnapshot(s: PortfolioSnapshot): Promise<void> {
 
 /* ------------------------------ Plan ------------------------------ */
 
-export function buildPlan(intent: PortfolioIntent, totalUsd: number, assets: B20Asset[], opts: { deferredPolicy?: DeferredPolicy } = {}): PortfolioPlan {
+export function buildPlan(intent: PortfolioIntent, totalUsd: number, assets: B20Asset[], opts: { deferredPolicy?: DeferredPolicy; prices?: Map<string, PriceView> } = {}): PortfolioPlan {
   if (!Number.isFinite(totalUsd) || totalUsd <= 0) throw new AppError("BAD_REQUEST", "Enter an amount to invest.", 400);
   const v = validateAllocations(intent.allocations, { allowedAssets: new Set(assets.filter((a) => a.status === "active").map((a) => a.canonicalId)) });
   if (!v.ok) throw new AppError("BAD_REQUEST", v.errors.join(" "), 400, { errors: v.errors });
   const policy: DeferredPolicy = opts.deferredPolicy ?? "reserve";
   const byId = new Map(assets.map((a) => [a.canonicalId, a]));
   const assetOf = (key: string) => byId.get(key.toLowerCase())!;
-  // "Deployed != issued": a stock whose token has no supply cannot be bought anywhere yet.
-  const isDeferred = (key: string) => assetOf(key).totalSupply === 0n;
-
   const usdcAlloc = v.normalized.find((a) => a.assetAddress === USDC_ALLOCATION_KEY);
   const keepUsdcBps = usdcAlloc?.weightBps ?? 0;
   const stocks = v.normalized.filter((a) => a.assetAddress !== USDC_ALLOCATION_KEY);
-  const deferredAllocs = stocks.filter((a) => isDeferred(a.assetAddress as string));
-  const liveAllocs = stocks.filter((a) => !isDeferred(a.assetAddress as string));
+  const totalCents = BigInt(Math.round(totalUsd * 100));
+
+  /**
+   * A leg is deferred when the shared eligibility rule says it cannot be filled today: no supply
+   * ("deployed ≠ issued"), no pool, an issuer pause, or — when market data is at hand — a pool too
+   * shallow for its size. The same rule gates Rebalance and Automate, so a basket never queues a
+   * buy that Markets already labels unbuyable.
+   */
+  const deferredReason = (a: Allocation): string | null => {
+    const asset = assetOf(a.assetAddress as string);
+    // Without market data, absence of a pool is not evidence of one: only the chain's own facts count.
+    if (!opts.prices) return asset.totalSupply === 0n ? "not issued on Base yet" : asset.status === "paused" ? "transfers are paused by the issuer" : null;
+    const price = opts.prices.get(asset.canonicalId) ?? null;
+    const legUsd = Number((totalCents * BigInt(a.weightBps)) / BigInt(TOTAL_BPS)) / 100;
+    return legBlockedReason("buy", { status: asset.status, totalSupply: asset.totalSupply.toString() }, price ? { liquidityUsd: price.liquidityUsd, volume24hUsd: price.volume24hUsd } : null, legUsd);
+  };
+  const reasons = new Map(stocks.map((a) => [a.assetAddress as string, deferredReason(a)]));
+  const deferredAllocs = stocks.filter((a) => reasons.get(a.assetAddress as string) !== null);
+  const liveAllocs = stocks.filter((a) => reasons.get(a.assetAddress as string) === null);
   const deferredBps = deferredAllocs.reduce((sum, a) => sum + a.weightBps, 0);
   // reserve: the deferred names' money stays in USDC; redistribute: their weight is spread over live names.
   const keepBps = policy === "reserve" ? keepUsdcBps + deferredBps : keepUsdcBps;
 
-  const totalCents = BigInt(Math.round(totalUsd * 100));
   const keepCents = (totalCents * BigInt(keepBps)) / BigInt(TOTAL_BPS);
   const investCents = totalCents - keepCents;
   const parts = liveAllocs.length > 0 ? splitByWeights(investCents, liveAllocs.map((a) => a.weightBps)) : [];
@@ -259,15 +275,15 @@ export function buildPlan(intent: PortfolioIntent, totalUsd: number, assets: B20
   });
   const deferred: PortfolioPlanDeferred[] = deferredAllocs.map((a) => {
     const asset = assetOf(a.assetAddress as string);
-    return { assetAddress: asset.address, symbol: asset.symbol, weightBps: a.weightBps, targetUsd: Number((totalCents * BigInt(a.weightBps)) / BigInt(TOTAL_BPS)) / 100, reason: "not issued on Base yet" };
+    return { assetAddress: asset.address, symbol: asset.symbol, weightBps: a.weightBps, targetUsd: Number((totalCents * BigInt(a.weightBps)) / BigInt(TOTAL_BPS)) / 100, reason: reasons.get(a.assetAddress as string) ?? "cannot be bought today" };
   });
   if (deferred.length > 0) {
-    const names = deferred.map((d) => d.symbol.replace(/c$/, "")).join(", ");
+    const names = deferred.map((d) => `${d.symbol.replace(/c$/, "")} (${d.reason})`).join(", ");
     const usd = deferred.reduce((sum, d) => sum + d.targetUsd, 0);
     warnings.push(
       policy === "reserve"
-        ? `${names}: not issued on Base yet, so $${usd.toFixed(2)} stays in USDC until Coinbase mints ${deferred.length === 1 ? "it" : "them"}. Buy later from the stock page.`
-        : `${names}: not issued on Base yet; their ${(deferredBps / 100).toFixed(1)}% was spread across the live stocks.`,
+        ? `${names}: cannot be bought today, so $${usd.toFixed(2)} stays in USDC. Buy later from the stock page.`
+        : `${names}: cannot be bought today; ${(deferredBps / 100).toFixed(1)}% of the basket was spread across the live stocks instead.`,
     );
   }
   for (const a of assets) {
@@ -293,28 +309,17 @@ export async function quotePlan(plan: PortfolioPlan, taker?: Address): Promise<P
 
 /* ------------------------------ Rebalance ------------------------------ */
 
+/**
+ * Drift rows in the older suggestion shape. The arithmetic lives in `lib/portfolio/drift` so the
+ * Overview banner, the Rebalance table and the trades it proposes all measure the same thing.
+ */
 export function rebalanceSuggestions(snapshot: PortfolioSnapshot, target: Allocation[], symbolFor?: (address: string) => string | undefined): RebalanceSuggestion[] {
-  const total = snapshot.totalValueUsd;
-  if (total <= 0) return [];
-  const out: RebalanceSuggestion[] = [];
-  const targetMap = new Map(target.map((t) => [t.assetAddress === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : t.assetAddress.toLowerCase(), t.weightBps]));
-  const keys = new Set<string>([...targetMap.keys(), ...snapshot.holdings.map((h) => h.assetAddress.toLowerCase()), USDC_ALLOCATION_KEY]);
-  for (const key of keys) {
-    const targetBps = targetMap.get(key) ?? 0;
-    const holding = key === USDC_ALLOCATION_KEY ? null : snapshot.holdings.find((h) => h.assetAddress.toLowerCase() === key);
-    const currentUsd = key === USDC_ALLOCATION_KEY ? snapshot.usdcValueUsd : (holding?.marketValueUsd ?? 0);
-    const currentBps = Math.round((currentUsd / total) * TOTAL_BPS);
-    const deltaUsd = (targetBps / TOTAL_BPS) * total - currentUsd;
-    const action: RebalanceSuggestion["action"] = Math.abs(deltaUsd) < Math.max(MIN_TRADE_USD, total * 0.005) ? "hold" : deltaUsd > 0 ? "buy" : "sell";
-    const resolved = key === USDC_ALLOCATION_KEY ? "USDC" : (holding?.symbol ?? symbolFor?.(key) ?? findCuratedAsset(key)?.underlying ?? `${key.slice(0, 6)}…${key.slice(-4)}`);
-    out.push({
-      assetAddress: key === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : ((holding?.assetAddress ?? findCuratedAsset(key)?.address ?? key) as Address),
-      symbol: resolved,
-      currentWeightBps: currentBps,
-      targetWeightBps: targetBps,
-      deltaUsd,
-      action,
-    });
-  }
-  return out.sort((a, b) => Math.abs(b.deltaUsd) - Math.abs(a.deltaUsd));
+  return driftRows(snapshot, target, { symbolFor: (key) => symbolFor?.(key) ?? findCuratedAsset(key)?.underlying }).map((r) => ({
+    assetAddress: r.assetAddress,
+    symbol: r.assetAddress === USDC_ALLOCATION_KEY ? "USDC" : (snapshot.holdings.find((h) => h.assetAddress.toLowerCase() === (r.assetAddress as string).toLowerCase())?.symbol ?? r.symbol),
+    currentWeightBps: r.currentBps,
+    targetWeightBps: r.targetBps,
+    deltaUsd: r.deltaUsd,
+    action: r.action === "buy" || r.action === "keep" ? "buy" : r.action === "sell" || r.action === "spend" ? "sell" : "hold",
+  }));
 }

@@ -691,7 +691,7 @@ export function getRepos(): Repos {
       profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined }),
       baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [] }),
-      automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], create: (r: unknown) => r, update: null, remove: undefined }),
+      automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], listAuto: [], create: (r: unknown) => r, update: null, remove: undefined }),
       earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, listByOwner: [] }),
       digests: resilient("digests", new SupabaseDigestRepo(), { get: null, put: undefined, latest: null }),
       pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [] }),

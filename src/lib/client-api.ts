@@ -6,6 +6,7 @@ import type { PortfolioExecution, PortfolioPlan, PortfolioSnapshot, PortfolioTem
 import type { EarnOpportunity } from "@/domain/earn";
 import type { ActivityItem } from "@/domain/activity";
 import type { GiftRecord } from "@/domain/gift";
+import type { AutomationRule } from "@/domain/community";
 import type { Address, Hash } from "viem";
 
 /** Typed client for our own API routes. Provider shapes never reach the browser. */
@@ -58,6 +59,8 @@ export interface ConfigResponse {
   geoblockCountries?: string[];
   /** False when no campaign signer is configured: pools cannot ask for steps here. */
   poolQuestsEnabled?: boolean;
+  /** AutoInvest contract + keeper availability. */
+  autoInvest?: AutoInvestConfig;
   storage: "memory" | "supabase";
   minTradeUsd: number;
   defaultSlippageBps: number;
@@ -104,7 +107,8 @@ export interface PlanRequest {
   totalUsd: number;
   taker?: Address;
   quote?: boolean;
-  source?: "template" | "custom" | "ai";
+  source?: "template" | "custom" | "ai" | "community" | "automation";
+  deferredPolicy?: "reserve" | "redistribute";
 }
 
 export interface PlanResponse {
@@ -124,6 +128,40 @@ export interface TxStatusResponse {
   status: "unknown" | "submitted" | "preconfirmed" | "confirmed" | "failed";
   blockNumber?: number;
   via: string;
+}
+
+export interface AutoInvestConfig {
+  enabled: boolean;
+  address: Address | null;
+  keeperConfigured: boolean;
+  keeper: Address | null;
+}
+
+/** A rule as `/api/automation` returns it: the stored rule plus what is due. */
+export type AutomationRuleDTO = AutomationRule & { due: boolean; missed: number };
+
+export interface AutomationListResponse {
+  rules: AutomationRuleDTO[];
+  autoInvest: AutoInvestConfig;
+}
+
+/** One leg of a prepared auto run (`POST /api/automation/prepare-run`). */
+export interface PreparedRunLeg {
+  index: number;
+  assetAddress: Address;
+  symbol: string;
+  amountIn: string;
+  usd: number;
+  provider: string | null;
+  expectedOut: string | null;
+  skipped: string | null;
+}
+
+export interface PreparedRunResponse {
+  planId: string;
+  total: string;
+  legs: PreparedRunLeg[];
+  swaps: Array<{ target: Address; spender: Address; amountIn: string; minOut: string; data: `0x${string}` }>;
 }
 
 /** AI-drafted automation plan; prefills the form, never saved or run by itself. */

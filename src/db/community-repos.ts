@@ -26,6 +26,8 @@ export interface SnapshotRepo {
 }
 export interface AutomationRepo {
   list(owner: Address): Promise<AutomationRule[]>;
+  /** Every wallet's plans that live in the AutoInvest contract (`config.mode === "auto"`), for the keeper. */
+  listAuto(limit?: number): Promise<AutomationRule[]>;
   create(rule: AutomationRule): Promise<AutomationRule>;
   update(id: string, owner: Address, patch: Partial<AutomationRule>): Promise<AutomationRule | null>;
   remove(id: string, owner: Address): Promise<void>;
@@ -108,6 +110,12 @@ export class MemoryAutomationRepo implements AutomationRepo {
   private items = new Map<string, AutomationRule>();
   async list(owner: Address) {
     return [...this.items.values()].filter((r) => lower(r.owner) === lower(owner)).sort((a, b) => b.createdAt - a.createdAt);
+  }
+  async listAuto(limit = 200) {
+    return [...this.items.values()]
+      .filter((r) => r.config.mode === "auto" && r.status === "active")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
   }
   async create(rule: AutomationRule) {
     this.items.set(rule.id, rule);
@@ -266,6 +274,11 @@ export class SupabaseAutomationRepo implements AutomationRepo {
   }
   async list(owner: Address) {
     const { data, error } = await sb().from("automation_rules").select("*").eq("wallet_address", lower(owner)).order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((r) => this.fromRow(r as Row));
+  }
+  async listAuto(limit = 200) {
+    const { data, error } = await sb().from("automation_rules").select("*").eq("status", "active").eq("config_json->>mode", "auto").order("created_at", { ascending: true }).limit(limit);
     if (error) throw error;
     return (data ?? []).map((r) => this.fromRow(r as Row));
   }

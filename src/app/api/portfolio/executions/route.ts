@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { route, json, parseBody, parseQuery, addressSchema, hashSchema } from "@/lib/api";
+import { requireOwner } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
 import type { PortfolioExecution } from "@/domain/portfolio";
 import type { Hash } from "viem";
@@ -26,9 +27,13 @@ const createSchema = z.object({
   steps: z.array(stepSchema).min(1).max(20),
 });
 
-/** Persist a multi-leg execution so partial fills are never lost (spec §25). */
+/**
+ * Persist a multi-leg execution so partial fills are never lost (spec §25). Only the signed-in
+ * owner can write their own record: a wallet's execution history is theirs alone to add to.
+ */
 export const POST = route({ rateLimit: { key: "exec.write", limit: 30, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
+  requireOwner(req, body.owner);
   const now = Date.now();
   const exec: PortfolioExecution = {
     id: body.id,
@@ -45,6 +50,7 @@ export const POST = route({ rateLimit: { key: "exec.write", limit: 30, windowMs:
 
 export const GET = route({ rateLimit: { key: "exec.read", limit: 120, windowMs: 60_000 } }, async (req) => {
   const { owner } = parseQuery(req, z.object({ owner: addressSchema }));
+  requireOwner(req, owner);
   return json({ executions: await getRepos().executions.listByOwner(owner) });
 });
 

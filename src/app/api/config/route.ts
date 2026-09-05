@@ -7,6 +7,8 @@ import { marketDataConfigured, marketDataProviderId } from "@/services/market-se
 import { getRepos } from "@/db/repositories";
 import { MIN_TRADE_USD, DEFAULT_SLIPPAGE_BPS } from "@/config/chain";
 import { isGateSignerConfigured } from "@/lib/pool/gate";
+import { isAutoInvestDeployed, AUTO_INVEST_ADDRESS } from "@/lib/auto-invest";
+import { isKeeperConfigured, keeperAddress } from "@/lib/viem/keeper-client";
 
 /** Public feature flags. Never includes secrets. */
 export const GET = route({}, async () => {
@@ -25,6 +27,8 @@ export const GET = route({}, async () => {
       /** Quest-gated pools need a campaign signer; without one the app hides that option
        *  instead of letting someone build a campaign that fails at the last step. */
       poolQuestsEnabled: isGateSignerConfigured(),
+      /** AutoInvest: plans that run without the owner present. `keeperConfigured` false means owners run due plans themselves. */
+      autoInvest: { enabled: isAutoInvestDeployed(), address: isAutoInvestDeployed() ? AUTO_INVEST_ADDRESS : null, keeperConfigured: isKeeperConfigured(), keeper: keeperAddress() },
       storage: getRepos().backend,
       minTradeUsd: MIN_TRADE_USD,
       defaultSlippageBps: DEFAULT_SLIPPAGE_BPS,

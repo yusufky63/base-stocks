@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getRepos } from "@/db/repositories";
 import { BasketDetailView } from "@/components/community/BasketDetailView";
+import { StrategiesShell } from "@/components/strategies/StrategiesShell";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -14,7 +15,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
+/** A community basket is a Community page; the section tabs stay so the way back is one tap. */
 export default async function BasketPage({ params }: Props) {
   const { id } = await params;
-  return <BasketDetailView id={id} />;
+  return (
+    <StrategiesShell tab="community" compact>
+      <BasketDetailView id={id} />
+    </StrategiesShell>
+  );
 }

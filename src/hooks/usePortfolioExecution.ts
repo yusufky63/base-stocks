@@ -9,30 +9,36 @@ import { createCustomExecution, createExecution, resetFailedSteps, summarize, up
 import { executeTrade, waitForConfirmation } from "@/lib/trade/execute";
 import { humanizeError, TRADE_ERROR_COPY } from "@/lib/errors";
 import { BASE_CHAIN_ID } from "@/config/chain";
+import { useAuth } from "./useAuth";
 
 /**
  * Multi-leg execution (spec §25, §26). Legs run sequentially through the same executor and
  * B20Guard as single trades; sell legs are supported for manual rebalancing. A failed leg never
  * rolls back completed legs; the UI shows "3 of 4 completed" with a retry.
+ *
+ * `start` and `startLegs` resolve with the execution as it stands when the last leg has settled,
+ * so a caller can tell what was actually bought (a rejected wallet prompt is not a run).
  */
 export function usePortfolioExecution() {
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+  const auth = useAuth();
   const [execution, setExecution] = useState<PortfolioExecution | null>(null);
   const [currentStepId, setCurrentStepId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const latest = useRef<PortfolioExecution | null>(null);
+  const persisted = useRef(false);
 
   const commit = useCallback((next: PortfolioExecution, persist = true) => {
     latest.current = next;
     setExecution(next);
-    if (persist) void apiPatch(`/api/portfolio/executions/${next.id}`, { status: next.status, steps: next.steps }).catch(() => undefined);
+    if (persist && persisted.current) void apiPatch(`/api/portfolio/executions/${next.id}`, { status: next.status, steps: next.steps }).catch(() => undefined);
   }, []);
 
-  const runPending = useCallback(async () => {
+  const runPending = useCallback(async (): Promise<PortfolioExecution | null> => {
     const exec = latest.current;
-    if (!exec || !address || !walletClient || !publicClient) return;
+    if (!exec || !address || !walletClient || !publicClient) return exec;
     setRunning(true);
     try {
       for (const step of exec.steps) {
@@ -73,19 +79,34 @@ export function usePortfolioExecution() {
       setCurrentStepId(null);
       setRunning(false);
     }
+    return latest.current;
   }, [address, chainId, walletClient, publicClient, commit]);
 
-  const persistNew = useCallback(async (exec: PortfolioExecution) => {
-    latest.current = exec;
-    setExecution(exec);
-    await apiPost("/api/portfolio/executions", { id: exec.id, owner: exec.owner, totalUsd: exec.totalUsd, steps: exec.steps }).catch(() => undefined);
-  }, []);
+  /**
+   * The record is the wallet's own, so it is written under its session: one sign-in per session
+   * keeps partial fills on file. Declining the sign-in still runs the trades, just without a record.
+   */
+  const persistNew = useCallback(
+    async (exec: PortfolioExecution) => {
+      latest.current = exec;
+      setExecution(exec);
+      persisted.current = false;
+      const signedIn = await auth.ensureSignedIn().catch(() => false);
+      if (!signedIn) return;
+      await apiPost("/api/portfolio/executions", { id: exec.id, owner: exec.owner, totalUsd: exec.totalUsd, steps: exec.steps })
+        .then(() => {
+          persisted.current = true;
+        })
+        .catch(() => undefined);
+    },
+    [auth],
+  );
 
   const start = useCallback(
     async (plan: PortfolioPlan) => {
       if (!address) throw new Error(TRADE_ERROR_COPY.WALLET_NOT_CONNECTED);
       await persistNew(createExecution(address as Address, plan));
-      await runPending();
+      return runPending();
     },
     [address, persistNew, runPending],
   );
@@ -94,22 +115,23 @@ export function usePortfolioExecution() {
     async (legs: CustomLeg[]) => {
       if (!address) throw new Error(TRADE_ERROR_COPY.WALLET_NOT_CONNECTED);
       await persistNew(createCustomExecution(address as Address, legs));
-      await runPending();
+      return runPending();
     },
     [address, persistNew, runPending],
   );
 
   const retry = useCallback(
     async (stepIds?: string[]) => {
-      if (!latest.current) return;
+      if (!latest.current) return null;
       commit(resetFailedSteps(latest.current, stepIds));
-      await runPending();
+      return runPending();
     },
     [commit, runPending],
   );
 
   const reset = useCallback(() => {
     latest.current = null;
+    persisted.current = false;
     setExecution(null);
     setCurrentStepId(null);
   }, []);

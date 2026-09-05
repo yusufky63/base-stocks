@@ -13,6 +13,8 @@ const byTicker = new Map(CURATED_B20_ASSETS.map((a, i) => [a.underlying.toUpperC
 export const USDC_COLOR = "#9aa3b2";
 /** Idle USDC that is deposited in a yield venue. */
 export const EARN_COLOR = "#14b8a6";
+/** Stock sitting inside a liquidity position; its own colour so it never collides with a stock's. */
+export const LP_COLOR = "#7c8a9e";
 
 function hashHue(key: string): string {
   let h = 0;
@@ -25,6 +27,7 @@ export function assetColor(key: string | undefined | null): string {
   if (!key) return USDC_COLOR;
   if (key === "USDC" || key.toUpperCase() === "USDC") return USDC_COLOR;
   if (key === "EARN") return EARN_COLOR;
+  if (key === "LP") return LP_COLOR;
   const lower = key.toLowerCase();
   if (byAddress.has(lower)) return byAddress.get(lower)!;
   const ticker = key.toUpperCase().replace(/C$/, "");

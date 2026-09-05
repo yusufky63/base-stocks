@@ -39,10 +39,10 @@ Base plans to replace Flashblocks with canonical 200ms blocks in the Denim hardf
 
 ## Phase D — Automation
 
-- **Server-side executor** for due plans: today rules are stored and `isDue()` is computed, but nothing runs without the user (`src/services/automation-service.ts`, no cron). Needs a queue, idempotent runs, and execution records in `portfolio_executions`.
-- **Base Account Spend Permissions**: daily cap, expiry, listed stocks only; separate safety review. Default stays "system proposes → user approves".
-- **Drift alerts UI** and rebalance suggestions as notifications.
-- **Sub Accounts** for app-scoped execution once the executor exists.
+- **AutoInvest built 2026-09-05** (`contracts/src/AutoInvest.sol`, 31 Foundry tests incl. a fuzz over per-leg amounts): recurring purchases that run without the owner. A plan pulls one run's USDC under a normal allowance, swaps through an allow-listed router with the owner as recipient, and the contract checks the owner's balance grew by at least `max(keeper minOut, Chainlink reference − tolerance)`, multiplier-aware. Amount, cadence (O(1) catch-up, no stacked runs), expiry, routes (24 h onchain announcement for additions) and output are enforced onchain; the keeper only chooses timing and route. App surface: keeper tick (`/api/cron/automation`, GitHub Actions every 15 min + a daily Vercel cron), chain-mirrored rules, owner-side runs from the wallet, funding health, run history, trade records for the cost basis, a rewritten Automate page and a deploy runbook (`docs/AUTO_INVEST.md`). **Deployed 2026-09-05** at `0xc767844F2D65ba241DBe2c04f9c01d05cCD9b60E` (source verified on Basescan, owner = the BStocks deployer, keeper `0xffA71652A0a5a9A5b2CDB6AdFe6b753b1488c39C`, feeds registered for all 13 stocks, KyberSwap / Aerodrome / OKX routes allowed from day one). A full dry run on mainnet state (`src/services/auto-invest.simulate.test.ts`, eth_simulateV1) buys 0.1086 NVDAc for $25 through Kyber above the Chainlink floor and refuses a second run inside the week. Still open: fund the keeper with ETH, set `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` + `AUTOMATION_KEEPER_KEY` on Vercel and `CRON_SECRET` on GitHub, run a small real plan end to end from the Automate page, then an independent read of the contract before promoting it.
+- **Base Account Spend Permissions** as a second funding rail (no allowance transaction for Base Account users). Would let a spender EOA pull per-period allowances; the swap and recipient logic stays in the contract.
+- **Notifications** for due manual runs and failed auto runs (mini-app notifications when available).
+- **Sub Accounts** for app-scoped execution.
 
 ## Phase E — Reach
 

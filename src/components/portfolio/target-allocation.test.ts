@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Address } from "viem";
 import type { PortfolioSnapshot } from "@/domain/portfolio";
-import { allocationsFromSnapshot, maxDriftBps } from "./TargetAllocation";
+import { currentMix as allocationsFromSnapshot, maxDriftBps } from "@/lib/portfolio/drift";
 
 const NVDA = "0xb20000000000000000000078ee7ce2fE4908108C" as Address;
 const AAPL = "0xb200000000000000000000C2e324d24d7eEcd1fb" as Address;
@@ -80,7 +80,8 @@ describe("drift against the target", () => {
     expect(maxDriftBps(snapshot([]), target)).toBeNull();
   });
 
-  it("ignores a cash leg in the target", () => {
+  /** A zero-weight cash leg is no cash leg: the wallet's $500 stays out of the measure. */
+  it("ignores an empty cash leg in the target", () => {
     const withCash = [...target, { assetAddress: "USDC" as const, weightBps: 0 }];
     expect(maxDriftBps(snapshot([
       { assetAddress: NVDA, marketValueUsd: 500 },
