@@ -109,3 +109,32 @@ export function useChartStyle() {
   }, []);
   return { style, setStyle };
 }
+
+/* ---------------- Markets view ---------------- */
+
+export type MarketsView = "list" | "heatmap";
+const MARKETS_VIEW_KEY = "bstocks:marketsView";
+
+function readMarketsView(): MarketsView {
+  try {
+    const v = localStorage.getItem(MARKETS_VIEW_KEY);
+    if (v === "list" || v === "heatmap") return v;
+  } catch {
+    /* ignore */
+  }
+  return "list";
+}
+
+/** List or heatmap on the Markets page; the list by default, the choice remembered on this device. */
+export function useMarketsView() {
+  const view = useSyncExternalStore(subscribe, readMarketsView, () => "list" as MarketsView);
+  const setView = useCallback((v: MarketsView) => {
+    try {
+      localStorage.setItem(MARKETS_VIEW_KEY, v);
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new Event(EVENT));
+  }, []);
+  return { view, setView };
+}

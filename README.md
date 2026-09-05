@@ -27,7 +27,7 @@ The narrative and FAQ live in the app at `/how-it-works`. The technical referenc
 - **Installable**: a web app manifest with maskable icons and shortcuts; add BStocks to a phone or desktop and it opens in its own window. No service worker, so no stale prices from a cache.
 - **Printable gift cards**: every gift link, bulk link and pool link prints as a QR card (four to an A4 sheet), drawn in the browser — the link never reaches a server.
 - **Public feed**: the latest verified transactions, with no wallet named, on Home and on Activity for visitors without a wallet; the same shared-cached object as the counters and `/stats`.
-- **Screener and heatmap**: Markets filters by status and sector; the heatmap colours each stock by its 24h move and doubles the three deepest markets.
+- **Heatmap view**: Markets can be read as tiles instead of a list, each stock coloured by its 24h move with the three deepest markets doubled; the choice is remembered.
 - **Benchmark**: the equal-weight index of the listed stocks runs dashed behind the portfolio's value history, one shared-cached series per window.
 - **Market clock and premium meter**: the ticker says whether the NYSE is open and when that changes; every stock page shows how far the pool price sits from the Chainlink reference.
 - **Gift a basket**: any template or basket becomes a one-share package, claimable with a link, from the stocks you hold.
