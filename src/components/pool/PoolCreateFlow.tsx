@@ -14,7 +14,7 @@ import { BASE_CHAIN_ID } from "@/config/chain";
 import { publicEnv } from "@/config/env";
 import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
-import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, giftPoolAbi, makePoolLinkSecret, poolPath, poolSalt, splitIntoShares } from "@/lib/pool";
+import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, giftPoolAbi, makePoolLinkSecret, poolPath, poolSalt, sharesForUsd, splitIntoShares } from "@/lib/pool";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { callAfterApproval } from "@/lib/trade/execute";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +24,7 @@ import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { Input } from "@/components/ui/Input";
 import { Button, Chip, KeyValue, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
+import { Sheet } from "@/components/ui/Sheet";
 import { AssetLogo, ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ShareActions } from "@/components/common/ShareSheet";
 import { QuestPicker, questsValid } from "./QuestPicker";
@@ -43,8 +44,21 @@ const SLOT_PRESETS = [5, 10, 25, 100];
 type Phase = "form" | "signing" | "submitted" | "ready";
 
 interface LegDraft {
-  /** Human amount of the TOTAL to give away for this stock. */
+  /** Human amount of the TOTAL to give away for this stock, always in share units. */
   total: string;
+  /**
+   * Which unit the creator is typing in. The stored total is always units — dollars are a lens on
+   * it, converted on the way in and on the way out, so the amount has one source of truth and a
+   * price that moves between keystrokes cannot rewrite what was already entered.
+   */
+  mode?: "units" | "usd";
+  /**
+   * Exactly what was typed in dollar mode, kept as text.
+   *
+   * Deriving it back from the units would round the creator's own "10" into "9.99" between
+   * keystrokes, so the dollars they typed stay theirs and the units are what is computed.
+   */
+  usdText?: string;
 }
 
 /**
@@ -71,6 +85,7 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
   const [quests, setQuests] = useState<Quest[]>([]);
 
   const [phase, setPhase] = useState<Phase>("form");
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<HumanError | null>(null);
   const [created, setCreated] = useState<{ pool: PoolRecord; link: string } | null>(null);
   const [txHash, setTxHash] = useState<Hash | undefined>();
@@ -102,12 +117,50 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
     return price === null ? sum : sum + Number(formatUnits(l.funded, l.asset.decimals)) * price;
   }, 0);
   const anyUnpriced = legs.some((l) => l.holding.priceUsd === null);
+  /** What one claim pays out, per stock — the sentence the pool is really described by. */
+  const perLabels = legs.map((l) => `${formatTokenAmount((l.perClaim * l.multiplier) / l.wad, l.asset.decimals)} ${l.asset.underlying}`);
 
   const toggle = (addr: string) => {
     setPicked((cur) => (cur.includes(addr) ? cur.filter((a) => a !== addr) : cur.length >= MAX_POOL_LEGS ? cur : [...cur, addr]));
   };
 
-  const setTotal = (addr: string, total: string) => setDrafts((d) => ({ ...d, [addr]: { total } }));
+  const setTotal = (addr: string, total: string) => setDrafts((d) => ({ ...d, [addr]: { ...d[addr], total } }));
+  const setMode = (addr: string, mode: "units" | "usd") =>
+    setDrafts((d) => {
+      const draft = d[addr] ?? { total: "" };
+      // Switching to dollars shows what the units are worth, so the figure carries across.
+      const usd = mode === "usd" ? (legUsd(addr) ?? null) : null;
+      return { ...d, [addr]: { ...draft, mode, usdText: usd !== null && usd > 0 ? usd.toFixed(2) : draft.usdText } };
+    });
+
+  const setUsd = (addr: string, usdText: string) =>
+    setDrafts((d) => ({ ...d, [addr]: { ...d[addr], mode: "usd", usdText, total: unitsForUsd(addr, usdText) } }));
+
+  const unitsForUsd = (addr: string, usd: string): string => {
+    const holding = holdings.find((h) => h.assetAddress.toLowerCase() === addr);
+    const asset = assetFor(addr);
+    if (!holding || !asset) return "";
+    return sharesForUsd(usd, holding.priceUsd, asset.multiplier, asset.wadPrecision, asset.decimals);
+  };
+
+  /** What a leg is worth right now, or null when the stock has no price to go on. */
+  const legUsd = (addr: string): number | null => {
+    const leg = legs.find((l) => l.addr === addr);
+    const price = leg?.holding.priceUsd ?? null;
+    if (!leg || price === null) return null;
+    return Number(formatUnits(leg.funded, leg.asset.decimals)) * price;
+  };
+
+  /** A slice of what the wallet holds, which is the way most of this is actually decided. */
+  const setPortion = (addr: string, fraction: number) => {
+    const holding = holdings.find((h) => h.assetAddress.toLowerCase() === addr);
+    const asset = assetFor(addr);
+    if (!holding || !asset) return;
+    const multiplier = BigInt(asset.multiplier);
+    const wad = BigInt(asset.wadPrecision);
+    const portion = (BigInt(holding.rawBalance) * BigInt(Math.round(fraction * 1000))) / 1000n;
+    setTotal(addr, formatUnits((portion * multiplier) / wad, asset.decimals));
+  };
 
   /** A lock can never outlast the claim window, so shortening the window releases it. */
   const setWindow = (d: number) => {
@@ -115,14 +168,6 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
     if (lockDays >= d) setLockDays(0);
   };
 
-  const setMax = (addr: string) => {
-    const holding = holdings.find((h) => h.assetAddress.toLowerCase() === addr);
-    const asset = assetFor(addr);
-    if (!holding || !asset) return;
-    const multiplier = BigInt(asset.multiplier);
-    const wad = BigInt(asset.wadPrecision);
-    setTotal(addr, formatUnits((BigInt(holding.rawBalance) * multiplier) / wad, asset.decimals));
-  };
 
   const qr = useQuery({
     queryKey: ["pool-qr", created?.pool.id ?? ""],
@@ -251,7 +296,6 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
   /* ------------------------------- done view ------------------------------- */
 
   if (phase === "ready" && created) {
-    const perLabels = legs.map((l) => `${formatTokenAmount((l.perClaim * l.multiplier) / l.wad, l.asset.decimals)} ${l.asset.underlying}`);
     return (
       <div className="flex flex-col gap-4">
         <div className="border border-line rounded-[8px] p-4 bg-surface flex items-center gap-4">
@@ -319,28 +363,57 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
                       <span className="block font-mono num text-[11px] text-ink-secondary">{`${formatTokenAmount(h.scaledBalance, h.decimals)} available`}</span>
                     </span>
                   </button>
-                  {on && (
-                    <span className="flex items-center gap-2 shrink-0 w-[190px]">
-                      <Input
-                        value={drafts[addr]?.total ?? ""}
-                        onChange={(e) => setTotal(addr, e.target.value)}
-                        placeholder="Total to give"
-                        inputMode="decimal"
-                        aria-label={`Total ${h.underlying} to put in the pool`}
-                        className="!h-9 text-[13px]"
-                      />
-                      <Chip onClick={() => setMax(addr)} className="h-9 min-h-[36px] px-2 text-[11px]">
-                        Max
-                      </Chip>
-                    </span>
-                  )}
                 </div>
-                {on && leg && leg.perClaim > 0n && (
-                  <div className="px-3 pb-2.5 -mt-1 font-mono text-[11px] text-ink-secondary num">
-                    {`${formatTokenAmount((leg.perClaim * leg.multiplier) / leg.wad, leg.asset.decimals)} ${leg.asset.underlying} per person`}
-                    {leg.dust > 0n && ` · ${formatTokenAmount((leg.dust * leg.multiplier) / leg.wad, leg.asset.decimals)} stays in your wallet (does not divide evenly)`}
-                  </div>
-                )}
+                {on && (() => {
+                  const mode = drafts[addr]?.mode ?? "units";
+                  const priced = h.priceUsd !== null && h.priceUsd !== undefined;
+                  const usd = legUsd(addr);
+                  return (
+                    <div className="px-3 pb-3 -mt-0.5 flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={mode === "usd" ? (drafts[addr]?.usdText ?? "") : (drafts[addr]?.total ?? "")}
+                          onChange={(e) => (mode === "usd" ? setUsd(addr, e.target.value) : setTotal(addr, e.target.value))}
+                          placeholder={mode === "usd" ? "Total in dollars" : `Total ${h.underlying} to give`}
+                          inputMode="decimal"
+                          aria-label={`Total to put in the pool, in ${mode === "usd" ? "dollars" : h.underlying}`}
+                          className="!h-9 text-[13px] flex-1"
+                        />
+                        {/* Typing a dollar figure is how most people decide this; the units follow. */}
+                        {priced && (
+                          <Segmented<"units" | "usd">
+                            size="sm"
+                            className="w-[104px] shrink-0"
+                            ariaLabel="Amount unit"
+                            value={mode}
+                            onChange={(m) => setMode(addr, m)}
+                            options={[{ value: "units", label: h.underlying }, { value: "usd", label: "$" }]}
+                          />
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="flex items-center gap-1.5">
+                          {[0.25, 0.5, 1].map((p) => (
+                            <Chip key={p} onClick={() => setPortion(addr, p)} className="h-7 min-h-0 px-2 text-[11px]">
+                              {p === 1 ? "Max" : `${p * 100}%`}
+                            </Chip>
+                          ))}
+                        </span>
+                        {leg && leg.perClaim > 0n && (
+                          <span className="font-mono num text-[11px] text-ink-secondary text-right">
+                            {usd !== null && `${formatUsd(usd)} · `}
+                            {`${formatTokenAmount((leg.perClaim * leg.multiplier) / leg.wad, leg.asset.decimals)} ${leg.asset.underlying} each`}
+                          </span>
+                        )}
+                      </div>
+                      {leg && leg.dust > 0n && (
+                        <p className="font-mono num text-[11px] text-ink-muted">
+                          {`${formatTokenAmount((leg.dust * leg.multiplier) / leg.wad, leg.asset.decimals)} stays in your wallet — it does not divide evenly into ${slots}.`}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </li>
             );
           })}
@@ -463,9 +536,61 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
       </div>
 
       {error && <ErrorBanner message={error.message} detail={error.detail} />}
-      <Button full size="lg" loading={busy} disabled={!ready} onClick={() => void create()}>
-        {busy ? (phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…") : `Create pool · ${slots} shares`}
+      <Button full size="lg" loading={busy} disabled={!ready} onClick={() => setConfirming(true)}>
+        {busy ? (phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…") : `Review and create · ${slots} shares`}
       </Button>
+
+      {/*
+        A pool is a transfer into a contract, and the terms it is created under cannot be edited
+        afterwards. So the last screen before the wallet shows the thing as a claimant will meet it,
+        says plainly whether it can be taken back, and asks again.
+      */}
+      {confirming && (
+        <Sheet open={confirming} onClose={() => setConfirming(false)} title="Before you create it" wide>
+          <div className="flex flex-col gap-4">
+            <div className="border border-line rounded-[8px] overflow-hidden">
+              <div className="px-4 py-2 border-b border-line bg-surface font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">What each person sees</div>
+              <div className="p-4 flex flex-col gap-1">
+                <div className="eyebrow text-primary">{isPublic ? "Public gift pool" : "Gift pool"}</div>
+                <div className="display text-[26px] leading-[1.1]">{title.trim() || perLabels.join(" + ") || "A tokenized stock"}</div>
+                {title.trim() && <div className="font-mono num text-[13px] text-ink-secondary">{perLabels.join(" + ")} each</div>}
+                {message.trim() && <p className="text-[13px] text-ink-secondary">“{message.trim()}”</p>}
+                <div className="mt-1 font-mono text-[11px] text-ink-muted">{`${slots} shares · one per wallet · ${days} days to claim`}</div>
+              </div>
+            </div>
+
+            <div className="flex flex-col">
+              <KeyValue k="Moves into escrow" v={legs.map((l) => `${formatTokenAmount((l.funded * l.multiplier) / l.wad, l.asset.decimals)} ${l.asset.underlying}`).join(" + ") || "—"} mono={false} />
+              {usdTotal > 0 && <KeyValue k="Approximate value" v={`${formatUsd(usdTotal)}${anyUnpriced ? " +" : ""} · ${formatUsd(usdTotal / slots)} each`} mono={false} />}
+              <KeyValue k="Who can claim" v={gateMode === "open" ? "Anyone, one share per wallet" : gateMode === "link" ? "Anyone with your link" : `${quests.length} step${quests.length === 1 ? "" : "s"} to complete first`} mono={false} />
+              <KeyValue k="Listed publicly" v={isPublic ? "Yes, in the pool directory" : "No, only through your link"} mono={false} />
+            </div>
+
+            {/* The one thing that cannot be undone later, said before it is chosen rather than after. */}
+            <InfoBanner tone={lockDays > 0 ? "warning" : "neutral"}>
+              <span className="inline-flex items-start gap-2">
+                {lockDays > 0 ? <Lock size={15} strokeWidth={1.75} className="shrink-0 mt-0.5 text-warning-fg" /> : <TriangleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-0.5" />}
+                <span>
+                  {lockDays > 0
+                    ? `You are locking this for ${lockDays} days. Until then you cannot cancel it or take anything back, whatever happens — that is the promise the lock makes to claimants, and it is enforced by the contract, not by us.`
+                    : "You can cancel this pool at any time; whatever is left unclaimed comes back to you. Claimed shares are gone — those belong to whoever claimed them."}
+                </span>
+              </span>
+            </InfoBanner>
+
+            <p className="text-[12px] text-ink-muted">The number of shares, the amount each one pays out and the claim window are fixed when the pool is created. Nothing here can be edited afterwards.</p>
+
+            <div className="flex gap-2">
+              <Button variant="secondary" full onClick={() => setConfirming(false)}>
+                Back
+              </Button>
+              <Button full loading={busy} onClick={() => void create()}>
+                {busy ? (phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…") : "Create pool"}
+              </Button>
+            </div>
+          </div>
+        </Sheet>
+      )}
       <p className="text-[12px] text-ink-muted">
         <Link2 size={12} strokeWidth={1.75} className="inline mr-1" />
         The stocks move into the BStocks gift pool, an ownerless contract that can only pay a claimant their exact share or return the remainder to you. On Base Account this is a single confirmation.

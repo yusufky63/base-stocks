@@ -281,3 +281,25 @@ export function splitIntoShares(totalRaw: bigint, slots: number): { perClaim: bi
   const funded = perClaim * BigInt(slots);
   return { perClaim, funded, dust: totalRaw - funded };
 }
+
+/**
+ * How many share units a dollar figure buys, for the pool creator typing in money rather than in
+ * fractions of a share.
+ *
+ * The price quotes the raw token, while the amount the creator enters is in share units, so the
+ * multiplier has to be undone on the way through — for a stock that has never split the two are the
+ * same and this is a no-op, and for one that has, they are not. Returns an empty string rather than
+ * a zero for anything it cannot answer: an unpriced stock, a blank field, a negative.
+ */
+export function sharesForUsd(usd: string | number, priceUsd: number | null | undefined, multiplier: string | bigint, wadPrecision: string | bigint, decimals: number): string {
+  const n = typeof usd === "number" ? usd : Number(usd);
+  if (!priceUsd || !Number.isFinite(n) || n <= 0) return "";
+  const rawUnits = n / priceUsd;
+  const shares = (rawUnits * Number(wadPrecision)) / Number(multiplier);
+  if (!Number.isFinite(shares) || shares <= 0) return "";
+  const fixed = shares.toFixed(Math.min(decimals, 8));
+  // Dollars too small to reach one unit of precision round to zero, and "0" in the field is not an
+  // amount — it is a wrong answer that looks like one. Say nothing instead.
+  if (Number(fixed) === 0) return "";
+  return fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed;
+}
