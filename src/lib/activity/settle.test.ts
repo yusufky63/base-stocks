@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settleRecord } from "./activity-service";
+import { settleRecord } from "./timeline";
 
 describe("what became of a record the app wrote down", () => {
   /** Seeing the token move is the chain saying it happened; nothing else needs asking. */

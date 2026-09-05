@@ -32,7 +32,7 @@ export function ActivityView() {
           )}
           {isError && <p className="px-4 py-4 text-[14px] text-danger-fg">Activity could not be loaded.</p>}
           {data && <ActivityList items={data} />}
-          <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">App records are marked “unverified” until a matching onchain transfer is found. Onchain history covers the most recent blocks reachable from the RPC.</p>
+          <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">One transaction is one row: a basket, an auto-invest run or a batch of gift links shows once, with its legs inside. Every row the app recorded is checked against the transaction receipt on Base; “Pending” means the receipt is not in yet. Transfers nobody recorded here are read from the chain for the most recent blocks.</p>
         </Module>
       )}
     </div>

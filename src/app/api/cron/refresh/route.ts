@@ -4,6 +4,7 @@ import { AppError } from "@/lib/errors";
 import { syncDiscoveredAssets } from "@/services/b20-asset-service";
 import { getStatusReport } from "@/services/status-service";
 import { sweepOpenPools } from "@/services/pool-service";
+import { sweepEarn } from "@/services/earn-reconcile-service";
 import { getSupabaseAdmin } from "@/db/supabase";
 
 export const maxDuration = 60;
@@ -24,6 +25,8 @@ export const GET = route({}, async (req) => {
   const discovery = await syncDiscoveredAssets({ lookbackBlocks: 120_000n }).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }));
   const status = await getStatusReport().catch(() => null);
   const pools = await sweepOpenPools().catch(() => ({ pools: 0, added: 0 }));
+  // Earn records the browser failed to write are filled in from the venues' own events.
+  const earn = await sweepEarn().catch((err) => ({ error: err instanceof Error ? err.message : String(err) }));
   // Durable rate-limit windows (key "rl:*") accumulate one row per window; sweep anything older than two days.
   const sb = getSupabaseAdmin();
   if (sb) {
@@ -32,5 +35,5 @@ export const GET = route({}, async (req) => {
       if (error) console.warn("[cron] rl sweep:", error.message);
     });
   }
-  return json({ ok: true, ms: Date.now() - started, discovery, pools, status: status ? { overall: status.overall, checks: status.checks.length } : null });
+  return json({ ok: true, ms: Date.now() - started, discovery, pools, earn, status: status ? { overall: status.overall, checks: status.checks.length } : null });
 });

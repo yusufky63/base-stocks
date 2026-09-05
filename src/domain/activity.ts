@@ -5,12 +5,34 @@ export type ActivityType =
   | "sell"
   | "send"
   | "receive"
+  /** A basket or rebalance: several purchases, one row, the legs inside it. */
   | "portfolio-build"
+  /** One AutoInvest run: one transaction, one row, the stocks it bought inside it. */
+  | "auto-invest"
   | "earn-supply"
   | "earn-withdraw"
+  /** Stock and USDC put into a liquidity position. */
   | "earn-liquidity"
+  /** Fees taken out of a liquidity position. */
+  | "earn-collect"
+  /** The deposit that funds a gift pool. */
+  | "pool-create"
+  /** Taking one share from a gift pool. */
+  | "pool-claim"
   | "approve"
   | "unknown";
+
+/** One purchase (or sale) inside a grouped row. */
+export interface ActivityLeg {
+  assetAddress: Address;
+  symbol: string;
+  amountUsd?: number;
+  rawAmount?: string;
+  decimals?: number;
+  txHash?: Hash;
+  status: "confirmed" | "failed" | "pending";
+  provider?: string;
+}
 
 export interface ActivityItem {
   id: string;
@@ -33,5 +55,9 @@ export interface ActivityItem {
   /** "app" records are never proof until matched with chain state. */
   source: "app" | "receipt" | "onchain";
   verified: boolean;
+  /** Present on grouped rows (a basket, an auto-invest run, a pool): what each leg did. */
+  legs?: ActivityLeg[];
+  /** How many records this row stands for (e.g. ten gift links funded in one transaction). */
+  count?: number;
   metadata?: Record<string, unknown>;
 }

@@ -312,3 +312,32 @@ alter table public.gift_pools       enable row level security;
 alter table public.gift_pool_legs   enable row level security;
 alter table public.gift_pool_claims enable row level security;
 revoke all on all tables in schema public from anon, authenticated;
+
+-- ---------- Verified receipts ----------
+-- Mined receipts the app has verified (activity timeline, platform stats), so a verification is
+-- done once and shared across serverless instances. A receipt never changes once mined; pending
+-- transactions are never stored.
+create table if not exists public.tx_receipts (
+  tx_hash      text primary key,
+  status       text not null check (status in ('success', 'reverted')),
+  block_number bigint not null,
+  block_time   bigint,                         -- unix seconds of the block, when read
+  checked_at   timestamptz not null default now()
+);
+alter table public.tx_receipts enable row level security;
+revoke all on all tables in schema public from anon, authenticated;
+
+-- ---------- Earn: fee collection, and chain-sweep cursors ----------
+-- Liquidity positions also collect fees; the record keeps that as its own action.
+alter table public.earn_actions drop constraint if exists earn_actions_action_check;
+alter table public.earn_actions add constraint earn_actions_action_check check (action in ('deposit', 'withdraw', 'collect'));
+create index if not exists earn_actions_tx_idx on public.earn_actions (tx_hash);
+
+-- Where a chain sweep left off (block numbers), so the next run reads only new blocks.
+create table if not exists public.sync_cursors (
+  key        text primary key,
+  value      bigint not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.sync_cursors enable row level security;
+revoke all on all tables in schema public from anon, authenticated;

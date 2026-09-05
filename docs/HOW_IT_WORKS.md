@@ -123,7 +123,7 @@ Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market pr
 3. **Allowance**: exact amount, only to the spender the provider returned; native ETH sells skip it.
 4. **Simulation** with `eth_call` before any signature; failures are explained (`humanizeError`).
 5. **Submit**: EOA wallets sign sequentially; Base Account batches approval + swap atomically (EIP-5792) with sponsored gas when `NEXT_PUBLIC_PAYMASTER_URL` is set. Calldata carries the ERC-8021 Builder Code suffix (`bc_71vd6x2w` by default, `NEXT_PUBLIC_BASE_BUILDER_CODE` overrides it); batched sends also pass it as the EIP-5792 `dataSuffix` capability so smart wallets append it to the outer UserOperation callData. The site head carries `base:app_id` for web attribution.
-6. **Tracking**: Submitted → Preconfirmed (Flashblocks RPC) → Confirmed; a trade record is written and later verified against onchain `Transfer` logs (activity marks unverified app records).
+6. **Tracking**: Submitted → Preconfirmed (Flashblocks RPC) → Confirmed; a trade record is written and later verified against the transaction receipt (`src/services/receipt-service.ts`, cached in `tx_receipts` so the chain is asked once per hash) or a matching onchain `Transfer`. The activity timeline (`src/lib/activity/timeline.ts`, pure and tested) holds to *one transaction, one row*: a basket's leg trades fold into the basket, an AutoInvest run's per-stock rows fold into one run, a gift bought for someone is the gift (with the purchase price on it), gift links funded together are one row with a count, and pool deposits and claims appear as their own rows. Transfers no record explains are still read from the chain.
 7. **Pay with ETH**: buys can sell native ETH (`payWith: "ETH"`); the USD amount is converted with the live ETH price; no bridge needed.
 8. **Gifts**: buy-for-recipient delivers straight to the recipient; send-existing uses `transferWithMemo(bytes32)` with a reconciliation memo; both create a gift record, a public receipt page and a share sheet (Base app / X / copy). Recipients are resolved server-side: Basename forward or reverse (forward-verified), avatar, and the BStocks profile (member badge, handle when public).
 
@@ -148,6 +148,7 @@ One deposit, many equal claims — the contract behind `/pools`. Ownerless like 
 
 - **Discovery** (`src/services/earn-opportunity-service.ts`): per asset, in parallel with 7 s timeouts: Morpho (vaults via API with `allRewards` / `netApyExcludingRewards`; borrow markets by `collateralAssetAddress_in`), Aave V3 (reserve list onchain), Compound v3 (Comet markets), Aerodrome (v2 factory + two Slipstream factories), Uniswap v3 (factory `getPool` for the standard fee tiers against USDC and WETH), plus GeckoTerminal top pools for Uniswap v4 and other venues. `/api/earn` reports what was scanned and which venue did not answer, and the UI prints it in empty states.
 - **In-app execution** (`/api/earn/prepare` → `EarnDepositSheet`): Morpho vaults (ERC-4626, "Powered by Morpho" + disclaimer acknowledgement), Aave V3, Compound v3; exact approval, simulation, atomic batch on Base Account; `earn_actions` records verified by receipt. Pools and borrow markets open on the venue while positions stay tracked here.
+- **Reconciliation from the chain** (`src/services/earn-reconcile-service.ts`): the browser's record is a hint; Aave `Supply`/`Withdraw`, ERC-4626 `Deposit`/`Withdraw` and Comet `Supply`/`Withdraw` events are the truth. A cursor-driven sweep (`sync_cursors`, floor block 50,700,000) over every wallet the app knows fills in missing `earn_actions` rows and stores their receipts; it runs from the daily cron, before each statistics computation, and on demand via `POST /api/admin/earn/reconcile`. The activity timeline runs a per-wallet look over the last 30k blocks (incremental afterwards). Liquidity positions minted, withdrawn or harvested in the app write their own records (`action` `deposit` / `withdraw` / `collect`, provider `uniswap` / `aerodrome`, the USDC leg as the amount, both legs in USD at the pool price at the time).
 - **LP positions** (`src/services/lp-positions-service.ts`): Uniswap v3 and Slipstream position managers → amounts from liquidity and ticks (`src/lib/earn/lp-math.ts`), USD value, range in USD per share, in/out of range, uncollected fees via a simulated `collect`. Counted in the portfolio total, shown on the Earn page and as an "In liquidity pools" line on the stock page.
 - **Liquidity map** (`/api/market/[address]/pools`): every pool GeckoTerminal lists for a stock, with flags: prices from here, routed, LP tracked, on Earn tab, plus totals. Reserves matched onchain balances within 0.3 % when verified.
 - **Earn value** in the portfolio: USDC positions (vault shares → assets, aToken balances, Comet balances) + LP value.
@@ -186,7 +187,7 @@ One deposit, many equal claims — the contract behind `/pools`. Ownerless like 
 
 ## 10. Storage (Supabase)
 
-`trade_records`, `gifts`, `portfolio_executions` + `portfolio_execution_steps`, `portfolio_templates` + `portfolio_template_allocations`, `portfolio_snapshots` (daily value history), `watchlists`, `profiles`, `baskets` + `basket_votes`, `referrals`, `automation_rules`, `earn_actions`, `discovered_assets` (with `underlying`, `chainlink_feed`, `tags`, `eligible`, `auto_verified`, `creator`, `reason`), `ai_usage`, `ai_digests`. Schema: `supabase/schema.sql`; migrations were applied through the Supabase MCP.
+`trade_records`, `gifts`, `portfolio_executions` + `portfolio_execution_steps`, `portfolio_templates` + `portfolio_template_allocations`, `portfolio_snapshots` (daily value history), `watchlists`, `profiles`, `baskets` + `basket_votes`, `referrals`, `automation_rules`, `earn_actions`, `discovered_assets` (with `underlying`, `chainlink_feed`, `tags`, `eligible`, `auto_verified`, `creator`, `reason`), `ai_usage`, `ai_digests`, `tx_receipts` (verified receipts: hash, status, block, block time — written once, shared by every instance), `sync_cursors` (where each chain sweep left off). Schema: `supabase/schema.sql`; migrations were applied through the Supabase MCP.
 
 ---
 
@@ -240,11 +241,12 @@ No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp 
 | `GET/POST/PUT /api/pools/[id]/claims` | Claim roster (creator only), a claim page reporting its transaction, and the log reconciliation |
 | `GET /api/basename/resolve`, `/reverse` | Recipient resolution with profile |
 | `GET /api/activity/[address]` | Timeline with onchain verification |
+| `GET /api/stats` | Platform statistics for `/stats` and the home module: every record verified by receipt, aggregated by `src/lib/stats/aggregate.ts` (pure, tested), recomputed every 5 min |
 | `GET /api/profiles/[ref]`, `/me`, `GET/POST /api/baskets`, `/api/community/pulse`, `/api/referrals`, `/api/watchlist` | Community and profile |
 | `GET /api/news` (`?scope=stocks|markets|ecosystem`, `?ticker=`), `/api/news/digest` | Headlines (the ecosystem scope tags each title with the listed tickers it names), shared brief with the Base & Coinbase spotlight |
 | `GET/POST /api/region`, `/api/config`, `/api/status`, `/api/health` | Region and attestation, public flags, live checks, metrics |
 | `/api/auth/*` | SIWE nonce, verify, session |
-| `/api/admin/*` | Discovery verification |
+| `/api/admin/*` | Discovery verification; `POST /api/admin/earn/reconcile` runs the Earn sweep now (`fromBlock`, `maxBlocks` optional) |
 
 ---
 
@@ -252,6 +254,7 @@ No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp 
 
 - `/status` probes: Base RPC, Chainlink feed, DexScreener, GeckoTerminal, 0x, KyberSwap, OKX, Uniswap API, Velora, Aerodrome, Morpho, Aave, Compound, DEX pools, discovery, Basenames, Supabase, AI provider, news feeds, Builder Code. HTTP 429 is reported as degraded, not down.
 - `/api/health` exposes the metrics registry (calls, errors, last error per counter, breaker opens) in non-production or with the admin token.
+- `/stats` is the platform ledger: headline figures per window (24h / 7d / 30d / all), trading by stock and route, strategies (baskets, AutoInvest and manual plan runs, community baskets), gifts (direct, links, pools, valued at today's price), Earn by venue, people (wallets counted once), a 30-day chart, a verification block (verified / pending / reverted / no hash / duplicates collapsed) and the latest verified transactions with Basescan links. Rules: a transaction counts only with a `success` receipt; one (transaction, stock, side) is one trade, merged across trade rows and execution steps; a gift bought for someone is one trade and one gift.
 - Checks used in development: `pnpm exec tsc --noEmit`, `pnpm exec eslint src`, `pnpm exec vitest run`, `pnpm exec next build`.
 
 ## 14. RPC and provider economy

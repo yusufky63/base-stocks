@@ -6,10 +6,10 @@ import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/t
 import { GiftsCard } from "@/components/pool/PoolList";
 import { useAccount } from "wagmi";
 import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from "lucide-react";
-import { useAssets, useActivity, useCommunityPulse, usePortfolio, useTemplates, useWatchlist, useSparklines } from "@/hooks/queries";
+import { useAssets, useActivity, useCommunityPulse, usePortfolio, useTemplates, useWatchlist, useSparklines, useStats } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
 import type { PortfolioTemplate } from "@/domain/portfolio";
-import { formatUsd, bpsToPct, formatUsdCompact } from "@/lib/format";
+import { formatUsd, bpsToPct, formatUsdCompact, timeAgo } from "@/lib/format";
 import { sortTemplatesByLiveness, templateLiveness } from "@/lib/templates";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { Coin3D } from "@/components/common/Coin3D";
@@ -196,6 +196,8 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             </Module>
           )}
 
+          <PlatformStatsModule />
+
           <CommunityPulseModule />
         </div>
       </div>
@@ -321,6 +323,46 @@ function CoinCluster({ items }: { items: Array<{ asset: AssetsResponse["assets"]
         );
       })}
     </div>
+  );
+}
+
+/**
+ * What the platform has done so far, in six figures. Every one is counted from a transaction
+ * receipt on Base, never from a running counter; the full breakdown lives on /stats.
+ */
+function PlatformStatsModule() {
+  const { data } = useStats();
+  const s = data?.windows.all;
+  const delivered = s ? s.directGifts + s.linksClaimed + s.poolClaims : 0;
+  const cells = s
+    ? [
+        { label: "Trade volume", value: formatUsdCompact(s.tradeVolumeUsd) },
+        { label: "Trades", value: s.trades.toLocaleString("en-US") },
+        { label: "Wallets", value: s.wallets.toLocaleString("en-US") },
+        { label: "Gifts delivered", value: delivered.toLocaleString("en-US") },
+        { label: "USDC into Earn", value: formatUsdCompact(s.earnDepositUsd) },
+        { label: "Plan runs", value: s.planRuns.toLocaleString("en-US") },
+      ]
+    : [];
+  return (
+    <Module ticks>
+      <ModuleHeader title="BStocks so far" action={<Link href="/stats" className="text-[13px] text-primary font-medium">All stats →</Link>} />
+      {!s ? (
+        <div className="p-4">
+          <Skeleton className="h-16" />
+        </div>
+      ) : (
+        <dl className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-line">
+          {cells.map((c) => (
+            <div key={c.label} className="bg-canvas px-4 py-3 min-w-0">
+              <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
+              <dd className="display num text-[22px] leading-none mt-1 truncate">{c.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">Every figure is checked against its transaction receipt on Base{data ? ` · updated ${timeAgo(data.generatedAt)}` : ""}.</p>
+    </Module>
   );
 }
 

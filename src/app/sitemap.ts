@@ -17,6 +17,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/news`, lastModified: now, changeFrequency: "hourly", priority: 0.6 },
     { url: `${base}/how-it-works`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${base}/docs`, lastModified: now, changeFrequency: "weekly", priority: 0.5 },
+    { url: `${base}/stats`, lastModified: now, changeFrequency: "hourly", priority: 0.5 },
     { url: `${base}/status`, lastModified: now, changeFrequency: "daily", priority: 0.3 },
   ];
   const stocks: MetadataRoute.Sitemap = CURATED_B20_ASSETS.map((a) => ({

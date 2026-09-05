@@ -83,6 +83,8 @@ export function usePortfolioExecution() {
             if (status === "confirmed") commit(updateStep(latest.current!, step.id, { status: "confirmed" }));
             else if (status === "failed") commit(updateStep(latest.current!, step.id, { status: "failed", errorCode: "SIMULATION_FAILED", errorMessage: "Transaction reverted onchain." }));
             else commit(updateStep(latest.current!, step.id, { status: "submitted" }));
+            // The leg's own trade record was written at submission; tell it how the leg ended.
+            if (status === "confirmed" || status === "failed") void apiPatch(`/api/trades/${result.recordId}`, { status }).catch(() => undefined);
           } else {
             commit(updateStep(latest.current!, step.id, { status: "confirmed" }));
           }
@@ -125,7 +127,7 @@ export function usePortfolioExecution() {
     [address, commit, fail],
   );
 
-  /** The activity record for one leg of a batch, written once its receipt is in. */
+  /** The activity record for one leg of a batch, written once its receipt is in — so it is born confirmed. */
   const recordTrade = useCallback(
     (leg: QuotedStep, txHash: Hash) =>
       apiPost("/api/trades", {
@@ -138,6 +140,7 @@ export function usePortfolioExecution() {
         usdValue: leg.step.targetUsd,
         provider: leg.quote.provider,
         txHash,
+        status: "confirmed",
       }).catch(() => undefined),
     [address],
   );

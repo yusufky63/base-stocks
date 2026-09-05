@@ -5,7 +5,7 @@ import { getSupabaseAdmin } from "@/db/supabase";
 import { schemaMissing } from "@/db/resilient";
 import { serverEnv } from "@/config/env";
 
-const REQUIRED_TABLES = ["portfolio_templates", "portfolio_template_allocations", "portfolio_executions", "portfolio_execution_steps", "gifts", "trade_records", "watchlists", "discovered_assets", "ai_usage"];
+const REQUIRED_TABLES = ["portfolio_templates", "portfolio_template_allocations", "portfolio_executions", "portfolio_execution_steps", "gifts", "trade_records", "watchlists", "discovered_assets", "ai_usage", "tx_receipts"];
 
 /** Observability snapshot (provider latency/error rates, fallback usage, storage readiness). No secrets. */
 export const GET = route({}, async (req) => {

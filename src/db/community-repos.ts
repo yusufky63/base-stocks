@@ -9,6 +9,8 @@ export interface ProfileRepo {
   getByHandle(handle: string): Promise<Profile | null>;
   upsert(p: Profile): Promise<Profile>;
   touch(address: Address): Promise<void>;
+  /** Every profile, for platform statistics (counts only; nothing personal is shown). */
+  listAll(limit?: number): Promise<Profile[]>;
 }
 export interface BasketRepo {
   list(opts: { sort: "votes" | "new"; limit: number }): Promise<CommunityBasket[]>;
@@ -23,11 +25,16 @@ export interface BasketRepo {
 export interface SnapshotRepo {
   record(row: PortfolioSnapshotRow): Promise<void>;
   list(address: Address, days: number): Promise<PortfolioSnapshotRow[]>;
+  /** Distinct wallets with at least one daily snapshot (wallets that opened their portfolio). */
+  countWallets(): Promise<number>;
+  listWallets(): Promise<Address[]>;
 }
 export interface AutomationRepo {
   list(owner: Address): Promise<AutomationRule[]>;
   /** Every wallet's plans that live in the AutoInvest contract (`config.mode === "auto"`), for the keeper. */
   listAuto(limit?: number): Promise<AutomationRule[]>;
+  /** Every rule of every wallet, for platform statistics. */
+  listAll(limit?: number): Promise<AutomationRule[]>;
   create(rule: AutomationRule): Promise<AutomationRule>;
   update(id: string, owner: Address, patch: Partial<AutomationRule>): Promise<AutomationRule | null>;
   remove(id: string, owner: Address): Promise<void>;
@@ -36,6 +43,7 @@ export interface AutomationRepo {
 /* ------------------------------ Memory ------------------------------ */
 
 const lower = (a: string) => a.toLowerCase();
+const LIST_ALL_MAX = 5_000;
 
 export class MemoryProfileRepo implements ProfileRepo {
   private items = new Map<string, Profile>();
@@ -51,6 +59,9 @@ export class MemoryProfileRepo implements ProfileRepo {
   }
   async touch(address: Address) {
     if (!this.items.has(lower(address))) this.items.set(lower(address), { address, isPublic: true, createdAt: Date.now(), updatedAt: Date.now() });
+  }
+  async listAll(limit = LIST_ALL_MAX) {
+    return [...this.items.values()].slice(0, limit);
   }
 }
 
@@ -104,6 +115,12 @@ export class MemorySnapshotRepo implements SnapshotRepo {
       .sort((a, b) => a.day.localeCompare(b.day))
       .slice(-days);
   }
+  async countWallets() {
+    return (await this.listWallets()).length;
+  }
+  async listWallets() {
+    return [...new Set([...this.items.values()].map((r) => lower(r.address)))] as Address[];
+  }
 }
 
 export class MemoryAutomationRepo implements AutomationRepo {
@@ -116,6 +133,9 @@ export class MemoryAutomationRepo implements AutomationRepo {
       .filter((r) => r.config.mode === "auto" && r.status === "active")
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, limit);
+  }
+  async listAll(limit = LIST_ALL_MAX) {
+    return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
   async create(rule: AutomationRule) {
     this.items.set(rule.id, rule);
@@ -176,6 +196,18 @@ export class SupabaseProfileRepo implements ProfileRepo {
   async touch(address: Address) {
     const { error } = await sb().from("profiles").upsert({ wallet_address: lower(address) }, { onConflict: "wallet_address", ignoreDuplicates: true });
     if (error) throw error;
+  }
+  async listAll(limit = LIST_ALL_MAX) {
+    const out: Profile[] = [];
+    for (let from = 0; from < limit; from += 1_000) {
+      const to = Math.min(from + 1_000, limit) - 1;
+      const { data, error } = await sb().from("profiles").select("*").order("created_at", { ascending: false }).range(from, to);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      out.push(...page.map((r) => this.fromRow(r)));
+      if (page.length < to - from + 1) break;
+    }
+    return out;
   }
 }
 
@@ -256,6 +288,20 @@ export class SupabaseSnapshotRepo implements SnapshotRepo {
       .map((r) => ({ address: r.wallet_address as Address, day: String(r.day), totalUsd: Number(r.total_usd), holdings: (r.holdings_json as PortfolioSnapshotRow["holdings"]) ?? [], createdAt: ts(r.created_at) }))
       .sort((a, b) => a.day.localeCompare(b.day));
   }
+  async countWallets() {
+    return (await this.listWallets()).length;
+  }
+  async listWallets() {
+    const seen = new Set<string>();
+    for (let from = 0; from < LIST_ALL_MAX; from += 1_000) {
+      const { data, error } = await sb().from("portfolio_snapshots").select("wallet_address").range(from, from + 999);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      for (const r of page) seen.add(lower(String(r.wallet_address)));
+      if (page.length < 1_000) break;
+    }
+    return [...seen] as Address[];
+  }
 }
 
 export class SupabaseAutomationRepo implements AutomationRepo {
@@ -281,6 +327,18 @@ export class SupabaseAutomationRepo implements AutomationRepo {
     const { data, error } = await sb().from("automation_rules").select("*").eq("status", "active").eq("config_json->>mode", "auto").order("created_at", { ascending: true }).limit(limit);
     if (error) throw error;
     return (data ?? []).map((r) => this.fromRow(r as Row));
+  }
+  async listAll(limit = LIST_ALL_MAX) {
+    const out: AutomationRule[] = [];
+    for (let from = 0; from < limit; from += 1_000) {
+      const to = Math.min(from + 1_000, limit) - 1;
+      const { data, error } = await sb().from("automation_rules").select("*").order("created_at", { ascending: false }).range(from, to);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      out.push(...page.map((r) => this.fromRow(r)));
+      if (page.length < to - from + 1) break;
+    }
+    return out;
   }
   async create(rule: AutomationRule) {
     const { error } = await sb().from("automation_rules").insert({

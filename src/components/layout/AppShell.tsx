@@ -40,6 +40,7 @@ const FOOTER_LINKS = [
   ["/how-it-works", "How it works", ""],
   ["/how-it-works#faq", "FAQ", ""],
   ["/docs", "Docs", ""],
+  ["/stats", "Stats", ""],
   ["/status", "Status", ""],
 ] as const;
 

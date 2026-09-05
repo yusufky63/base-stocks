@@ -1,11 +1,14 @@
 "use client";
 
-import { ArrowDownLeft, ArrowUpRight, Check, Gift, Layers, Sparkles } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Check, Gift, Layers, Repeat, Sparkles } from "lucide-react";
 import type { ActivityItem } from "@/domain/activity";
 import { formatTokenAmount, formatUsd, shortenAddress, timeAgo } from "@/lib/format";
 import { Badge, cx } from "@/components/ui/primitives";
 import { TxLink } from "@/components/common/display";
 import { ShareButton } from "@/components/common/ShareSheet";
+import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow";
+import { GIFT_POOL_ADDRESS } from "@/lib/pool";
+import { AUTO_INVEST_ADDRESS } from "@/lib/auto-invest";
 
 const LABELS: Record<ActivityItem["type"], string> = {
   buy: "Bought",
@@ -13,9 +16,13 @@ const LABELS: Record<ActivityItem["type"], string> = {
   send: "Sent",
   receive: "Received",
   "portfolio-build": "Built portfolio",
+  "auto-invest": "Auto-invest run",
   "earn-supply": "Deposited USDC",
   "earn-withdraw": "Withdrew USDC",
   "earn-liquidity": "Added liquidity",
+  "earn-collect": "Collected fees",
+  "pool-create": "Funded a gift pool",
+  "pool-claim": "Claimed a pool share",
   approve: "Approved",
   unknown: "Activity",
 };
@@ -32,9 +39,13 @@ const DIRECTION: Record<ActivityItem["type"], Direction> = {
   "earn-supply": "out",
   "earn-liquidity": "out",
   "earn-withdraw": "in",
+  "earn-collect": "in",
   sell: "out",
   send: "out",
   "portfolio-build": "in",
+  "auto-invest": "in",
+  "pool-create": "out",
+  "pool-claim": "in",
   approve: "neutral",
   unknown: "neutral",
 };
@@ -47,15 +58,90 @@ const ICONS: Record<ActivityItem["type"], typeof ArrowDownLeft> = {
   "earn-supply": Sparkles,
   "earn-liquidity": Sparkles,
   "earn-withdraw": Sparkles,
+  "earn-collect": Sparkles,
   "portfolio-build": Layers,
+  "auto-invest": Repeat,
+  "pool-create": Gift,
+  "pool-claim": Gift,
   approve: Check,
   unknown: Check,
 };
 
-/** Basename, then the short address. */
+/** The app's own contracts, so a transfer the scan found on its own still reads as what it was. */
+const CONTRACT_LABEL: Record<string, string> = {
+  [GIFT_ESCROW_ADDRESS.toLowerCase()]: "the gift escrow",
+  ...(GIFT_POOL_ADDRESS ? { [GIFT_POOL_ADDRESS.toLowerCase()]: "the gift pool contract" } : {}),
+  ...(AUTO_INVEST_ADDRESS ? { [AUTO_INVEST_ADDRESS.toLowerCase()]: "the AutoInvest contract" } : {}),
+};
+
+/** Basename, then the app's own contracts by name, then the short address. */
 export function counterpartyLabel(it: Pick<ActivityItem, "counterparty" | "counterpartyBasename">): string {
   if (it.counterpartyBasename) return it.counterpartyBasename;
-  return it.counterparty ? shortenAddress(it.counterparty) : "";
+  if (!it.counterparty) return "";
+  return CONTRACT_LABEL[it.counterparty.toLowerCase()] ?? shortenAddress(it.counterparty);
+}
+
+const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
+
+/** The stock's ticker without the B20 "c" suffix. */
+export function displaySymbol(symbol: string | undefined): string {
+  return symbol?.replace(/c$/, "") ?? "";
+}
+
+/**
+ * The first line of a row, in words. One transaction is one row, so a basket, an AutoInvest run
+ * or ten gift links funded together each read as the one thing they were.
+ */
+export function headline(it: ActivityItem): { title: string; aside?: string } {
+  const symbol = displaySymbol(it.symbol);
+  const who = counterpartyLabel(it);
+  const kind = str(it.metadata?.kind);
+  const status = str(it.metadata?.status);
+  const legs = it.legs ?? [];
+  switch (it.type) {
+    case "portfolio-build":
+      return { title: "Built portfolio", aside: `${num(it.metadata?.completed) ?? legs.filter((l) => l.status === "confirmed").length} of ${num(it.metadata?.total) ?? legs.length} legs` };
+    case "auto-invest":
+      return { title: "Auto-invest run", aside: `${legs.length} stock${legs.length === 1 ? "" : "s"}` };
+    case "pool-create":
+      return { title: "Funded a gift pool", aside: `${num(it.metadata?.slots) ?? "?"} shares · ${legs.length > 1 ? `${legs.length} stocks` : symbol}` };
+    case "pool-claim":
+      return { title: `Claimed a pool share${legs.length > 1 ? ` · ${legs.length} stocks` : symbol ? ` · ${symbol}` : ""}`, aside: who ? `from ${who}` : undefined };
+    case "send":
+      if (kind === "claim-link") {
+        const count = it.count ?? 1;
+        if (count > 1) return { title: `Funded ${count} gift links · ${symbol}`, aside: `${num(it.metadata?.claimed) ?? 0} claimed` };
+        if (status === "claimed") return { title: `Gift link claimed · ${symbol}`, aside: who ? `by ${who}` : undefined };
+        if (status === "reclaimed") return { title: `Gift link cancelled · ${symbol}`, aside: "stock returned" };
+        return { title: `Gift link · ${symbol}`, aside: "waiting to be claimed" };
+      }
+      return { title: `Sent ${symbol}`, aside: who ? `to ${who}` : undefined };
+    case "receive":
+      if (kind === "claim-link") return { title: `Claimed a gift · ${symbol}`, aside: who ? `from ${who}` : undefined };
+      return { title: `Received ${symbol}`, aside: who ? `from ${who}` : undefined };
+    case "earn-supply":
+    case "earn-withdraw":
+    case "earn-liquidity":
+    case "earn-collect":
+      // A liquidity position moves stock as well as USDC, so its withdrawal is not "Withdrew USDC".
+      return { title: it.type === "earn-withdraw" && it.metadata?.lp === true ? "Withdrew liquidity" : LABELS[it.type], aside: str(it.metadata?.title) ?? it.provider ?? undefined };
+    default:
+      return { title: `${LABELS[it.type]} ${symbol}`.trim() };
+  }
+}
+
+/** Legs of a grouped row, in one line: "AAPL $1.80 · NVDA $1.80 · MSFT failed". */
+function legsLine(it: ActivityItem): string | null {
+  if (!it.legs || it.legs.length === 0) return null;
+  return it.legs
+    .map((l) => {
+      const s = displaySymbol(l.symbol);
+      if (l.status === "failed") return `${s} failed`;
+      const amount = l.amountUsd !== undefined ? formatUsd(l.amountUsd) : l.rawAmount && l.decimals !== undefined ? formatTokenAmount(l.rawAmount, l.decimals) : "";
+      return `${s}${amount ? ` ${amount}` : ""}${l.status === "pending" ? " (pending)" : ""}`;
+    })
+    .join(" · ");
 }
 
 /**
@@ -81,44 +167,43 @@ export function ActivityList({ items, compact = false }: { items: ActivityItem[]
   return (
     <ul className="divide-y divide-line">
       {items.map((it) => {
-        const transfer = it.type === "send" || it.type === "receive";
-        const giftId = typeof it.metadata?.giftId === "string" ? it.metadata.giftId : null;
-        const message = typeof it.metadata?.message === "string" && it.metadata.message ? it.metadata.message : null;
-        const symbol = it.symbol?.replace(/c$/, "") ?? "";
+        const giftId = str(it.metadata?.giftId);
+        const kind = str(it.metadata?.kind);
+        const isGift = Boolean(giftId) || kind === "claim-link" || it.type === "pool-create" || it.type === "pool-claim";
+        const message = compact ? null : str(it.metadata?.message);
+        const symbol = displaySymbol(it.symbol);
         const amount = it.rawAmount && it.decimals !== undefined ? `${formatTokenAmount(it.rawAmount, it.decimals)} ${symbol}` : symbol;
         const who = counterpartyLabel(it);
-        const failed = it.metadata?.status === "failed" || (it.type !== "portfolio-build" && it.source === "app" && Boolean(it.metadata?.failed));
-        const direction = DIRECTION[it.type];
+        const failed = it.metadata?.status === "failed" || (it.source === "app" && Boolean(it.metadata?.failed));
+        const reclaimed = it.metadata?.status === "reclaimed";
+        const direction: Direction = reclaimed ? "neutral" : DIRECTION[it.type];
         // A failed transaction moved nothing, so it gets no sign: the figure is what was attempted,
         // and "+$2.00" on a buy that reverted reads as money that arrived.
         const sign = failed ? "" : direction === "in" ? "+" : direction === "out" ? "−" : "";
         const pending = !failed && !it.verified && it.source === "app";
         const tokenAmount = it.rawAmount && it.decimals !== undefined ? formatTokenAmount(it.rawAmount, it.decimals) : null;
+        const { title, aside } = headline(it);
+        const legs = compact ? null : legsLine(it);
         const shareText = it.type === "receive" ? `I received ${amount} as a gift from ${who} on BStocks — tokenized stocks on Base.` : `I just sent ${amount} (a tokenized stock on Base) to ${who} with BStocks.`;
         return (
           <li key={it.id} className={cx("px-4 flex items-center gap-3", compact ? "py-2.5" : "py-3")}>
-            <ActivityIcon type={it.type} gift={Boolean(giftId)} failed={failed} compact={compact} />
+            <ActivityIcon type={it.type} gift={isGift} failed={failed} compact={compact} />
             <div className="min-w-0 flex-1">
               <div className="text-[14px] font-medium truncate flex items-center gap-1.5">
                 <span className="truncate">
-                  {LABELS[it.type]} {symbol}
-                  {it.counterparty && transfer && (
-                    <span className="text-ink-secondary font-normal">
-                      {" "}
-                      {it.type === "send" ? "to" : "from"} {who}
-                    </span>
-                  )}
-                  {it.type.startsWith("earn") && (it.metadata?.title || it.provider) ? <span className="text-ink-secondary font-normal"> · {String(it.metadata?.title ?? it.provider)}</span> : null}
+                  {title}
+                  {aside && <span className="text-ink-secondary font-normal"> · {aside}</span>}
                 </span>
               </div>
-              {message && !compact && <p className="text-[13px] text-ink-secondary truncate">“{message}”</p>}
+              {message && <p className="text-[13px] text-ink-secondary truncate">“{message}”</p>}
+              {legs && <p className="text-[12px] text-ink-secondary truncate font-mono num">{legs}</p>}
               <div className="text-[12px] text-ink-muted font-mono flex items-center gap-2">
                 <span>{it.timestamp ? timeAgo(it.timestamp) : it.blockNumber ? `block ${it.blockNumber}` : "pending"}</span>
                 {/* Three states, and only two of them need saying. A confirmed row is the ordinary
-                    case and carries no badge; "Pending" now means the transaction is not mined yet,
-                    which the receipt settles within a block or two, rather than meaning our own
-                    bookkeeping has not caught up. */}
+                    case and carries no badge; "Pending" means the transaction is not mined yet,
+                    which the receipt settles within a block or two. */}
                 {failed ? <Badge tone="danger">Failed</Badge> : pending ? <Badge tone="warning">Pending</Badge> : null}
+                {reclaimed && !failed && <Badge>Cancelled</Badge>}
                 {it.txHash && it.txHash !== "0x" && !compact && <TxLink hash={it.txHash}>tx</TxLink>}
               </div>
             </div>
@@ -128,7 +213,7 @@ export function ActivityList({ items, compact = false }: { items: ActivityItem[]
               <div className="text-right">
                 {it.amountUsd !== undefined && <div className={cx("display num text-[15px] whitespace-nowrap", failed && "text-ink-muted line-through")}>{`${sign}${formatUsd(it.amountUsd)}`}</div>}
                 {tokenAmount && (it.amountUsd === undefined || !compact) && (
-                  <div className={cx("font-mono num text-ink-secondary whitespace-nowrap", it.amountUsd === undefined ? "text-[15px]" : "text-[12px]")}>{`${it.amountUsd === undefined ? sign : ""}${tokenAmount} ${symbol}`}</div>
+                  <div className={cx("font-mono num text-ink-secondary whitespace-nowrap", it.amountUsd === undefined ? "text-[15px]" : "text-[12px]", failed && "line-through")}>{`${it.amountUsd === undefined ? sign : ""}${tokenAmount} ${symbol}`}</div>
                 )}
               </div>
               {giftId && !compact && <ShareButton iconOnly path={`/gifts/${giftId}`} text={shareText} title={it.type === "receive" ? "Share this gift" : "Share your gift"} />}

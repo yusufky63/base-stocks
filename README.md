@@ -17,6 +17,7 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 | Gift pools | One deposit, many equal shares of one stock or a package of several: a share link, a public directory or steps to finish first. Onchain steps (a Basename, a holding, a verified purchase) are read from Base; X steps are recorded as the claimant's own confirmation and labelled that way. Close a pool any time — or lock it so you cannot — and the unclaimed remainder comes home |
 | News | Headlines per stock and market-wide, a Base & Coinbase feed that follows tokenized-stock listings and venues, and one shared AI brief every six hours that reads ~60 headlines and leads with that ecosystem; the same brief and headlines ground the basket and plan drafts, which come with a "why this mix" commentary |
 | Compliance | Eligibility notice for restricted regions (`attest` or `block` mode), issuer policies and pauses read before every action |
+| Stats | `/stats`: trades, volume, wallets, gifts, pools, Earn and plan runs, every figure verified against its receipt on Base; a six-figure summary on the home page |
 | Status | Live, smoothed checks of every dependency at `/status` |
 
 The narrative and FAQ live in the app at `/how-it-works`. The technical reference (contracts, data sources, providers, environment, routes) is [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md); the backlog is [docs/ROADMAP.md](docs/ROADMAP.md).

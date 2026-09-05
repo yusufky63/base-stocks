@@ -6,8 +6,9 @@ import { encodeFunctionData, type Hash } from "viem";
 import { base } from "viem/chains";
 import { useQueryClient } from "@tanstack/react-query";
 import type { LpPositionDTO } from "@/lib/client-api";
-import { BASE_CHAIN_ID } from "@/config/chain";
+import { BASE_CHAIN_ID, USDC_ADDRESS } from "@/config/chain";
 import { publicEnv } from "@/config/env";
+import { apiPost } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { MAX_UINT128, positionManagerCommonAbi } from "@/lib/earn/abis";
 import { lpManagerById } from "@/lib/earn/lp-managers";
@@ -59,9 +60,28 @@ export function LpManageSheet({ open, onClose, position }: { open: boolean; onCl
     reset();
     onClose();
   };
-  const finish = (hash: Hash | undefined) => {
+  const finish = (hash: Hash | undefined, what: "collect" | "withdraw") => {
     setTxHash(hash);
     setPhase("done");
+    // Activity record (never proof: the timeline and the statistics verify it against the receipt).
+    // The USDC leg is the amount; the USD figure is both legs at the pool price now.
+    if (hash && address && manager) {
+      const usdcIs0 = position.token0.address.toLowerCase() === USDC_ADDRESS.toLowerCase();
+      const feeUsdc = usdcIs0 ? position.fees.amount0 : position.fees.amount1;
+      const share = pct / 100;
+      const withdrawnUsdc = what === "withdraw" ? (usdcIs0 ? position.amount0 : position.amount1) * share : 0;
+      const usd = (position.fees.usd ?? 0) + (what === "withdraw" ? ((position.valueUsd ?? 0) * share) : 0);
+      void apiPost("/api/earn/record", {
+        id: `earn_${hash.slice(2, 18)}`,
+        owner: address,
+        opportunityId: `lp:${manager.id}:${position.tokenId}`,
+        provider: manager.provider,
+        action: what,
+        amount: BigInt(Math.round((feeUsdc + withdrawnUsdc) * 1e6)).toString(),
+        usdValue: Math.round(usd * 100) / 100,
+        txHash: hash,
+      }).catch(() => undefined);
+    }
     if (address) void qc.invalidateQueries({ queryKey: qk.lp(address) });
   };
 
@@ -128,7 +148,7 @@ export function LpManageSheet({ open, onClose, position }: { open: boolean; onCl
           await publicClient.waitForTransactionReceipt({ hash });
         }
       }
-      finish(hash);
+      finish(hash, what);
     } catch (err) {
       setError(humanizeError(err));
       setPhase("failed");

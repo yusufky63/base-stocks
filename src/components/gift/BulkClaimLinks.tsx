@@ -11,6 +11,7 @@ import { BASE_CHAIN_ID } from "@/config/chain";
 import { publicEnv } from "@/config/env";
 import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
+import { receiptForLeg } from "@/lib/execution/batch-plan";
 import { claimPath, GIFT_ESCROW_ADDRESS, giftEscrowAbi, makeClaimSecret } from "@/lib/escrow";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { parseAmountSafe, toRaw } from "@/lib/b20/math";
@@ -127,7 +128,13 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
        * Capability reporting is inconsistent enough that asking is not proof, so this tries and
        * reads the refusal. A wallet that does not implement the method says so, and we walk.
        */
-      const sendBatched = async (): Promise<Hash | undefined | null> => {
+      /**
+       * Resolves to one hash per link. An atomic batch lands as one transaction and every link
+       * shares it; a wallet that batched without atomicity returns one receipt per call — the
+       * approval first, then a deposit per link — and each link must remember its own, or the
+       * timeline and the statistics would see one deposit and nine unexplained transfers.
+       */
+      const sendBatched = async (): Promise<Array<Hash | undefined> | null> => {
         try {
           const { id } = await walletClient.sendCalls({
             account: address,
@@ -138,7 +145,8 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
           });
           const result = await walletClient.waitForCallsStatus({ id, timeout: 240_000 });
           if (result.status === "failure") throw new Error("Batched transaction failed");
-          return result.receipts?.[result.receipts.length - 1]?.transactionHash;
+          const receipts = result.receipts ?? [];
+          return made.map((_, i) => receiptForLeg(receipts, calls.length - made.length, i, made.length)?.transactionHash);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           // Not implemented: fall through to one transaction at a time. Anything else — a decline,
@@ -148,19 +156,22 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
         }
       };
 
-      let hash: Hash | undefined;
+      let hashes: Array<Hash | undefined>;
       const batched = await sendBatched();
       if (batched !== null) {
-        hash = batched;
+        hashes = batched;
       } else {
         const ah = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(approveData) });
         await publicClient.waitForTransactionReceipt({ hash: ah });
+        hashes = [];
         for (const m of made) {
-          hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) });
-          await publicClient.waitForTransactionReceipt({ hash });
+          const h = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) });
+          await publicClient.waitForTransactionReceipt({ hash: h });
+          hashes.push(h);
         }
       }
-      for (const m of made) void apiPatch(`/api/gifts/${m.record.id}`, { txHash: hash, status: "submitted" }).catch(() => undefined);
+      made.forEach((m, i) => void apiPatch(`/api/gifts/${m.record.id}`, { txHash: hashes[i], status: "submitted" }).catch(() => undefined));
+      const hash = hashes[hashes.length - 1];
       setTxHash(hash);
       setLinks(made.map((m) => ({ giftId: m.record.id, url: m.url })));
       setPhase("ready");

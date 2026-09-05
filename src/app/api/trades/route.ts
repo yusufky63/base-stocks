@@ -15,15 +15,17 @@ const createSchema = z.object({
   provider: z.string().max(32),
   txHash: hashSchema.optional(),
   recipient: addressSchema.optional(),
+  /** "confirmed" only when the caller already holds the receipt (a batch leg); otherwise submitted. */
+  status: z.enum(["submitted", "confirmed"]).optional(),
 });
 
 /**
- * App-side trade records (activity source #1). These are NOT proof of execution; the
- * activity service verifies them against onchain events.
+ * App-side trade records (activity source #1). These are NOT proof of execution; the activity
+ * service and the platform statistics verify them against the transaction receipt.
  */
 export const POST = route({ rateLimit: { key: "trades.write", limit: 60, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
-  const record: TradeRecord = { ...body, txHash: body.txHash as Hash | undefined, status: body.txHash ? "submitted" : "submitted", createdAt: Date.now() };
+  const record: TradeRecord = { ...body, txHash: body.txHash as Hash | undefined, status: body.txHash && body.status === "confirmed" ? "confirmed" : "submitted", createdAt: Date.now() };
   await getRepos().trades.create(record);
   invalidatePortfolioSnapshot(body.owner);
   return json({ trade: record }, { status: 201 });

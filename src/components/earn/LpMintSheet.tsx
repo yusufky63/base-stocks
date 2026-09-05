@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { EarnOpportunity } from "@/domain/earn";
 import { BASE_CHAIN_ID, USDC_ADDRESS, USDC_DECIMALS } from "@/config/chain";
 import { publicEnv } from "@/config/env";
+import { apiPost } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { poolTokensAbi, slipstreamMintAbi, slipstreamPoolSlot0Abi, uniswapV3MintAbi, uniswapV3PoolSlot0Abi } from "@/lib/earn/abis";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
@@ -262,6 +263,21 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
       }
       setTxHash(hash);
       setPhase("done");
+      // Activity record (never proof: the timeline and the statistics verify it against the receipt).
+      // The USDC leg is the amount; the USD figure is both legs at the pool price when minted.
+      if (hash) {
+        const manager = LP_MANAGER_INFO.find((m) => m.npm.toLowerCase() === target.npm.toLowerCase());
+        void apiPost("/api/earn/record", {
+          id: `earn_${hash.slice(2, 18)}`,
+          owner: address,
+          opportunityId: `lp:${manager?.id ?? target.kind}:${target.pool.toLowerCase()}`,
+          provider: opportunity.provider,
+          action: "deposit",
+          amount: BigInt(Math.floor(quoteAmounts.usdcRaw)).toString(),
+          usdValue: Math.round(totalUsd * 100) / 100,
+          txHash: hash,
+        }).catch(() => undefined);
+      }
       if (address) void qc.invalidateQueries({ queryKey: qk.lp(address) });
       balances.refetch();
     } catch (err) {

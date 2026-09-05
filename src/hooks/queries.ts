@@ -26,6 +26,7 @@ import {
 import type { Timeframe } from "@/domain/market";
 import type { OrderView } from "@/domain/trade";
 import type { CommunityPulse } from "@/domain/community";
+import type { PlatformStats } from "@/domain/stats";
 
 export const qk = {
   config: ["config"] as const,
@@ -193,6 +194,15 @@ export function useOrders(owner?: Address) {
     enabled: !!owner,
     staleTime: 10_000,
     refetchInterval: (q) => (q.state.data?.some((o) => o.status === "open") ? 8_000 : 60_000),
+  });
+}
+
+/** Platform-wide statistics, verified against Base; recomputed server-side every five minutes. */
+export function useStats() {
+  return useQuery({
+    queryKey: ["stats", "platform"],
+    queryFn: () => apiGet<PlatformStats>("/api/stats"),
+    staleTime: 5 * 60_000,
   });
 }
 

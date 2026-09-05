@@ -14,6 +14,8 @@ export interface PoolRepo {
   listPublic(limit: number): Promise<PoolRecord[]>;
   /** Pools that could still receive claims, for the reconciliation sweep. */
   listOpen(limit: number): Promise<PoolRecord[]>;
+  /** Every pool, newest first, for platform statistics. */
+  listAll(limit?: number): Promise<PoolRecord[]>;
 }
 
 export interface PoolClaimRepo {
@@ -24,7 +26,11 @@ export interface PoolClaimRepo {
   listByPool(poolId: string, limit?: number): Promise<PoolClaim[]>;
   listByClaimant(claimant: Address, limit?: number): Promise<PoolClaim[]>;
   countByPool(poolId: string): Promise<number>;
+  /** Every claim row, newest first, for platform statistics. */
+  listAll(limit?: number): Promise<PoolClaim[]>;
 }
+
+const LIST_ALL_MAX = 5_000;
 
 /* ------------------------------ Memory ------------------------------ */
 
@@ -63,6 +69,9 @@ export class MemoryPoolRepo implements PoolRepo {
     const now = Date.now();
     return [...this.items.values()].filter((p) => p.status === "submitted" || (p.status === "live" && p.expiry > now)).slice(0, limit);
   }
+  async listAll(limit = LIST_ALL_MAX) {
+    return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
 }
 
 export class MemoryPoolClaimRepo implements PoolClaimRepo {
@@ -92,6 +101,9 @@ export class MemoryPoolClaimRepo implements PoolClaimRepo {
   }
   async countByPool(poolId: string) {
     return [...this.items.values()].filter((c) => c.poolId === poolId).length;
+  }
+  async listAll(limit = LIST_ALL_MAX) {
+    return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
 }
 
@@ -225,6 +237,21 @@ export class SupabasePoolRepo implements PoolRepo {
     if (error) throw error;
     return this.withLegs((data ?? []) as Row[]);
   }
+  async listAll(limit = LIST_ALL_MAX) {
+    const rows: Row[] = [];
+    for (let from = 0; from < limit; from += 1_000) {
+      const to = Math.min(from + 1_000, limit) - 1;
+      const { data, error } = await sb().from("gift_pools").select("*").order("created_at", { ascending: false }).range(from, to);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      rows.push(...page);
+      if (page.length < to - from + 1) break;
+    }
+    // Legs are fetched per batch of ids so a long list never builds an oversized `in` filter.
+    const out: PoolRecord[] = [];
+    for (let i = 0; i < rows.length; i += 200) out.push(...(await this.withLegs(rows.slice(i, i + 200))));
+    return out;
+  }
 }
 
 export class SupabasePoolClaimRepo implements PoolClaimRepo {
@@ -298,5 +325,17 @@ export class SupabasePoolClaimRepo implements PoolClaimRepo {
     const { count, error } = await sb().from("gift_pool_claims").select("*", { count: "exact", head: true }).eq("pool_id", poolId);
     if (error) throw error;
     return count ?? 0;
+  }
+  async listAll(limit = LIST_ALL_MAX) {
+    const out: PoolClaim[] = [];
+    for (let from = 0; from < limit; from += 1_000) {
+      const to = Math.min(from + 1_000, limit) - 1;
+      const { data, error } = await sb().from("gift_pool_claims").select("*").order("created_at", { ascending: false }).range(from, to);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      out.push(...page.map((r) => this.fromRow(r)));
+      if (page.length < to - from + 1) break;
+    }
+    return out;
   }
 }

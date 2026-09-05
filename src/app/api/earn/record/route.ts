@@ -8,7 +8,8 @@ const createSchema = z.object({
   owner: addressSchema,
   opportunityId: z.string().min(3).max(120),
   provider: z.string().max(32),
-  action: z.enum(["deposit", "withdraw"]),
+  /** `collect`: fees taken from a liquidity position (LP providers only). */
+  action: z.enum(["deposit", "withdraw", "collect"]),
   amount: z.string().regex(/^\d+$/),
   usdValue: z.number().nullable(),
   txHash: hashSchema.optional(),
