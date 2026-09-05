@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, erc20Abi, formatUnits, type Address, type Hash } from "viem";
 import { base } from "viem/chains";
-import { Check, Layers, Link2, Lock, TriangleAlert, Users } from "lucide-react";
+import { Check, Layers, Link2, TriangleAlert, Users } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { PoolGateMode, PoolRecord, Quest } from "@/domain/pool";
 import type { PortfolioHolding } from "@/domain/portfolio";
@@ -22,7 +22,7 @@ import { useConfigFlags } from "@/hooks/queries";
 import { parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { Input } from "@/components/ui/Input";
-import { Button, Chip, KeyValue, cx } from "@/components/ui/primitives";
+import { Button, KeyValue, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
 import { AssetLogo, ErrorBanner, InfoBanner } from "@/components/common/display";
@@ -33,11 +33,6 @@ const EXPIRY_DAYS: Array<[number, string]> = [
   [7, "7 days"],
   [30, "30 days"],
   [90, "90 days"],
-];
-const LOCK_DAYS: Array<[number, string]> = [
-  [0, "Any time"],
-  [3, "3 days"],
-  [7, "7 days"],
 ];
 const SLOT_PRESETS = [5, 10, 25, 100];
 
@@ -59,6 +54,8 @@ interface LegDraft {
    * keystrokes, so the dollars they typed stay theirs and the units are what is computed.
    */
   usdText?: string;
+  /** Which slice of the holding is selected, so the control shows a state rather than firing and forgetting. */
+  portion?: number | null;
 }
 
 /**
@@ -78,7 +75,6 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
   const [slots, setSlots] = useState(10);
   const [gateMode, setGateMode] = useState<PoolGateMode>("link");
   const [days, setDays] = useState(7);
-  const [lockDays, setLockDays] = useState(0);
   const [isPublic, setIsPublic] = useState(false);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -124,7 +120,15 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
     setPicked((cur) => (cur.includes(addr) ? cur.filter((a) => a !== addr) : cur.length >= MAX_POOL_LEGS ? cur : [...cur, addr]));
   };
 
-  const setTotal = (addr: string, total: string) => setDrafts((d) => ({ ...d, [addr]: { ...d[addr], total } }));
+  const setTotal = (addr: string, total: string) => setDrafts((d) => ({ ...d, [addr]: { ...d[addr], total, portion: null } }));
+
+  /** What the whole holding is worth, which is the ceiling on anything entered in dollars. */
+  const holdingUsd = (addr: string): number | null => {
+    const holding = holdings.find((h) => h.assetAddress.toLowerCase() === addr);
+    const asset = assetFor(addr);
+    if (!holding || !asset || holding.priceUsd === null || holding.priceUsd === undefined) return null;
+    return Number(formatUnits(BigInt(holding.rawBalance), asset.decimals)) * holding.priceUsd;
+  };
   const setMode = (addr: string, mode: "units" | "usd") =>
     setDrafts((d) => {
       const draft = d[addr] ?? { total: "" };
@@ -134,7 +138,14 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
     });
 
   const setUsd = (addr: string, usdText: string) =>
-    setDrafts((d) => ({ ...d, [addr]: { ...d[addr], mode: "usd", usdText, total: unitsForUsd(addr, usdText) } }));
+    setDrafts((d) => {
+      // Capping here rather than only in the leg maths: the field itself should never show a figure
+      // the wallet cannot fund, or the review would quietly hand back a smaller pool than was typed.
+      const ceiling = holdingUsd(addr);
+      const typed = Number(usdText);
+      const capped = ceiling !== null && Number.isFinite(typed) && typed > ceiling ? ceiling.toFixed(2) : usdText;
+      return { ...d, [addr]: { ...d[addr], mode: "usd", usdText: capped, total: unitsForUsd(addr, capped), portion: null } };
+    });
 
   const unitsForUsd = (addr: string, usd: string): string => {
     const holding = holdings.find((h) => h.assetAddress.toLowerCase() === addr);
@@ -158,15 +169,13 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
     if (!holding || !asset) return;
     const multiplier = BigInt(asset.multiplier);
     const wad = BigInt(asset.wadPrecision);
-    const portion = (BigInt(holding.rawBalance) * BigInt(Math.round(fraction * 1000))) / 1000n;
-    setTotal(addr, formatUnits((portion * multiplier) / wad, asset.decimals));
+    const slice = (BigInt(holding.rawBalance) * BigInt(Math.round(fraction * 1000))) / 1000n;
+    const units = formatUnits((slice * multiplier) / wad, asset.decimals);
+    const usd = holding.priceUsd ? Number(formatUnits(slice, asset.decimals)) * holding.priceUsd : null;
+    setDrafts((d) => ({ ...d, [addr]: { ...d[addr], total: units, portion: fraction, ...(usd !== null ? { usdText: usd.toFixed(2) } : {}) } }));
   };
 
-  /** A lock can never outlast the claim window, so shortening the window releases it. */
-  const setWindow = (d: number) => {
-    setDays(d);
-    if (lockDays >= d) setLockDays(0);
-  };
+  const setWindow = (d: number) => setDays(d);
 
 
   const qr = useQuery({
@@ -189,7 +198,8 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
 
       const secret = gateMode === "link" ? makePoolLinkSecret() : null;
       const expiry = Date.now() + days * 24 * 3600 * 1000;
-      const lockedUntil = lockDays > 0 ? Date.now() + lockDays * 24 * 3600 * 1000 : 0;
+      // A pool is always the creator's to close: whatever is unclaimed comes back on demand.
+      const lockedUntil = 0;
 
       const { pool } = await apiPost<{ pool: PoolRecord; salt: `0x${string}`; warnings: string[] }>("/api/pools", {
         creator: address,
@@ -368,44 +378,49 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
                   const mode = drafts[addr]?.mode ?? "units";
                   const priced = h.priceUsd !== null && h.priceUsd !== undefined;
                   const usd = legUsd(addr);
+                  const portion = drafts[addr]?.portion ?? null;
                   return (
-                    <div className="px-3 pb-3 -mt-0.5 flex flex-col gap-2">
+                    <div className="px-3 pb-3 flex flex-col gap-2.5">
                       <div className="flex items-center gap-2">
                         <Input
                           value={mode === "usd" ? (drafts[addr]?.usdText ?? "") : (drafts[addr]?.total ?? "")}
                           onChange={(e) => (mode === "usd" ? setUsd(addr, e.target.value) : setTotal(addr, e.target.value))}
-                          placeholder={mode === "usd" ? "Total in dollars" : `Total ${h.underlying} to give`}
+                          placeholder={mode === "usd" ? "Total in dollars" : `Total ${h.underlying}`}
                           inputMode="decimal"
                           aria-label={`Total to put in the pool, in ${mode === "usd" ? "dollars" : h.underlying}`}
-                          className="!h-9 text-[13px] flex-1"
+                          className="!h-10 text-[14px] flex-1"
                         />
-                        {/* Typing a dollar figure is how most people decide this; the units follow. */}
                         {priced && (
                           <Segmented<"units" | "usd">
                             size="sm"
-                            className="w-[104px] shrink-0"
+                            className="w-[112px] shrink-0"
                             ariaLabel="Amount unit"
                             value={mode}
                             onChange={(m) => setMode(addr, m)}
-                            options={[{ value: "units", label: h.underlying }, { value: "usd", label: "$" }]}
+                            options={[{ value: "units", label: h.underlying }, { value: "usd", label: "USD" }]}
                           />
                         )}
                       </div>
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="flex items-center gap-1.5">
-                          {[0.25, 0.5, 1].map((p) => (
-                            <Chip key={p} onClick={() => setPortion(addr, p)} className="h-7 min-h-0 px-2 text-[11px]">
-                              {p === 1 ? "Max" : `${p * 100}%`}
-                            </Chip>
-                          ))}
-                        </span>
-                        {leg && leg.perClaim > 0n && (
-                          <span className="font-mono num text-[11px] text-ink-secondary text-right">
-                            {usd !== null && `${formatUsd(usd)} · `}
-                            {`${formatTokenAmount((leg.perClaim * leg.multiplier) / leg.wad, leg.asset.decimals)} ${leg.asset.underlying} each`}
-                          </span>
-                        )}
-                      </div>
+                      {/* A slice of the holding is how most of this is decided, and it reads as a
+                          setting rather than as three loose buttons. */}
+                      <Segmented<number>
+                        size="sm"
+                        ariaLabel={`How much of your ${h.underlying} to give`}
+                        value={portion}
+                        onChange={(p) => setPortion(addr, p)}
+                        options={[
+                          { value: 0.25, label: "25%" },
+                          { value: 0.5, label: "50%" },
+                          { value: 0.75, label: "75%" },
+                          { value: 1, label: "All" },
+                        ]}
+                      />
+                      {leg && leg.perClaim > 0n && (
+                        <div className="flex items-baseline justify-between gap-3 font-mono num text-[12px]">
+                          <span className="text-ink-secondary">{`${formatTokenAmount((leg.perClaim * leg.multiplier) / leg.wad, leg.asset.decimals)} ${leg.asset.underlying} each`}</span>
+                          {usd !== null && <span className="text-ink">{`${formatUsd(usd)} total`}</span>}
+                        </div>
+                      )}
                       {leg && leg.dust > 0n && (
                         <p className="font-mono num text-[11px] text-ink-muted">
                           {`${formatTokenAmount((leg.dust * leg.multiplier) / leg.wad, leg.asset.decimals)} stays in your wallet — it does not divide evenly into ${slots}.`}
@@ -480,29 +495,12 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
       {gateMode === "signer" && <QuestPicker assets={assets} quests={quests} onChange={setQuests} />}
 
       {/* 4 · timing */}
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid gap-4">
         <div className="flex flex-col gap-2">
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Claimable for</span>
           <Segmented<number> size="sm" ariaLabel="How long the pool stays claimable" value={days} onChange={setWindow} options={EXPIRY_DAYS.map(([d, label]) => ({ value: d, label }))} />
         </div>
-        <div className="flex flex-col gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted inline-flex items-center gap-1.5">
-            <Lock size={11} strokeWidth={2} /> You can close it
-          </span>
-          <Segmented<number>
-            size="sm"
-            ariaLabel="When the creator may close the pool"
-            value={lockDays}
-            onChange={setLockDays}
-            options={LOCK_DAYS.map(([d, label]) => ({ value: d, label: d === 0 ? label : `Not for ${label}`, disabled: d >= days }))}
-          />
-        </div>
       </div>
-      {lockDays > 0 && (
-        <p className="text-[12px] text-ink-muted -mt-2">
-          A lock is a promise anyone can verify onchain: for {lockDays} days you cannot take the pool back, whatever happens.
-        </p>
-      )}
 
       {/* 5 · presentation */}
       <div className="flex flex-col gap-3">
@@ -566,15 +564,10 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
               <KeyValue k="Listed publicly" v={isPublic ? "Yes, in the pool directory" : "No, only through your link"} mono={false} />
             </div>
 
-            {/* The one thing that cannot be undone later, said before it is chosen rather than after. */}
-            <InfoBanner tone={lockDays > 0 ? "warning" : "neutral"}>
+            <InfoBanner tone="neutral">
               <span className="inline-flex items-start gap-2">
-                {lockDays > 0 ? <Lock size={15} strokeWidth={1.75} className="shrink-0 mt-0.5 text-warning-fg" /> : <TriangleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-0.5" />}
-                <span>
-                  {lockDays > 0
-                    ? `You are locking this for ${lockDays} days. Until then you cannot cancel it or take anything back, whatever happens — that is the promise the lock makes to claimants, and it is enforced by the contract, not by us.`
-                    : "You can cancel this pool at any time; whatever is left unclaimed comes back to you. Claimed shares are gone — those belong to whoever claimed them."}
-                </span>
+                <TriangleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-0.5" />
+                <span>You can close this pool at any time and whatever is unclaimed comes back to you. Shares already claimed are gone — those belong to whoever took them.</span>
               </span>
             </InfoBanner>
 
