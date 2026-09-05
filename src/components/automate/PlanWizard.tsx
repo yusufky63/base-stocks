@@ -13,7 +13,7 @@ import { useAutomation } from "@/hooks/useAutomation";
 import { useAutoInvest } from "@/hooks/useAutoInvest";
 import { useNow } from "@/hooks/useNow";
 import { AUTO_INVEST, CADENCES, cadenceNoun, decodeAutoInvestError } from "@/lib/auto-invest";
-import { legBlockedReason } from "@/lib/trading-status";
+import { legBlockedReason, premiumBeyondFloor, referenceGap, referenceGapNote } from "@/lib/trading-status";
 import { validateAllocations } from "@/services/portfolio-service";
 import { formatUsd, bpsToPct } from "@/lib/format";
 import { MIN_TRADE_USD, BASE_EXPLORER_URL } from "@/config/chain";
@@ -21,6 +21,7 @@ import { humanizeError } from "@/lib/errors";
 import { AssetLogo, ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { AllocationEditor } from "@/components/build/AllocationEditor";
+import { StockPicker } from "@/components/build/StockPicker";
 import { Button, Badge, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
@@ -50,17 +51,6 @@ type Kind = "stock" | "basket";
 type BasketSource = "template" | "own";
 type Mode = "auto" | "manual";
 type AmountChoice = (typeof AMOUNTS)[number] | "custom";
-
-/** Equal weights across the stock legs; a cash leg keeps its share. */
-function equalStocks(list: Allocation[]): Allocation[] {
-  const cash = list.find((a) => a.assetAddress === USDC_ALLOCATION_KEY);
-  const stocks = list.filter((a) => a.assetAddress !== USDC_ALLOCATION_KEY);
-  if (stocks.length === 0) return cash ? [cash] : [];
-  const pool = TOTAL_BPS - (cash?.weightBps ?? 0);
-  const per = Math.floor(pool / stocks.length);
-  const rem = pool - per * stocks.length;
-  return [...stocks.map((a, i) => ({ ...a, weightBps: per + (i === 0 ? rem : 0) })), ...(cash ? [cash] : [])];
-}
 
 /**
  * New plan, top to bottom: what to buy, how much and how often, how it runs, then one button. A
@@ -137,11 +127,6 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
   const ownStocks = own.filter((a) => a.assetAddress !== USDC_ALLOCATION_KEY);
   const ownTickers = ownStocks.map((a) => infoOf(a.assetAddress as string)?.underlying ?? (a.assetAddress as string).slice(0, 6));
 
-  const toggleOwn = (address: Address) => {
-    const has = own.some((a) => (a.assetAddress as string).toLowerCase() === address.toLowerCase());
-    setOwn(equalStocks(has ? own.filter((a) => (a.assetAddress as string).toLowerCase() !== address.toLowerCase()) : [...own, { assetAddress: address, weightBps: 0 }]));
-  };
-
   const allocations: Allocation[] = kind === "stock" ? (asset ? [{ assetAddress: asset as Address, weightBps: TOTAL_BPS }] : []) : basketSource === "template" ? (template?.allocations ?? []) : own;
   const name = kind === "stock" ? (live.find((a) => a.canonicalId === asset.toLowerCase())?.underlying ?? "stock") : basketSource === "template" ? (template?.name ?? "basket") : (ownName.trim() || ownTickers.join(" + ") || "My mix");
   const ownValid = kind !== "basket" || basketSource !== "own" || validateAllocations(own).ok;
@@ -151,9 +136,16 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
     const info = infoOf(a.assetAddress as string);
     const usd = (amount * a.weightBps) / TOTAL_BPS;
     // A leg under the per-trade minimum is skipped every run, so it is flagged here, before the plan exists.
-    const blocked = usd < MIN_TRADE_USD ? `under the $${MIN_TRADE_USD} per-leg minimum at this amount` : info ? legBlockedReason("buy", info, assets?.prices[info.canonicalId], usd) : "not in the verified registry";
-    return { key: a.assetAddress as string, weightBps: a.weightBps, usd, info, blocked };
+    const price = info ? assets?.prices[info.canonicalId] : undefined;
+    const blocked = usd < MIN_TRADE_USD ? `under the $${MIN_TRADE_USD} per-leg minimum at this amount` : info ? legBlockedReason("buy", info, price, usd) : "not in the verified registry";
+    // An automatic run fills no worse than the Chainlink reference minus the slippage limit, so a
+    // pool trading above that is a leg the contract will skip — said here, not found in history.
+    const gap = referenceGapNote(price);
+    const gapPct = referenceGap(price)?.pct ?? null;
+    const beyondFloor = mode === "auto" && premiumBeyondFloor(price, slippage);
+    return { key: a.assetAddress as string, weightBps: a.weightBps, usd, info, blocked, gap, gapPct, beyondFloor };
   });
+  const premiumLegs = legs.filter((l) => !l.blocked && l.beyondFloor);
   const smallestBps = stockLegs.reduce((m, a) => Math.min(m, a.weightBps), TOTAL_BPS);
   /** The amount per run at which every stock leg clears the minimum. */
   const amountForAllLegs = stockLegs.length > 0 ? Math.ceil((MIN_TRADE_USD * TOTAL_BPS) / smallestBps) : MIN_TRADE_USD;
@@ -217,18 +209,7 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-1.5">
-              {live.map((a) => {
-                const on = own.some((x) => (x.assetAddress as string).toLowerCase() === a.canonicalId);
-                return (
-                  <button key={a.canonicalId} type="button" aria-pressed={on} onClick={() => toggleOwn(a.address as Address)} className={cx("h-9 px-2 rounded-[6px] border text-[12px] font-medium transition-fast inline-flex items-center justify-center gap-1.5 min-w-0", on ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:border-line-strong hover:text-ink")}>
-                    <AssetLogo src={a.logoURI} symbol={a.symbol} size={16} />
-                    <span className="truncate">{a.underlying}</span>
-                  </button>
-                );
-              })}
-              {live.length === 0 && <span className="text-[12px] text-ink-muted col-span-full">No live stocks right now.</span>}
-            </div>
+            {assets && <StockPicker assets={assets.assets} prices={assets.prices} value={own} onChange={setOwn} columns="grid-cols-3 sm:grid-cols-4" />}
             {own.length > 0 && assets && (
               <>
                 <AllocationEditor assets={assets.assets} value={own} onChange={setOwn} />
@@ -249,22 +230,34 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
                 {l.info && <AssetLogo src={l.info.logoURI} symbol={l.info.symbol} size={20} />}
                 <span className="font-medium">{l.info?.underlying ?? l.key.slice(0, 6)}</span>
                 <span className="font-mono num text-[12px] text-ink-secondary">{bpsToPct(l.weightBps)} · {formatUsd(l.usd)}</span>
-                {l.blocked && <span className="ml-auto text-[11px] text-warning-fg truncate">{l.blocked}</span>}
+                {l.blocked ? (
+                  <span className="ml-auto text-[11px] text-warning-fg truncate">{l.blocked}</span>
+                ) : l.gap ? (
+                  <span className={cx("ml-auto text-[11px] truncate", l.beyondFloor ? "text-warning-fg" : "text-ink-muted")} title={l.gap}>
+                    {(l.gapPct ?? 0) > 0 ? "+" : ""}
+                    {(l.gapPct ?? 0).toFixed(0)}% vs reference{l.beyondFloor ? " · skipped" : ""}
+                  </span>
+                ) : null}
               </li>
             ))}
             {cashBps > 0 && <li className="text-[12px] text-ink-muted md:col-span-2">{bpsToPct(cashBps)} cash share stays in your wallet each run.</li>}
           </ul>
         )}
-        {kind === "basket" && basketSource === "own" && legs.some((l) => l.blocked) && (
-          <ul className="text-[12px] text-warning-fg flex flex-col gap-0.5">
+        {kind === "basket" && basketSource === "own" && legs.some((l) => l.blocked || l.gap) && (
+          <ul className="text-[12px] flex flex-col gap-0.5">
             {legs
-              .filter((l) => l.blocked)
+              .filter((l) => l.blocked || l.gap)
               .map((l) => (
-                <li key={l.key}>
-                  {l.info?.underlying ?? l.key.slice(0, 6)} · {formatUsd(l.usd)} per run: {l.blocked}
+                <li key={l.key} className={l.blocked || l.beyondFloor ? "text-warning-fg" : "text-ink-muted"}>
+                  {l.info?.underlying ?? l.key.slice(0, 6)} · {formatUsd(l.usd)} per run: {l.blocked ?? l.gap}
                 </li>
               ))}
           </ul>
+        )}
+        {premiumLegs.length > 0 && (
+          <InfoBanner tone="warning">
+            {premiumLegs.map((l) => `${l.info?.underlying ?? l.key.slice(0, 6)} (+${(l.gapPct ?? 0).toFixed(0)}%)`).join(", ")} {premiumLegs.length === 1 ? "trades" : "trade"} above the Chainlink reference by more than the {slippage / 100}% limit in step 3. An automatic run fills no worse than reference minus that limit, so {premiumLegs.length === 1 ? "this leg is" : "these legs are"} skipped until the gap narrows; the share stays in your wallet each time.
+          </InfoBanner>
         )}
       </section>
 

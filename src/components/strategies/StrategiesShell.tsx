@@ -7,9 +7,9 @@ import { PageTitle, cx } from "@/components/ui/primitives";
 export type StrategiesTab = "build" | "community" | "automate";
 
 const TABS: Array<{ id: StrategiesTab; href: string; label: string; hint: string }> = [
-  { id: "build", href: "/build", label: "Build", hint: "Sliders, a template or a draft" },
-  { id: "community", href: "/community", label: "Community", hint: "Published baskets · 7-day pulse" },
+  { id: "build", href: "/build", label: "Build", hint: "A draft, a template, or your own" },
   { id: "automate", href: "/automate", label: "Automate", hint: "Runs by itself, or with your OK" },
+  { id: "community", href: "/community", label: "Community", hint: "Published baskets · 7-day pulse" },
 ];
 
 /**

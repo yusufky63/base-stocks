@@ -15,7 +15,7 @@ A self-custodial interface for **Coinbase Tokenized Stocks on Base** (the B20 st
 | Portfolio | Value (stocks + USDC + Earn + LP), allocation, history, profit and loss, rebalance against a template or your own saved target (one drift measure for the banner, the table and the trades), verified activity, daily AI summary and badges |
 | Send & gift | To a Basename or address with the recipient's profile shown first, or a claim link for someone without a wallet: the stock waits in an ownerless escrow, they claim it with a passkey Base Account and the gas is sponsored. Public receipt pages to share |
 | Gift pools | One deposit, many equal shares of one stock or a package of several: a share link, a public directory or steps to finish first. Onchain steps (a Basename, a holding, a verified purchase) are read from Base; X steps are recorded as the claimant's own confirmation and labelled that way. Close a pool any time — or lock it so you cannot — and the unclaimed remainder comes home |
-| News | Headlines per stock and market-wide plus one shared AI brief every six hours |
+| News | Headlines per stock and market-wide, a Base & Coinbase feed that follows tokenized-stock listings and venues, and one shared AI brief every six hours that reads ~60 headlines and leads with that ecosystem; the same brief and headlines ground the basket and plan drafts, which come with a "why this mix" commentary |
 | Compliance | Eligibility notice for restricted regions (`attest` or `block` mode), issuer policies and pauses read before every action |
 | Status | Live, smoothed checks of every dependency at `/status` |
 

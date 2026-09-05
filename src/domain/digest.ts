@@ -6,10 +6,19 @@ export interface MarketDigest {
   headline: string;
   summary: string;
   bullets: Array<{ ticker: string; note: string }>;
+  /**
+   * Base & Coinbase: what the headlines say about tokenized stocks on Base, Coinbase's listings and
+   * the venues around them — the app's own corner of the market, kept in front.
+   */
+  spotlight: Array<{ note: string; tickers: string[] }>;
+  /** Two to four short neutral phrases the headlines cluster around. */
+  themes: string[];
   mood: "calm" | "mixed" | "volatile";
   marketOpen: boolean;
   /** Number of headlines the model saw. */
   headlines: number;
+  /** Feeds those headlines came from. */
+  sources?: number;
   generatedAt: number;
   model: string;
 }

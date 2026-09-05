@@ -7,15 +7,18 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Repeat, Upload } from "lucide-react";
 import type { Allocation, PortfolioTemplate } from "@/domain/portfolio";
 import type { CommunityBasket } from "@/domain/community";
-import { apiGet, apiPost, ApiError, type AssetsResponse } from "@/lib/client-api";
+import { apiGet, apiPost, ApiError, type AssetsResponse, type DraftCommentary as Commentary } from "@/lib/client-api";
 import { useAssets, useConfigFlags, useTemplates } from "@/hooks/queries";
 import { useAuth } from "@/hooks/useAuth";
 import { Module, ModuleHeader, Skeleton, Button, cx } from "@/components/ui/primitives";
+
 import { Collapsible } from "@/components/ui/Collapsible";
 import { Input } from "@/components/ui/Input";
 import { AllocationEditor } from "./AllocationEditor";
 import { PlanExecutor } from "./PlanExecutor";
 import { AiIntentInput } from "./AiIntentInput";
+import { DraftCommentary } from "./DraftCommentary";
+import { StockPicker } from "./StockPicker";
 import { TemplateCard } from "./TemplateCard";
 import { partitionTemplates } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
@@ -23,12 +26,12 @@ import { automateHref } from "@/lib/automate-link";
 import { Dither } from "@/components/fx/Dither";
 import { SignInButton } from "@/components/layout/SignInButton";
 
-type StartMode = "template" | "ai" | "scratch";
+type StartMode = "ai" | "template" | "own";
 
 /**
- * Build in three moves: pick a starting point (template, AI draft or from scratch), adjust the
- * basket in the editor, invest with live quotes. Publishing is tucked under the editor; a basket
- * can also be handed to Automate to repeat on a schedule.
+ * Build in three moves: pick a starting point (an AI draft, a template, or stocks you tap
+ * yourself), adjust the basket in the editor, invest with live quotes. Publishing is tucked under
+ * the editor; a basket can also be handed to Automate to repeat on a schedule.
  */
 export function BuildView({ initialAssets, initialTemplates, embedded = false }: { initialAssets?: AssetsResponse; initialTemplates?: PortfolioTemplate[]; embedded?: boolean }) {
   const { data: assets } = useAssets(initialAssets);
@@ -48,6 +51,8 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
   const [source, setSource] = useState<"template" | "custom" | "ai">("custom");
   const [loadedClone, setLoadedClone] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
+  /** The assistant's reasoning for its last draft; stays visible after edits, marked as belonging to the draft. */
+  const [commentary, setCommentary] = useState<Commentary | null>(null);
   const valid = validateAllocations(allocations).ok;
 
   // Clone a community basket into the editor once (URL param → state, adjust-on-prop-change pattern).
@@ -65,18 +70,19 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
     },
   });
 
-  const load = (next: Allocation[], label: string, from: "template" | "ai") => {
+  const load = (next: Allocation[], label: string, from: "template" | "ai", why?: Commentary) => {
     if (executing) return;
     setAllocations(next);
     setName(label);
     setSource(from);
+    setCommentary(from === "ai" ? (why ?? null) : null);
     if (typeof document !== "undefined") document.getElementById("basket-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const MODES: Array<{ id: StartMode; label: string; hint: string }> = [
-    { id: "ai", label: "AI draft", hint: "describe a theme" },
-    { id: "template", label: "Template", hint: "ready-made mix, live stocks first" },
-    { id: "scratch", label: "From scratch", hint: "pick stocks yourself" },
+    { id: "ai", label: "AI draft", hint: "a theme, a risk profile, and it explains why" },
+    { id: "template", label: "Templates", hint: "ready-made mixes, live stocks first" },
+    { id: "own", label: "Your own", hint: "tap the stocks, tune the weights below" },
   ];
 
   return (
@@ -100,32 +106,63 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
       )}
 
       <Module>
-        <ModuleHeader
-          index="A"
-          title="Start with"
-          action={
-            <div role="tablist" aria-label="Starting point" className="flex gap-1 p-1 rounded-[8px] bg-surface-muted">
-              {MODES.filter((m) => m.id !== "ai" || flags?.aiEnabled !== false).map((m) => (
-                <button key={m.id} role="tab" aria-selected={activeMode === m.id} onClick={() => setMode(m.id)} className={cx("h-8 px-3 rounded-[6px] text-[12px] font-medium transition-fast whitespace-nowrap", activeMode === m.id ? "bg-canvas border border-line text-primary" : "text-ink-secondary hover:text-ink")} title={m.hint}>
-                  {m.label}
-                </button>
-              ))}
+        <div role="tablist" aria-label="Starting point" className={cx("grid p-1 m-3 rounded-[8px] bg-surface-muted", flags?.aiEnabled === false ? "grid-cols-2" : "grid-cols-3")}>
+          {MODES.filter((m) => m.id !== "ai" || flags?.aiEnabled !== false).map((m) => (
+            <button key={m.id} role="tab" aria-selected={activeMode === m.id} onClick={() => setMode(m.id)} className={cx("h-11 rounded-[6px] px-2 text-[13px] font-medium transition-fast flex flex-col items-center justify-center leading-tight", activeMode === m.id ? "bg-canvas border border-line text-primary" : "text-ink-secondary hover:text-ink")}>
+              <span>{m.label}</span>
+              <span className="hidden md:block font-mono text-[10px] uppercase tracking-[0.06em] text-ink-muted">{m.hint}</span>
+            </button>
+          ))}
+        </div>
+        <div className="px-4 pb-4 pt-1 border-t border-line">
+          {activeMode === "template" && (
+            <div className="pt-3">
+              <TemplateShelf templates={templates} assets={assets} onLoad={(tpl) => load(tpl.allocations, tpl.name, "template")} />
             </div>
-          }
-        />
-        <div className="p-4">
-          {activeMode === "template" && <TemplateShelf templates={templates} assets={assets} onLoad={(tpl) => load(tpl.allocations, tpl.name, "template")} />}
-          {activeMode === "ai" && <AiIntentInput onIntent={(intent) => load(intent.allocations, intent.name || "AI draft", "ai")} />}
-          {activeMode === "scratch" && <p className="text-[13px] text-ink-secondary">Add stocks and a USDC share in the basket below; weights must total 100%.</p>}
+          )}
+          {activeMode === "ai" && (
+            <div className="pt-3">
+              <AiIntentInput onIntent={(intent) => load(intent.allocations, intent.name || "AI draft", "ai", intent.commentary)} />
+            </div>
+          )}
+          {activeMode === "own" && (
+            <div className="pt-3 flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-[13px] text-ink-secondary">Tap the stocks you want. They start at equal weights; tune the sliders and add a cash share below.</p>
+                {allocations.length > 0 && (
+                  <button type="button" className="text-[12px] text-ink-secondary hover:text-ink" disabled={executing} onClick={() => setAllocations([])}>
+                    Clear
+                  </button>
+                )}
+              </div>
+              {assets ? (
+                <StockPicker
+                  assets={assets.assets}
+                  prices={assets.prices}
+                  value={allocations}
+                  disabled={executing}
+                  onChange={(next) => {
+                    setAllocations(next);
+                    setSource("custom");
+                    setCommentary(null);
+                    if (name === "Custom portfolio" || name === "AI draft") setName("My basket");
+                  }}
+                />
+              ) : (
+                <Skeleton className="h-24" />
+              )}
+            </div>
+          )}
         </div>
       </Module>
 
       <div id="basket-editor" className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start scroll-mt-24">
+        <div className="flex flex-col gap-6 min-w-0">
         <Module ticks>
           <ModuleHeader
             index="B"
             title={name}
-            action={<span className="font-mono text-[11px] text-ink-muted">{executing ? "locked while buying" : `${allocations.length} blocks${cloneId ? " · cloned" : ""}`}</span>}
+            action={<span className="font-mono text-[11px] text-ink-muted">{executing ? "locked while buying" : `${allocations.length} ${allocations.length === 1 ? "leg" : "legs"}${cloneId ? " · cloned" : ""}`}</span>}
           />
           <div className="p-4 flex flex-col gap-4">
             {assets ? (
@@ -175,6 +212,8 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
             </Collapsible>
           </div>
         </Module>
+        {commentary && <DraftCommentary commentary={commentary} stale={source !== "ai"} />}
+        </div>
         <Module className="lg:sticky lg:top-[72px]">
           <ModuleHeader index="C" title="Invest" />
           <div className="p-4">

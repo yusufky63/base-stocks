@@ -16,16 +16,20 @@ export interface NewsItemDTO {
   publishedAt: number;
   ticker: string;
   via: NewsVia;
+  /** Listed tickers the title names (ecosystem feed). */
+  tickers?: string[];
+  /** About tokenized stocks on Base or Coinbase's listings. */
+  spotlight?: boolean;
 }
 
-export type NewsFeedFilter = "stocks" | "markets" | { ticker: string };
+export type NewsFeedFilter = "stocks" | "markets" | "ecosystem" | { ticker: string };
 
 export function newsQueryKey(filter: NewsFeedFilter, limit: number) {
   return ["news", typeof filter === "string" ? filter : `t:${filter.ticker}`, limit] as const;
 }
 
 export function useNewsFeed(filter: NewsFeedFilter, limit = 8) {
-  const qs = typeof filter === "string" ? (filter === "markets" ? "scope=markets&" : "") : `ticker=${encodeURIComponent(filter.ticker)}&`;
+  const qs = typeof filter === "string" ? (filter === "stocks" ? "" : `scope=${filter}&`) : `ticker=${encodeURIComponent(filter.ticker)}&`;
   return useQuery({
     queryKey: newsQueryKey(filter, limit),
     queryFn: () => apiGet<{ items: NewsItemDTO[]; updatedAt: number }>(`/api/news?${qs}limit=${limit}`),
@@ -48,7 +52,9 @@ export function NewsList({ items, showTicker = false, compact = false }: { items
           <a href={n.url} target="_blank" rel="noreferrer noopener" className={cx("rail flex items-start gap-3 px-4 hover:bg-surface transition-fast", compact ? "py-2.5" : "py-3")}>
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted mb-0.5">
-                {showTicker && n.ticker !== "MARKETS" && <span className="text-primary">{n.ticker}</span>}
+                {showTicker && n.ticker !== "MARKETS" && n.ticker !== "BASE" && <span className="text-primary">{n.ticker}</span>}
+                {n.ticker === "BASE" && n.tickers && n.tickers.length > 0 && <span className="text-primary">{n.tickers.join(" · ")}</span>}
+                {n.spotlight && n.ticker !== "BASE" && <span className="text-primary border border-primary/40 rounded-[3px] px-1 leading-4">Base</span>}
                 <span className="truncate">{n.source}</span>
                 <span>·</span>
                 <span>{n.publishedAt ? timeAgo(n.publishedAt) : ""}</span>

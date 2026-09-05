@@ -31,19 +31,17 @@ const NAV = [
 /** Desktop header: the logo is Home, so Home is not repeated; News joins from lg up (it collides with the wallet chip on tablets). */
 const DESKTOP_NAV = [...NAV.filter((n) => n.href !== "/").map((n) => ({ ...n, extra: false })), { href: "/news", label: "News", icon: Newspaper, extra: true }] as const;
 
+/**
+ * Only what the header does not already offer. News is the one exception: the header shows it from
+ * lg up, so the footer carries it below that, where it would otherwise be reachable from nowhere.
+ */
 const FOOTER_LINKS = [
-  ["/markets", "Markets"],
-  ["/build", "Strategies"],
-  ["/earn", "Earn"],
-  ["/gifts", "Gifts"],
-  ["/pools", "Gift pools"],
-  ["/portfolio", "Portfolio"],
-  ["/news", "News"],
-  ["/how-it-works", "How it works"],
-  ["/how-it-works#faq", "FAQ"],
-  ["/docs", "Docs"],
-  ["/status", "Status"],
-  ["/settings", "Settings"],
+  ["/news", "News", "lg:hidden"],
+  ["/pools", "Gift pools", ""],
+  ["/how-it-works", "How it works", ""],
+  ["/how-it-works#faq", "FAQ", ""],
+  ["/docs", "Docs", ""],
+  ["/status", "Status", ""],
 ] as const;
 
 function isActive(path: string, href: string): boolean {
@@ -113,8 +111,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Wordmark size={18} />
             <span className="eyebrow">Built on Base</span>
             <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-4 gap-y-1 md:ml-auto">
-              {FOOTER_LINKS.map(([href, label]) => (
-                <Link key={href} href={href} className="text-[13px] text-ink-secondary hover:text-primary transition-fast">
+              {FOOTER_LINKS.map(([href, label, only]) => (
+                <Link key={href} href={href} className={cx("text-[13px] text-ink-secondary hover:text-primary transition-fast", only)}>
                   {label}
                 </Link>
               ))}

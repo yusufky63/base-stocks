@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/Select";
 import { Slider } from "@/components/ui/Slider";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { assetColor } from "@/lib/colors";
-import { tradingStatus } from "@/lib/trading-status";
+import { referenceGap, referenceGapNote, tradingStatus } from "@/lib/trading-status";
 import { useAssets } from "@/hooks/queries";
 
 interface Props {
@@ -108,6 +108,10 @@ export function AllocationEditor({ assets, value, onChange, disabled = false }: 
           const asset = a.assetAddress === USDC_ALLOCATION_KEY ? null : byId.get(a.assetAddress.toLowerCase());
           const rowStatus = asset ? tradingStatus(asset, prices?.[asset.canonicalId]).status : null;
           const blocked = rowStatus === "not-issued" || rowStatus === "no-pool" || rowStatus === "paused";
+          // A pool far above its Chainlink reference sells the stock at a premium; a basket is reviewed
+          // once, so the row says it where the Trade page would.
+          const gap = asset ? referenceGap(prices?.[asset.canonicalId]) : null;
+          const gapNote = asset ? referenceGapNote(prices?.[asset.canonicalId]) : null;
           const rowNote =
             rowStatus === "not-issued"
               ? "Kept as USDC until Coinbase mints it"
@@ -118,7 +122,7 @@ export function AllocationEditor({ assets, value, onChange, disabled = false }: 
                   : rowStatus === "paused"
                     ? "Transfers paused by the issuer"
                     : null;
-          const rowTag = rowStatus === "not-issued" ? "not issued" : rowStatus === "no-pool" ? "no pool" : rowStatus === "very-thin" ? "very thin" : rowStatus === "paused" ? "paused" : null;
+          const rowTag = rowStatus === "not-issued" ? "not issued" : rowStatus === "no-pool" ? "no pool" : rowStatus === "very-thin" ? "very thin" : rowStatus === "paused" ? "paused" : gap && gap.pct >= 15 ? "premium" : null;
           const label = asset ? asset.underlying : "USDC";
           return (
             <div key={key} className={cx("grid grid-cols-[1fr_44px] md:grid-cols-[220px_1fr_112px_44px] items-center gap-3 px-3 py-3 border-b border-line last:border-b-0", blocked && "opacity-70")}>
@@ -131,7 +135,7 @@ export function AllocationEditor({ assets, value, onChange, disabled = false }: 
                     {asset ? asset.underlying : "USDC cash"}
                     {rowTag && <span className="ml-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-warning-fg">{rowTag}</span>}
                   </div>
-                  <div className="text-[12px] text-ink-secondary truncate">{asset ? (rowNote ?? asset.name) : "Kept as cash"}</div>
+                  <div className="text-[12px] text-ink-secondary truncate" title={gapNote ?? undefined}>{asset ? (rowNote ?? (gapNote ? `${gapNote[0]!.toUpperCase()}${gapNote.slice(1)}` : asset.name)) : "Kept as cash"}</div>
                 </div>
               </div>
               <div className="md:hidden row-start-2 col-span-2">

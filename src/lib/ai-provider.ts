@@ -46,7 +46,8 @@ export function estimateCostUsd(model: string, usage: AiUsage): number {
 
 export function aiConfigFromEnv(): AiConfig | null {
   const provider = (process.env.AI_PROVIDER?.trim().toLowerCase() as AiProvider | undefined) ?? "anthropic";
-  const maxOutputTokens = Math.min(2000, Math.max(200, Number(process.env.AI_MAX_OUTPUT_TOKENS) || 700));
+  // Drafts now carry commentary and the brief reads sixty-odd headlines; 1,000 is the floor that fits them.
+  const maxOutputTokens = Math.min(3000, Math.max(200, Number(process.env.AI_MAX_OUTPUT_TOKENS) || 1000));
   if (provider === "openai") {
     const apiKey = process.env.AI_API_KEY?.trim();
     if (!apiKey) return null;

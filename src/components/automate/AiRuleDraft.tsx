@@ -39,6 +39,7 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [notes, setNotes] = useState<string | null>(null);
+  const [commentary, setCommentary] = useState<{ why: string; watch: string[] } | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
 
   const chooseAmount = (usd: number) => {
@@ -83,6 +84,7 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
     setLoading(true);
     setErrors([]);
     setNotes(null);
+    setCommentary(null);
     try {
       const res = await apiPost<Resp>("/api/automation/intent", { prompt: p, owner: address });
       if (res.quota) setRemaining(res.quota.remainingForWallet);
@@ -92,6 +94,7 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
       }
       onDraft(res.draft);
       setNotes([res.draft.notes, ...(res.warnings ?? [])].filter(Boolean).join(" "));
+      if (res.draft.commentary && (res.draft.commentary.why || res.draft.commentary.watch.length)) setCommentary(res.draft.commentary);
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "AI assistance is unavailable right now."]);
       const quota = err instanceof ApiError ? (err.body?.quota as { remainingForWallet?: number } | undefined) : undefined;
@@ -192,6 +195,20 @@ export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => 
       </section>
 
       {notes && <p className="text-[13px] text-ink-secondary border-l-2 border-primary pl-3">{notes} Review it under New plan.</p>}
+      {commentary && (
+        <div className="border border-line rounded-[6px] p-3 flex flex-col gap-2 text-[13px]">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Why this plan · commentary, not advice</span>
+          {commentary.why && <p className="text-ink">{commentary.why}</p>}
+          {commentary.watch.length > 0 && (
+            <ul className="list-disc pl-4 text-ink-secondary flex flex-col gap-1">
+              {commentary.watch.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+          <span className="text-[11px] text-ink-muted">From the live status and liquidity of each stock, the shared market brief and recent headlines. Facts may lag.</span>
+        </div>
+      )}
       {errors.map((e) => (
         <ErrorBanner key={e} message={e} />
       ))}

@@ -174,6 +174,8 @@ export interface AutomationDraft {
   amountUsd: number;
   cadenceDays: number;
   notes: string;
+  /** Why this plan, and what to keep an eye on — commentary, not advice. */
+  commentary?: { why: string; watch: string[] };
 }
 
 export interface PoolRowDTO {
@@ -264,9 +266,24 @@ export interface AnnouncementsResponse {
   updatedAt: number;
 }
 
+/**
+ * The assistant's reasoning next to a draft: grounded in the live universe, the shared market
+ * brief and the headlines it was given. Commentary, never advice — the UI says so every time.
+ */
+export interface DraftCommentary {
+  /** One or two sentences: what the mix is built around. */
+  thesis: string;
+  /** Why each stock is in, and at that weight. */
+  legs: Array<{ symbol: string; why: string }>;
+  /** What could go against the mix: concentration, thin pools, names not issued, sector overlap. */
+  risks: string[];
+  /** Facts from the headlines the assistant leaned on, each naming its ticker or "Base". */
+  fromNews: string[];
+}
+
 export interface IntentResponse {
   ok: boolean;
-  intent?: { name?: string; allocations: Allocation[]; notes?: string; source: "ai" };
+  intent?: { name?: string; allocations: Allocation[]; notes?: string; source: "ai"; commentary?: DraftCommentary };
   errors?: string[];
 }
 

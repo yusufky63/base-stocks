@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buyLegBlockedReason, hasMeaningfulChange, legPoolShare, sortByTradingStatus, tradingStatus } from "./trading-status";
+import { buyLegBlockedReason, hasMeaningfulChange, legPoolShare, premiumBeyondFloor, referenceGap, referenceGapNote, sortByTradingStatus, tradingStatus } from "./trading-status";
 
 const asset = (over: { status?: "active" | "paused"; totalSupply?: string } = {}) => ({
   status: over.status ?? ("active" as const),
@@ -152,5 +152,34 @@ describe("whether a buy leg can run", () => {
     expect(legPoolShare(500, 0)).toBeNull();
     expect(legPoolShare(500, null)).toBeNull();
     expect(legPoolShare(0, 10_000)).toBeNull();
+  });
+});
+
+describe("the gap between the pool and the reference", () => {
+  const view = (deviationPct: number | null, extra: { referenceStale?: boolean; referencePaused?: boolean; referenceUsd?: number | null } = {}) => ({ deviationPct, referenceUsd: 500, referenceStale: false, referencePaused: false, ...extra });
+
+  it("names a premium or a discount once it is worth naming", () => {
+    expect(referenceGapNote(view(40.4))).toBe("pool price 40% above its Chainlink reference ($500.00)");
+    expect(referenceGapNote(view(-12))).toBe("pool price 12% below its Chainlink reference ($500.00)");
+    expect(referenceGapNote(view(3))).toBeNull();
+    expect(referenceGap(view(3))).toEqual({ pct: 3, referenceUsd: 500 });
+  });
+
+  it("says nothing on a reference it cannot trust", () => {
+    expect(referenceGapNote(view(40, { referenceStale: true }))).toBeNull();
+    expect(referenceGapNote(view(40, { referencePaused: true }))).toBeNull();
+    expect(referenceGapNote(view(40, { referenceUsd: null }))).toBeNull();
+    expect(referenceGapNote(view(null))).toBeNull();
+    expect(referenceGapNote(null)).toBeNull();
+  });
+
+  /** The contract fills no worse than reference minus the slippage limit; a premium past it is a skip. */
+  it("knows when an automatic run would refuse the leg", () => {
+    expect(premiumBeyondFloor(view(40), 300)).toBe(true);
+    expect(premiumBeyondFloor(view(3.5), 300)).toBe(true);
+    expect(premiumBeyondFloor(view(2.5), 300)).toBe(false);
+    expect(premiumBeyondFloor(view(-40), 300)).toBe(false);
+    expect(premiumBeyondFloor(view(40, { referenceStale: true }), 300)).toBe(false);
+    expect(premiumBeyondFloor(null, 300)).toBe(false);
   });
 });

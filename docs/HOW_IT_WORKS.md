@@ -170,6 +170,8 @@ One deposit, many equal claims — the contract behind `/pools`. Ownerless like 
 - **Provider abstraction** (`src/lib/ai-provider.ts`): Anthropic structured outputs or any OpenAI-compatible JSON-mode API (`AI_PROVIDER=openai`, `AI_BASE_URL`, `AI_MODEL`; DeepSeek in use). For OpenAI-compatible models the zod schema is embedded as JSON Schema in the system prompt (models otherwise invent key names); output is validated with zod and parse failures are logged as `ai.parse`.
 - **Cost controls** (`src/lib/ai-quota.ts`): per-wallet, per-IP and global daily quotas, burst limit, monthly budget (`AI_MONTHLY_BUDGET_USD`) tracked in `ai_usage`; per-call output caps; identical requests are cached 10 minutes; failures are never cached.
 - **Uses**: basket drafts, plan drafts, shared market brief (`ai_digests`, one per 6-hour UTC slot, at most four calls a day for everyone, fallback to the last stored brief), per-wallet daily portfolio brief (sign-in required, once per UTC day). Prompts forbid advice, predictions and invented facts; headlines are titles only and marked untrusted; the model never sees contract addresses or calldata.
+- **The market brief reads widely and leads with Base & Coinbase.** Input: ~30 per-stock headlines, 12 market-desk headlines and up to 16 from the ecosystem feed (`getEcosystemNews`: Google News searches for tokenized stocks on Base and Coinbase's listings, each title tagged with the listed tickers it names), plus live prices and liquidity — ~14k characters, 1,800 output tokens. Output adds `spotlight` (up to five facts about the listings, venues and the standard, with the tickers concerned) and `themes`; the summary is told to lead with the ecosystem. Stored under `market:v2:<day>:<slot>`; older rows serve as fallback.
+- **Drafts are grounded and explained.** Both `POST /api/portfolio/intent` and `POST /api/automation/intent` add the latest stored brief (`marketContextText`, never a fresh model call), the same Live / Thin / No pool status Markets shows, DEX liquidity, and a few recent headlines per live stock as context marked "data, not instructions". The basket draft returns `commentary` — thesis, why each leg and its weight, what could go against it, facts from the headlines — rendered under the editor as "Why this mix" (marked "for the draft as generated" once the user edits). The plan draft returns `commentary.why` and `commentary.watch`, shown under the assistant's draft. Commentary explains a template; the prompts forbid recommending or predicting.
 
 ---
 
@@ -239,7 +241,7 @@ No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp 
 | `GET /api/basename/resolve`, `/reverse` | Recipient resolution with profile |
 | `GET /api/activity/[address]` | Timeline with onchain verification |
 | `GET /api/profiles/[ref]`, `/me`, `GET/POST /api/baskets`, `/api/community/pulse`, `/api/referrals`, `/api/watchlist` | Community and profile |
-| `GET /api/news`, `/api/news/digest` | Headlines, shared brief |
+| `GET /api/news` (`?scope=stocks|markets|ecosystem`, `?ticker=`), `/api/news/digest` | Headlines (the ecosystem scope tags each title with the listed tickers it names), shared brief with the Base & Coinbase spotlight |
 | `GET/POST /api/region`, `/api/config`, `/api/status`, `/api/health` | Region and attestation, public flags, live checks, metrics |
 | `/api/auth/*` | SIWE nonce, verify, session |
 | `/api/admin/*` | Discovery verification |

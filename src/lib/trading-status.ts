@@ -142,3 +142,40 @@ export function legBlockedReason(
   const status = tradingStatus(asset, price).status;
   return side === "buy" ? buyLegBlockedReason(status, targetUsd, price?.liquidityUsd) : sellLegBlockedReason(status, targetUsd, price?.liquidityUsd);
 }
+
+/** Below this gap the pool price and the Chainlink reference are the same number for practical purposes. */
+export const REFERENCE_GAP_NOTE_PCT = 5;
+
+type ReferencePrice = Pick<PriceView, "deviationPct" | "referenceUsd" | "referenceStale" | "referencePaused"> | null | undefined;
+
+/**
+ * How far the pool price sits from the Chainlink reference, when the reference can be trusted.
+ * Null when there is no reference, the feed is stale or paused, or the pool has no price.
+ */
+export function referenceGap(price: ReferencePrice): { pct: number; referenceUsd: number } | null {
+  if (!price || price.deviationPct === null || price.deviationPct === undefined) return null;
+  if (price.referenceStale || price.referencePaused || !price.referenceUsd || price.referenceUsd <= 0) return null;
+  return { pct: price.deviationPct, referenceUsd: price.referenceUsd };
+}
+
+/**
+ * The gap as a sentence fragment, or null while it is too small to mention. The Trade panel says
+ * the same thing at fifteen percent; the batched flows and the assistant say it earlier, because a
+ * basket or a plan is reviewed once and then runs on its own.
+ */
+export function referenceGapNote(price: ReferencePrice, minPct = REFERENCE_GAP_NOTE_PCT): string | null {
+  const gap = referenceGap(price);
+  if (!gap || Math.abs(gap.pct) < minPct) return null;
+  const ref = `$${gap.referenceUsd.toFixed(2)}`;
+  return gap.pct > 0 ? `pool price ${gap.pct.toFixed(0)}% above its Chainlink reference (${ref})` : `pool price ${Math.abs(gap.pct).toFixed(0)}% below its Chainlink reference (${ref})`;
+}
+
+/**
+ * Whether an automatic run would refuse this buy leg today: the contract fills no worse than the
+ * reference minus the plan's slippage limit, so a premium beyond that limit is skipped every run
+ * until the pool comes back. A discount is never a problem for a buy.
+ */
+export function premiumBeyondFloor(price: ReferencePrice, maxSlippageBps: number): boolean {
+  const gap = referenceGap(price);
+  return !!gap && gap.pct > maxSlippageBps / 100;
+}
