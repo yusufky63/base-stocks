@@ -97,6 +97,28 @@ async function receiptStatus(hash: Hash): Promise<{ status: "success" | "reverte
   }).catch(() => ({ status: "pending" as const }));
 }
 
+export interface ReceiptState {
+  status: "success" | "reverted" | "pending";
+  blockNumber?: number;
+}
+
+/**
+ * What became of a record the app wrote down, resolved to one of three answers.
+ *
+ * Seeing the token transfer is proof on its own — that is the chain saying it happened. Failing
+ * that, the receipt decides: mined and succeeded, mined and reverted, or not mined yet. Only the
+ * last is pending, and it clears within a block or two.
+ *
+ * This used to be a single boolean off the transfer scan, and the scan only reaches back a couple
+ * of days. Anything older stayed unverified for good, so a trade that settled last week still read
+ * "pending verification" — a state that looked like a warning and had no way out.
+ */
+export function settleRecord(sawTransfer: boolean, receipt: ReceiptState | undefined): { verified: boolean; failed: boolean; blockNumber?: number } {
+  if (sawTransfer) return { verified: true, failed: false };
+  if (!receipt) return { verified: false, failed: false };
+  return { verified: receipt.status === "success", failed: receipt.status === "reverted", blockNumber: receipt.blockNumber };
+}
+
 export async function getActivity(owner: Address): Promise<ActivityItem[]> {
   const repos = getRepos();
   const assets = await getAssets();
@@ -113,6 +135,25 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
     const k = t.txHash.toLowerCase();
     onchainByTx.set(k, [...(onchainByTx.get(k) ?? []), t]);
   }
+  /**
+   * What actually happened to an app record, decided rather than left open.
+   *
+   * The chain scan only reaches back `LOOKBACK_BLOCKS` — a couple of days on Base — so a trade
+   * older than that was never going to be matched by it, and "pending verification" was a state
+   * nothing could ever leave. The receipt settles it at any age: mined and succeeded, mined and
+   * reverted, or genuinely not mined yet. Only the last of those is pending.
+   */
+  const unmatched = [...trades, ...gifts]
+    .map((r) => r.txHash)
+    .concat(executions.flatMap((e) => e.steps.map((st) => st.txHash)))
+    .filter((h): h is Hash => Boolean(h) && h !== "0x" && !onchainByTx.has(String(h).toLowerCase()))
+    .map((h) => h.toLowerCase() as Hash);
+  const uniqueUnmatched = [...new Set(unmatched)].slice(0, 40);
+  const settledByTx = new Map<string, Awaited<ReturnType<typeof receiptStatus>>>();
+  await Promise.all(uniqueUnmatched.map(async (h) => settledByTx.set(h, await receiptStatus(h))));
+
+  const settle = (txHash: string | null | undefined, sawTransfer: boolean) => settleRecord(sawTransfer, txHash ? settledByTx.get(txHash.toLowerCase()) : undefined);
+
   const items: ActivityItem[] = [];
   const consumedTx = new Set<string>();
 
@@ -121,13 +162,14 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
     if (!t.txHash) continue;
     const asset = byAddr.get(t.assetAddress.toLowerCase());
     const chain = t.txHash ? onchainByTx.get(t.txHash.toLowerCase()) : undefined;
+    const tradeState = settle(t.txHash, !!chain);
     if (t.txHash) consumedTx.add(t.txHash.toLowerCase());
     items.push({
       id: `trade:${t.id}`,
       owner,
       type: t.side,
       txHash: (t.txHash ?? "0x") as Hash,
-      blockNumber: chain?.[0] ? Number(chain[0].blockNumber) : undefined,
+      blockNumber: chain?.[0] ? Number(chain[0].blockNumber) : tradeState.blockNumber,
       timestamp: Math.floor(t.createdAt / 1000),
       assetAddress: t.assetAddress,
       symbol: asset?.symbol,
@@ -137,7 +179,8 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
       counterparty: t.recipient,
       provider: t.provider,
       source: "app",
-      verified: !!chain,
+      verified: tradeState.verified,
+      metadata: tradeState.failed ? { failed: true } : undefined,
     });
   }
   for (const g of gifts) {
@@ -145,13 +188,14 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
     const asset = byAddr.get(g.assetAddress.toLowerCase());
     const chain = g.txHash ? onchainByTx.get(g.txHash.toLowerCase()) : undefined;
     if (g.txHash) consumedTx.add(g.txHash.toLowerCase());
+    const giftState = settle(g.txHash, !!chain);
     const isSender = g.sender.toLowerCase() === owner.toLowerCase();
     items.push({
       id: `gift:${g.id}`,
       owner,
       type: isSender ? "send" : "receive",
       txHash: (g.txHash ?? "0x") as Hash,
-      blockNumber: chain?.[0] ? Number(chain[0].blockNumber) : undefined,
+      blockNumber: chain?.[0] ? Number(chain[0].blockNumber) : giftState.blockNumber,
       timestamp: Math.floor(g.createdAt / 1000),
       assetAddress: g.assetAddress,
       symbol: asset?.symbol,
@@ -160,8 +204,8 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
       counterparty: isSender ? g.recipient : g.sender,
       counterpartyBasename: isSender ? g.recipientBasename : undefined,
       source: "app",
-      verified: !!chain,
-      metadata: { message: g.message ?? null, kind: g.kind, giftId: g.id },
+      verified: giftState.verified,
+      metadata: { message: g.message ?? null, kind: g.kind, giftId: g.id, ...(giftState.failed ? { failed: true } : {}) },
     });
   }
   for (const e of executions) {
@@ -177,8 +221,8 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
       timestamp: Math.floor(e.createdAt / 1000),
       amountUsd: e.totalUsd,
       source: "app",
-      verified: confirmed.length > 0 && confirmed.every((s) => s.txHash && onchainByTx.has(s.txHash.toLowerCase())),
-      metadata: { status: e.status, completed: confirmed.length, total: e.steps.length },
+      verified: confirmed.length > 0 && confirmed.every((st) => st.txHash && settle(st.txHash, onchainByTx.has(st.txHash.toLowerCase())).verified),
+      metadata: { status: e.status, completed: confirmed.length, total: e.steps.length, ...(confirmed.some((st) => st.txHash && settle(st.txHash, false).failed) ? { failed: true } : {}) },
     });
   }
   // Earn deposits / withdrawals: USDC moves, not B20 transfers, so they are verified by receipt.

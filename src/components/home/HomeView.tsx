@@ -127,7 +127,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
               {quick.map(({ asset, price }) => (
                 <Link key={asset.canonicalId} href={`/stocks/${asset.address}?trade=buy`} className="rail p-4 border-r border-b border-line md:border-b-0 [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:last:border-r-0 hover:bg-surface transition-fast">
                   <div className="flex items-center justify-between">
-                    <Coin3D underlying={asset.underlying} symbol={asset.symbol} fallbackSrc={asset.logoURI} size={40} />
+                    <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={36} />
                     <Sparkline points={sparks?.series24h[asset.canonicalId] ?? []} width={64} height={22} />
                   </div>
                   <div className="mt-3 font-medium">{asset.underlying}</div>
