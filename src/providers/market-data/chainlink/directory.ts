@@ -27,7 +27,7 @@ export interface CoinbaseFeedEntry {
 }
 
 export async function getCoinbaseStockFeeds(): Promise<Map<string, CoinbaseFeedEntry>> {
-  return cached("chainlink:directory:coinbase", { ttlMs: 6 * 60 * 60_000, staleMs: 48 * 60 * 60_000 }, async () => {
+  return cached("chainlink:directory:coinbase", { ttlMs: 6 * 60 * 60_000, staleMs: 48 * 60 * 60_000, shared: true }, async () => {
     const { status, data } = await fetchJson<unknown>(DIRECTORY_URL, { timeoutMs: 10_000, provider: "chainlink.directory" });
     if (status >= 400) throw new Error(`chainlink directory http ${status}`);
     const arr = Array.isArray(data) ? data : ((data as { feeds?: unknown[] })?.feeds ?? []);

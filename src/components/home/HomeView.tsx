@@ -12,16 +12,15 @@ import type { PortfolioTemplate } from "@/domain/portfolio";
 import { formatUsd, bpsToPct, formatUsdCompact, timeAgo } from "@/lib/format";
 import { sortTemplatesByLiveness, templateLiveness } from "@/lib/templates";
 import { AssetLogo, PriceChange } from "@/components/common/display";
-import { Coin3D } from "@/components/common/Coin3D";
 import { hasCoin } from "@/lib/coins";
 import { AllocationBar } from "@/components/common/AllocationBar";
 import { LinkButton, Module, ModuleHeader, Skeleton, Stat, Badge } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ActivityList } from "@/components/activity/ActivityList";
-import { Dither } from "@/components/fx/Dither";
 import { NewsModule } from "@/components/news/NewsModule";
 import { FundWallet } from "@/components/common/FundWallet";
+import { Coin3D, Dither } from "@/components/fx/lazy";
 
 export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: AssetsResponse; initialTemplates?: PortfolioTemplate[] }) {
   const { address, isConnected } = useAccount();

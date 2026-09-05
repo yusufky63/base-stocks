@@ -68,6 +68,19 @@ export function settleRecord(sawTransfer: boolean, receipt: ReceiptState | undef
 const lower = (s: string | undefined | null) => (s ?? "").toLowerCase();
 const isHash = (h: string | undefined | null): h is Hash => !!h && /^0x[0-9a-fA-F]{64}$/.test(h);
 
+/** A record filed while its receipt was pending is given this long before the timeline stops showing it. */
+export const PENDING_SHOWN_MS = 24 * 3600_000;
+
+/**
+ * Whether a record is the wallet's own, as far as the timeline can tell. The server marks a
+ * record it matched to the chain with `verifiedAt`; a record the chain contradicted carries a
+ * `verifyNote` and a failed status and is not shown at all — it was never this wallet's
+ * transaction. Seeing the transfer in the wallet's own index is proof of the same kind.
+ */
+function disowned(r: { status?: string; verifyNote?: string }): boolean {
+  return r.status === "failed" && !!r.verifyNote && r.verifyNote !== "reverted";
+}
+
 export function buildTimeline(input: TimelineInput): ActivityItem[] {
   const owner = input.owner;
   const me = lower(owner);
@@ -135,8 +148,10 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
   }
 
   /* -------------------------------- gifts -------------------------------- */
-  // Only gifts that reached the chain; drafts are review screens that were closed.
-  const gifts = input.gifts.filter((g) => isHash(g.txHash));
+  // Only gifts that reached the chain; drafts are review screens that were closed, and a gift the
+  // chain contradicted was never this wallet's.
+  const gifts = input.gifts.filter((g) => isHash(g.txHash) && !disowned(g) && (g.verifiedAt !== undefined || g.status === "failed" || onchainByTx.has(lower(g.txHash)) || Date.now() - g.createdAt <= PENDING_SHOWN_MS));
+  const giftProven = (g: GiftRecord, hash: string) => g.verifiedAt !== undefined || onchainByTx.has(lower(hash));
   const giftTx = new Set(gifts.filter((g) => g.kind !== "claim-link" && lower(g.sender) === me).map((g) => lower(g.txHash)));
 
   /* -------------------------------- trades -------------------------------- */
@@ -144,9 +159,12 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
   // and become one row; a row whose hash a basket or a gift already tells the story of is dropped.
   const tradeUsdByTx = new Map<string, { usd: number | null; provider: string }>();
   const groups = new Map<string, TradeRecord[]>();
+  const now = Date.now();
   for (const t of [...input.trades].sort((a, b) => a.createdAt - b.createdAt)) {
-    if (!isHash(t.txHash)) continue;
+    if (!isHash(t.txHash) || disowned(t)) continue;
     const k = lower(t.txHash);
+    // Unproven and old: the sweep will have written it off; showing it as pending forever misleads.
+    if (!t.verifiedAt && !onchainByTx.has(k) && t.status !== "failed" && now - t.createdAt > PENDING_SHOWN_MS) continue;
     if (!tradeUsdByTx.has(k)) tradeUsdByTx.set(k, { usd: t.usdValue, provider: t.provider });
     if (legHashes.has(k) || giftTx.has(k)) continue;
     groups.set(k, [...(groups.get(k) ?? []), t]);
@@ -161,7 +179,10 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       return true;
     });
     consumed.add(k);
-    const st = settle(k);
+    // The receipt says mined; the server's match (or the wallet's own transfer index) says it is this wallet's.
+    const proven = onchainByTx.has(k) || unique.some((t) => t.verifiedAt !== undefined);
+    const raw = settle(k);
+    const st = { verified: raw.verified && proven, failed: raw.failed || unique.every((t) => t.status === "failed"), blockNumber: raw.blockNumber };
     const blockNumber = blockOf(k);
     if (unique.length === 1) {
       const t = unique[0]!;
@@ -218,7 +239,8 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
   for (const [k, group] of linkGroups) {
     const first = [...group].sort((a, b) => a.createdAt - b.createdAt)[0]!;
     const asset = assetOf(first.assetAddress);
-    const st = settle(k);
+    const raw = settle(k);
+    const st = { ...raw, verified: raw.verified && group.some((g) => giftProven(g, k)) };
     consumed.add(k);
     for (const g of group) if (isHash(g.claimTx)) consumed.add(lower(g.claimTx));
     const claimed = group.filter((g) => g.status === "claimed");
@@ -264,7 +286,8 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       const k = lower(hash);
       consumed.add(k);
       consumed.add(lower(g.txHash));
-      const st = settle(k);
+      const raw = settle(k);
+      const st = { ...raw, verified: raw.verified && giftProven(g, k) };
       items.push({
         id: `gift:${g.id}:claim`,
         owner,
@@ -285,7 +308,8 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
     }
     const k = lower(g.txHash);
     consumed.add(k);
-    const st = settle(k);
+    const raw = settle(k);
+    const st = { ...raw, verified: raw.verified && giftProven(g, k) };
     const trade = tradeUsdByTx.get(k);
     items.push({
       id: `gift:${g.id}`,
@@ -313,6 +337,8 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
   // records (the USDC leg, plus a USD figure), verified by receipt.
   for (const a of input.earnActions) {
     if (!isHash(a.txHash)) continue;
+    // A note without a verification is the sweep saying the receipt contradicted the record.
+    if (a.verifyNote && !a.verifiedAt) continue;
     const k = lower(a.txHash);
     consumed.add(k);
     const r = receiptOf(k);
@@ -330,17 +356,18 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       decimals: USDC_DECIMALS,
       provider: a.provider,
       source: "app",
-      verified: r?.status === "success",
+      verified: r?.status === "success" && a.verifiedAt !== undefined,
       metadata: { opportunityId: a.opportunityId, title: EARN_PROVIDER_LABEL[a.provider] ?? a.provider, lp, ...(r?.status === "reverted" ? { failed: true } : {}) },
     });
   }
 
   /* --------------------------------- pools -------------------------------- */
   for (const p of input.pools) {
-    if (!isHash(p.txHash) || p.status === "draft") continue;
+    if (!isHash(p.txHash) || p.status === "draft" || disowned(p)) continue;
     const k = lower(p.txHash);
     consumed.add(k);
-    const st = settle(k);
+    const raw = settle(k);
+    const st = { ...raw, verified: raw.verified && (p.verifiedAt !== undefined || onchainByTx.has(k)) };
     const legs = poolLegs(p, assetOf);
     const single = legs.length === 1 ? legs[0] : undefined;
     items.push({
@@ -364,7 +391,9 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
     if (!isHash(claim.txHash) || claim.status === "issued") continue;
     const k = lower(claim.txHash);
     consumed.add(k);
-    const st = settle(k);
+    const raw = settle(k);
+    // Only a row matched to a `PoolClaimed` log is proof; a page-reported one waits for the sweep.
+    const st = { ...raw, verified: claim.status === "reconciled" || (raw.verified && onchainByTx.has(k)) };
     const legs = pool ? poolLegs(pool, assetOf) : [];
     const single = legs.length === 1 ? legs[0] : undefined;
     items.push({
@@ -380,7 +409,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       decimals: single?.decimals,
       counterparty: pool?.creator,
       source: "app",
-      verified: st.verified || claim.status === "reconciled",
+      verified: st.verified,
       legs: legs.map((l) => ({ ...l, status: st.verified ? "confirmed" : st.failed ? "failed" : "pending" })),
       metadata: { poolId: claim.poolId, title: pool?.title ?? null, status: claim.status, ...(st.failed ? { failed: true } : {}) },
     });

@@ -98,6 +98,9 @@ export interface PoolRecord {
   txHash?: Hash;
   status: PoolStatus;
   createdAt: number;
+  /** When the server matched the funding transaction to a `PoolCreated` log for this pool. */
+  verifiedAt?: number;
+  verifyNote?: string;
 }
 
 export type PoolClaimStatus = "issued" | "confirmed" | "reconciled";

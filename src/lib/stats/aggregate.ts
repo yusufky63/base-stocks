@@ -110,6 +110,17 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     if (!r) return "pending";
     return r.status === "success" ? "verified" : r.status === "reverted" ? "reverted" : "pending";
   };
+  /**
+   * A browser-filed record counts only once the server matched it to the chain (`verifiedAt`);
+   * one the chain contradicted (`verifyNote` on a failed record) is nobody's and is left out
+   * entirely, not even as a failure. Records the server wrote itself carry `verifiedAt` from birth.
+   */
+  const recordState = (r: { verifiedAt?: number; verifyNote?: string; status?: string }, hash: string | undefined): State | "disowned" => {
+    if (r.status === "failed" && r.verifyNote && r.verifyNote !== "reverted") return "disowned";
+    const s = stateOf(hash);
+    if (s !== "verified") return s;
+    return r.verifiedAt !== undefined ? "verified" : "pending";
+  };
   const atOf = (hash: string | undefined, fallbackMs: number) => {
     const r = input.receipts.get(lower(hash));
     return r?.blockTime ? r.blockTime * 1000 : fallbackMs;
@@ -122,6 +133,7 @@ export function aggregateStats(input: StatsInput): PlatformStats {
   let withoutTx = 0;
   let duplicatesCollapsed = 0;
   let withoutUsd = 0;
+  let disownedRecords = 0;
 
   /* -------------------------------- trades -------------------------------- */
   const tradeKeys = new Set<string>();
@@ -139,9 +151,13 @@ export function aggregateStats(input: StatsInput): PlatformStats {
       duplicatesCollapsed += 1;
       continue;
     }
+    const state = recordState(t, tx);
+    if (state === "disowned") {
+      disownedRecords += 1;
+      continue;
+    }
     tradeKeys.add(key);
     if (!tradeUsdByTx.has(tx)) tradeUsdByTx.set(tx, t.usdValue);
-    const state = stateOf(tx);
     if (state === "verified" && t.usdValue === null) withoutUsd += 1;
     events.push({ kind: t.side, at: atOf(tx, t.createdAt), wallet: lower(t.owner), txHash: tx, usd: t.usdValue, state, blockNumber: blockOf(tx), symbol: symbolOf(t.assetAddress), label: t.side === "buy" ? "Bought" : "Sold", side: t.side, provider: t.provider, units: [{ assetId: lower(t.assetAddress), units: unitsOf(t.assetAddress, t.side === "buy" ? t.buyAmount : t.sellAmount) }] });
   }
@@ -198,7 +214,12 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     }
     const tx = lower(g.txHash);
     referenced.add(tx);
-    const state = stateOf(tx);
+    const stateOrNot = recordState(g, tx);
+    if (stateOrNot === "disowned") {
+      disownedRecords += 1;
+      continue;
+    }
+    const state: State = stateOrNot;
     const units = unitsOf(g.assetAddress, g.rawAmount);
     if (g.kind === "claim-link") {
       const at = atOf(tx, g.createdAt);
@@ -209,8 +230,8 @@ export function aggregateStats(input: StatsInput): PlatformStats {
       if (g.status === "claimed") {
         const claimTx = isHash(g.claimTx) ? lower(g.claimTx) : null;
         if (claimTx) referenced.add(claimTx);
-        // The claim page reported the claim; the claim transaction confirms it when it is known.
-        const claimState: State = claimTx ? stateOf(claimTx) : "verified";
+        // "claimed" is set by the server from the escrow's own `GiftClaimed`; the record's verification covers it.
+        const claimState: State = claimTx ? (stateOf(claimTx) === "reverted" ? "reverted" : "verified") : "verified";
         events.push({ kind: "link-claim", at: claimTx ? atOf(claimTx, g.createdAt) : at, wallet: lower(g.recipient), txHash: (claimTx ?? tx) as Hash, usd: usdToday(g.assetAddress, g.rawAmount), state: claimState, blockNumber: claimTx ? blockOf(claimTx) : undefined, symbol: symbolOf(g.assetAddress), label: "Gift link claimed", units: [{ assetId: lower(g.assetAddress), units }] });
         if (claimState === "verified") links.claimed += 1;
       } else if (g.status === "reclaimed") links.reclaimed += 1;
@@ -237,7 +258,12 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     }
     const tx = lower(p.txHash);
     referenced.add(tx);
-    const state = stateOf(tx);
+    const stateOrNot = recordState(p, tx);
+    if (stateOrNot === "disowned") {
+      disownedRecords += 1;
+      continue;
+    }
+    const state: State = stateOrNot;
     const perClaimUsd = p.legs.reduce((s, l) => s + (usdToday(l.token, l.amountPerClaim) ?? 0), 0);
     events.push({ kind: "pool", at: atOf(tx, p.createdAt), wallet: lower(p.creator), txHash: tx, usd: perClaimUsd * p.slots, state, blockNumber: blockOf(tx), symbol: p.legs.length === 1 ? symbolOf(p.legs[0]!.token) : `${p.legs.length} stocks`, label: `Gift pool funded · ${p.slots} shares`, units: [] });
     if (state !== "verified") continue;
@@ -254,8 +280,8 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     const tx = lower(c.txHash);
     referenced.add(tx);
     const pool = poolById.get(c.poolId);
-    // A row matched against a `PoolClaimed` log is proof already; a page-reported one needs its receipt.
-    const state: State = c.status === "reconciled" ? "verified" : stateOf(tx);
+    // Only a row matched against a `PoolClaimed` log is proof; a page-reported one is pending until the sweep matches it.
+    const state: State = c.status === "reconciled" ? "verified" : stateOf(tx) === "reverted" ? "reverted" : "pending";
     const usd = pool ? pool.legs.reduce((s, l) => s + (usdToday(l.token, l.amountPerClaim) ?? 0), 0) : null;
     events.push({
       kind: "pool-claim",
@@ -269,9 +295,8 @@ export function aggregateStats(input: StatsInput): PlatformStats {
       label: "Pool share claimed",
       units: pool ? pool.legs.map((l) => ({ assetId: lower(l.token), units: unitsOf(l.token, l.amountPerClaim) })) : [],
     });
-    if (state !== "verified") continue;
-    if (c.status === "reconciled") poolStats.claimsReconciled += 1;
-    else poolStats.claimsConfirmed += 1;
+    if (state === "verified") poolStats.claimsReconciled += 1;
+    else if (c.status === "confirmed") poolStats.claimsConfirmed += 1;
   }
 
   /* --------------------------------- earn --------------------------------- */
@@ -283,11 +308,15 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     }
     const tx = lower(a.txHash);
     referenced.add(tx);
+    if (a.verifyNote && !a.verifiedAt) {
+      disownedRecords += 1;
+      continue;
+    }
     // Lending venues move USDC; liquidity positions move stock and USDC and are kept apart.
     const lp = a.provider === "uniswap" || a.provider === "aerodrome";
     const kind: LedgerKind = lp ? (a.action === "deposit" ? "lp-add" : a.action === "withdraw" ? "lp-remove" : "lp-collect") : a.action === "deposit" ? "earn-deposit" : "earn-withdraw";
     const label = lp ? (a.action === "deposit" ? "Liquidity added" : a.action === "withdraw" ? "Liquidity withdrawn" : "Fees collected") : a.action === "deposit" ? "USDC deposited" : "USDC withdrawn";
-    events.push({ kind, at: atOf(tx, a.createdAt), wallet: lower(a.owner), txHash: tx, usd: a.usdValue, state: stateOf(tx), blockNumber: blockOf(tx), label, provider: a.provider, units: [] });
+    events.push({ kind, at: atOf(tx, a.createdAt), wallet: lower(a.owner), txHash: tx, usd: a.usdValue, state: recordState(a, tx) as State, blockNumber: blockOf(tx), label, provider: a.provider, units: [] });
   }
 
   /* --------------------------------- plans -------------------------------- */
@@ -517,7 +546,7 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     },
     daily,
     ledger,
-    verification: { verified: verifiedTx, reverted: revertedTx, pending: pendingTx, withoutTx, duplicatesCollapsed, unchecked: input.unchecked ?? 0 },
+    verification: { verified: verifiedTx, reverted: revertedTx, pending: pendingTx, withoutTx, duplicatesCollapsed, disowned: disownedRecords, unchecked: input.unchecked ?? 0 },
   };
 }
 

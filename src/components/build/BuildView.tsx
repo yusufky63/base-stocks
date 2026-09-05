@@ -26,8 +26,8 @@ import { TemplateCard } from "./TemplateCard";
 import { partitionTemplates } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
 import { automateHref } from "@/lib/automate-link";
-import { Dither } from "@/components/fx/Dither";
 import { SignInButton } from "@/components/layout/SignInButton";
+import { Dither } from "@/components/fx/lazy";
 
 type StartMode = "ai" | "template" | "own" | "recent";
 

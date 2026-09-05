@@ -13,7 +13,6 @@ import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { formatUsd } from "@/lib/format";
 import { PriceChange } from "@/components/common/display";
-import { Coin3D } from "@/components/common/Coin3D";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { Badge, Button, Module, cx } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
@@ -30,6 +29,7 @@ import { TradePanel } from "@/components/trade/TradePanel";
 import { SendSheet } from "@/components/gift/SendSheet";
 import { EarnModule } from "@/components/earn/EarnModule";
 import { ShareButton } from "@/components/common/ShareSheet";
+import { Coin3D } from "@/components/fx/lazy";
 
 /**
  * Stock detail (spec §44). Desktop: chart + trade panel side by side. Mobile: chart first,

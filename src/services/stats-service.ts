@@ -8,6 +8,7 @@ import { getAssets } from "./b20-asset-service";
 import { getPriceViews } from "./price-service";
 import { getReceiptStates } from "./receipt-service";
 import { sweepEarn } from "./earn-reconcile-service";
+import { verifyPendingRecords } from "./verify-records-service";
 import { metrics } from "@/lib/http";
 
 /**
@@ -16,7 +17,7 @@ import { metrics } from "@/lib/http";
  * tables, not maintained as counters that drift — and cheap enough at this scale; the receipt
  * cache means the chain is asked once per transaction, ever.
  */
-const CACHE = { ttlMs: 5 * 60_000, staleMs: 60 * 60_000 };
+const CACHE = { ttlMs: 5 * 60_000, staleMs: 60 * 60_000, shared: true };
 /** Receipts verified per computation at most; anything beyond is reported as unchecked, not guessed. */
 const MAX_RECEIPTS = 3_000;
 
@@ -26,8 +27,10 @@ export async function getPlatformStats(): Promise<PlatformStats> {
 
 async function compute(): Promise<PlatformStats> {
   const repos = getRepos();
-  // Earn first: a deposit the browser never recorded is filled in from the venue's own event
-  // before anything is counted. Incremental from the stored cursor, so this is a few log reads.
+  // Before anything is counted: records filed while their receipt was pending are matched to the
+  // chain, and deposits the browser never recorded are filled in from the venues' own events.
+  // Both are incremental (cursors, unverified rows only), so this is a handful of reads.
+  await verifyPendingRecords().catch((err) => metrics.count("verify.sweep", false, err instanceof Error ? err.message : String(err)));
   await sweepEarn().catch((err) => metrics.count("earn.sweep", false, err instanceof Error ? err.message : String(err)));
   const [assets, trades, gifts, executions, earnActions, pools, poolClaims, rules, profiles, baskets, watchlists, portfolioWallets, digests, aiSpendUsd] = await Promise.all([
     getAssets(),

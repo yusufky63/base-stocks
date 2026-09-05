@@ -16,6 +16,8 @@ export interface PoolRepo {
   listOpen(limit: number): Promise<PoolRecord[]>;
   /** Every pool, newest first, for platform statistics. */
   listAll(limit?: number): Promise<PoolRecord[]>;
+  /** Funded pools the server has not matched to the chain yet, oldest first. */
+  listUnverified(limit?: number): Promise<PoolRecord[]>;
 }
 
 export interface PoolClaimRepo {
@@ -71,6 +73,9 @@ export class MemoryPoolRepo implements PoolRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+  async listUnverified(limit = 200) {
+    return [...this.items.values()].filter((p) => p.txHash && !p.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
   }
 }
 
@@ -137,6 +142,8 @@ export class SupabasePoolRepo implements PoolRepo {
     if (p.txHash !== undefined) r.tx_hash = p.txHash;
     if (p.status !== undefined) r.status = p.status;
     if (p.createdAt !== undefined) r.created_at = new Date(p.createdAt).toISOString();
+    if (p.verifiedAt !== undefined) r.verified_at = p.verifiedAt === null ? null : new Date(p.verifiedAt).toISOString();
+    if (p.verifyNote !== undefined) r.verify_note = p.verifyNote;
     return r;
   }
 
@@ -163,6 +170,8 @@ export class SupabasePoolRepo implements PoolRepo {
       txHash: (r.tx_hash as Hash | null) ?? undefined,
       status: r.status as PoolRecord["status"],
       createdAt: new Date(String(r.created_at)).getTime(),
+      verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
+      verifyNote: (r.verify_note as string | null) ?? undefined,
     };
   }
 
@@ -251,6 +260,11 @@ export class SupabasePoolRepo implements PoolRepo {
     const out: PoolRecord[] = [];
     for (let i = 0; i < rows.length; i += 200) out.push(...(await this.withLegs(rows.slice(i, i + 200))));
     return out;
+  }
+  async listUnverified(limit = 200) {
+    const { data, error } = await sb().from("gift_pools").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
+    if (error) throw error;
+    return this.withLegs((data ?? []) as Row[]);
   }
 }
 

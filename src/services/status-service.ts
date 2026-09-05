@@ -211,7 +211,7 @@ async function runChecks(): Promise<ServiceCheck[]> {
 }
 
 export async function getStatusReport(): Promise<StatusReport> {
-  return cached("status:report", { ttlMs: 60_000, staleMs: 5 * 60_000 }, async () => {
+  return cached("status:report", { ttlMs: 60_000, staleMs: 5 * 60_000, shared: true }, async () => {
     const checks = (await runChecks()).map(smooth);
     const live = checks.filter((c) => c.status !== "off");
     const overall: ServiceStatus = live.some((c) => c.status === "down" && c.group !== "News") ? "down" : live.some((c) => c.status !== "ok") ? "degraded" : "ok";

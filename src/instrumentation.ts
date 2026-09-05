@@ -54,3 +54,14 @@ export async function register() {
   }, 5 * 60_000);
   statusTimer.unref?.();
 }
+
+/**
+ * Server-side errors Next catches while rendering or handling a request (route handlers report
+ * their own through `route()`). Recorded like every other error, so they are seen.
+ */
+export async function onRequestError(err: unknown, request: { path: string; method: string }, context: { routerKind: string; routeType: string; routePath?: string }): Promise<void> {
+  const { recordError } = await import("@/lib/error-sink");
+  const message = err instanceof Error ? err.message : String(err);
+  const digest = typeof err === "object" && err !== null && "digest" in err ? String((err as { digest?: unknown }).digest) : undefined;
+  await recordError({ source: "server", route: request.path, message, digest, stack: err instanceof Error ? err.stack : undefined, meta: { method: request.method, routerKind: context.routerKind, routeType: context.routeType, routePath: context.routePath } });
+}

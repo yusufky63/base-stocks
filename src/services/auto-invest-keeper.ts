@@ -254,6 +254,8 @@ export async function recordRun(rule: AutomationRule, plan: OnchainPlan, outcome
           txHash: outcome.txHash,
           status: "confirmed",
           createdAt: now,
+          // Written from the run's own `LegFilled` logs: verified by construction.
+          verifiedAt: now,
         })
         .catch(() => undefined);
     }

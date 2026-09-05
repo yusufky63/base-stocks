@@ -142,6 +142,8 @@ export interface PlatformStats {
     withoutTx: number;
     /** Duplicate rows for one (transaction, stock, side) collapsed into one trade. */
     duplicatesCollapsed: number;
+    /** Records the chain contradicted (filed under a wallet the receipt does not show); never counted. */
+    disowned: number;
     /** Hashes whose receipt could not be read this time (counted as pending). */
     unchecked: number;
   };

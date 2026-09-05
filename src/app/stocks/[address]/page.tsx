@@ -6,6 +6,9 @@ import { loadAssetResponse } from "@/lib/server-data";
 import { findCuratedAsset } from "@/lib/b20/registry";
 import { Skeleton } from "@/components/ui/primitives";
 
+/** Rendered at most every 30 s and served from the cache between; the client refreshes prices itself. */
+export const revalidate = 30;
+
 type Props = { params: Promise<{ address: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

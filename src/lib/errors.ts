@@ -13,7 +13,11 @@ export type AppErrorCode =
   | "POOL_CLOSED"
   | "POOL_EMPTY"
   | "ALREADY_CLAIMED"
-  | "QUEST_INCOMPLETE";
+  | "QUEST_INCOMPLETE"
+  // Record verification against the chain
+  | "TX_PENDING"
+  | "TX_REVERTED"
+  | "TX_MISMATCH";
 
 export class AppError extends Error {
   constructor(

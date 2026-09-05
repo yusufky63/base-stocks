@@ -48,7 +48,8 @@ Without any keys the app still runs: assets, multipliers, pause flags, policies 
 | `NEXT_PUBLIC_GIFT_POOL_ADDRESS` | Gift pools; unset hides the feature entirely |
 | `POOL_GATE_SIGNER_KEY` | Steps in front of a gift pool; without it, link and open pools still work |
 | `NEXT_PUBLIC_AUTO_INVEST_ADDRESS`, `AUTOMATION_KEEPER_KEY` | Auto-invest: the deployed AutoInvest contract and the keeper that runs due plans ([docs/AUTO_INVEST.md](docs/AUTO_INVEST.md)); without them plans are confirmed by hand |
-| `ADMIN_API_TOKEN` | The `/admin` page for verifying newly discovered tokens |
+| `ADMIN_API_TOKEN` | The `/admin` page: verifying newly discovered tokens, recent errors, health alerts |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | A Redis shared-cache tier across serverless instances (optional; the `kv_cache` table is used otherwise) |
 
 The full list with explanations is in [.env.example](.env.example). Apply the database schema to a Supabase project with `pnpm db:apply` (see the script in `scripts/db-apply.mjs`) or through the Supabase MCP.
 
@@ -78,6 +79,7 @@ pnpm exec vitest run
 
 - Self-custodial: no keys, no funds, no signature on page load.
 - Only verified assets from the canonical registry are tradable; new B20 tokens must come from Coinbase's deployer and carry a Chainlink feed.
+- A record counts only once the server has matched it to the chain: a trade's receipt must show the stock arriving in the wallet it names, a gift the escrow's own event, a pool claim its `PoolClaimed` log. Records the receipt contradicts are never shown or counted.
 - Quotes and every provider key stay server-side; approvals are limited to the exact amount and the spender the provider returns; every transaction is simulated first.
 - The assistant only knows the listed tickers and live market context, never sees addresses or calldata, cannot execute anything, and is rate- and budget-limited.
 - Headlines, RSS and model output are treated as data, never as instructions.

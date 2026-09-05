@@ -22,6 +22,14 @@ interface Discovered {
   updatedAt: number;
 }
 
+interface HealthResponse {
+  storage: { backend: string; tablesReady: boolean | null; missing: string[] };
+  keeper: { address: string; eth: string | null } | null;
+  errors: { lastHour: number };
+  alerts: string[];
+  recentErrors?: Array<{ fingerprint: string; source: string; route?: string; message: string; count: number; lastAt: number; digest?: string }>;
+}
+
 async function adminFetch<T>(token: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { ...init, headers: { "content-type": "application/json", "x-admin-token": token, ...(init?.headers ?? {}) } });
   const body = await res.json().catch(() => null);
@@ -33,7 +41,7 @@ async function adminFetch<T>(token: string, path: string, init?: RequestInit): P
 export function AdminView() {
   const [token, setToken] = useState<string>(() => (typeof window !== "undefined" ? sessionStorage.getItem("bstocks:admin") ?? "" : ""));
   const [active, setActive] = useState<string>(token);
-  const health = useQuery({ queryKey: ["admin", "health", active], queryFn: () => adminFetch<{ storage: unknown; providers?: Record<string, unknown> }>(active, "/api/health"), enabled: !!active });
+  const health = useQuery({ queryKey: ["admin", "health", active], queryFn: () => adminFetch<HealthResponse>(active, "/api/health"), enabled: !!active, refetchInterval: 60_000 });
   const discover = useMutation({ mutationFn: () => adminFetch<{ discovered: Discovered[]; all: Discovered[] }>(active, "/api/admin/assets/discover", { method: "POST" }) });
   const setState = useMutation({
     mutationFn: (v: { address: Address; verification: Discovered["verification"] }) => adminFetch(active, "/api/admin/assets/discover", { method: "PATCH", body: JSON.stringify(v) }),
@@ -59,6 +67,38 @@ export function AdminView() {
           {health.data && <Badge tone="positive">authorized</Badge>}
         </div>
       </Module>
+      {active && health.data && (
+        <Module>
+          <ModuleHeader title="Health" action={<Badge tone={health.data.alerts.length === 0 ? "positive" : "danger"}>{health.data.alerts.length === 0 ? "no alerts" : `${health.data.alerts.length} alert${health.data.alerts.length === 1 ? "" : "s"}`}</Badge>} />
+          <div className="px-4 py-3 text-[13px] flex flex-col gap-1.5">
+            {health.data.alerts.map((a) => (
+              <div key={a} className="text-danger-fg">{a}</div>
+            ))}
+            <div className="text-ink-secondary">
+              Storage {health.data.storage.backend}
+              {health.data.storage.tablesReady === false ? ` · missing ${health.data.storage.missing.join(", ")}` : " · tables ready"}
+              {health.data.keeper ? ` · keeper ${health.data.keeper.eth ? `${Number(health.data.keeper.eth).toFixed(5)} ETH` : "balance unknown"}` : " · no keeper"}
+              {` · ${health.data.errors.lastHour} error${health.data.errors.lastHour === 1 ? "" : "s"} in the last hour`}
+            </div>
+          </div>
+          {(health.data.recentErrors ?? []).length > 0 && (
+            <ul className="divide-y divide-line border-t border-line">
+              {health.data.recentErrors!.map((e) => (
+                <li key={e.fingerprint} className="px-4 py-2 text-[12px] font-mono flex flex-col gap-0.5">
+                  <span className="flex items-center gap-2">
+                    <Badge tone={e.source === "client" ? "warning" : "danger"}>{e.source}</Badge>
+                    <span className="text-ink-secondary truncate">{e.route ?? "—"}</span>
+                    <span className="ml-auto text-ink-muted num">×{e.count}</span>
+                  </span>
+                  <span className="text-ink break-words">{e.message}</span>
+                  <span className="text-ink-muted">last {new Date(e.lastAt).toISOString().replace("T", " ").slice(0, 19)} UTC{e.digest ? ` · ${e.digest}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {(health.data.recentErrors ?? []).length === 0 && <p className="px-4 py-3 border-t border-line text-[12px] text-ink-muted">No errors recorded in the last 24 hours.</p>}
+        </Module>
+      )}
       {active && (
         <Module>
           <ModuleHeader title="Discovered tokens" action={<Button size="sm" loading={discover.isPending} onClick={() => discover.mutate()}>Scan B20Created</Button>} />

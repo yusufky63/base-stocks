@@ -3,8 +3,8 @@ import Link from "next/link";
 import { BarChart3, Blocks, Bot, Boxes, Gift, Landmark, LineChart, Newspaper, PieChart, Repeat, ShieldCheck, Sprout, Users } from "lucide-react";
 import { LinkButton } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
-import { Dither } from "@/components/fx/Dither";
 import { IntegrationsSection } from "@/components/common/Integrations";
+import { Dither } from "@/components/fx/lazy";
 
 export const metadata: Metadata = { title: "How it works" };
 

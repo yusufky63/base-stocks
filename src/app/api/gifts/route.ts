@@ -7,6 +7,7 @@ import { resolveRecipient } from "@/services/basename-service";
 import { AppError } from "@/lib/errors";
 import type { GiftRecord } from "@/domain/gift";
 import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow";
+import { settleGiftFunding } from "./[id]/route";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
@@ -71,7 +72,7 @@ export const POST = route({ rateLimit: { key: "gifts.write", limit: 30, windowMs
   if (resolved.address.toLowerCase() === body.sender.toLowerCase()) throw new AppError("BAD_REQUEST", "Recipient must be different from the sender.", 400);
   const { warnings } = await b20Guard.preSendCheck({ assetAddress: body.assetAddress, sender: body.sender, recipient: resolved.address });
   const id = `gift_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  const record: GiftRecord = {
+  let record: GiftRecord = {
     id,
     kind: body.kind,
     sender: body.sender,
@@ -81,10 +82,11 @@ export const POST = route({ rateLimit: { key: "gifts.write", limit: 30, windowMs
     rawAmount: body.rawAmount,
     message: body.message,
     memo: giftMemo(id),
-    txHash: body.txHash as Hash | undefined,
-    status: body.txHash ? "submitted" : "draft",
+    status: "draft",
     createdAt: Date.now(),
   };
+  // A gift filed with its transaction (bought for someone) is matched to the receipt before it is kept.
+  if (body.txHash) record = { ...record, ...(await settleGiftFunding(record, body.txHash as Hash)) };
   await getRepos().gifts.create(record);
   return json({ gift: record, warnings }, { status: 201 });
 });

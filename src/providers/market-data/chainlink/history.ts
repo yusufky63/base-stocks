@@ -20,7 +20,7 @@ const BATCH = 120;
  * Prices are total-return token prices (multiplier already applied by the feed).
  */
 export async function readRoundHistory(feed: Address, maxRounds = 900): Promise<RoundPoint[]> {
-  return cached(`chainlink:history:${feed.toLowerCase()}:${maxRounds}`, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000 }, async () => {
+  return cached(`chainlink:history:${feed.toLowerCase()}:${maxRounds}`, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000, shared: true }, async () => {
     const client = getServerPublicClient();
     const [latest, decimals] = await Promise.all([
       client.readContract({ address: feed, abi: aggregatorV3Abi, functionName: "latestRoundData" }),

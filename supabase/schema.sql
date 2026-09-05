@@ -341,3 +341,97 @@ create table if not exists public.sync_cursors (
 );
 alter table public.sync_cursors enable row level security;
 revoke all on all tables in schema public from anon, authenticated;
+
+-- ---------- Shared cache, wallet index, transfers, errors, verification ----------
+-- Shared cache tier: one computed value per key for every serverless instance.
+create table if not exists public.kv_cache (
+  key         text primary key,
+  value       jsonb not null,
+  expires_at  bigint not null,               -- unix ms: fresh until
+  stale_until bigint not null,               -- unix ms: may still be served while refreshing
+  updated_at  timestamptz not null default now()
+);
+create index if not exists kv_cache_stale_idx on public.kv_cache (stale_until);
+alter table public.kv_cache enable row level security;
+
+-- Wallets whose stock transfers are indexed, with the block range already covered.
+create table if not exists public.wallet_index (
+  wallet       text primary key,
+  indexed_from bigint not null,
+  indexed_to   bigint not null,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+alter table public.wallet_index enable row level security;
+
+-- Transfers of tokenized stocks that touch an indexed wallet.
+create table if not exists public.chain_transfers (
+  tx_hash      text not null,
+  log_index    integer not null,
+  block_number bigint not null,
+  block_time   bigint,
+  token        text not null,
+  from_address text not null,
+  to_address   text not null,
+  value        text not null,
+  primary key (tx_hash, log_index)
+);
+create index if not exists chain_transfers_from_idx on public.chain_transfers (from_address, block_number desc);
+create index if not exists chain_transfers_to_idx on public.chain_transfers (to_address, block_number desc);
+alter table public.chain_transfers enable row level security;
+
+-- Errors, one row per distinct error (fingerprint), counted.
+create table if not exists public.error_events (
+  fingerprint text primary key,
+  source      text not null,                 -- server | route | client
+  route       text,
+  message     text not null,
+  digest      text,
+  stack       text,
+  meta        jsonb not null default '{}'::jsonb,
+  count       integer not null default 1,
+  first_at    timestamptz not null default now(),
+  last_at     timestamptz not null default now()
+);
+create index if not exists error_events_last_idx on public.error_events (last_at desc);
+alter table public.error_events enable row level security;
+
+create or replace function public.error_event_record(p_fingerprint text, p_source text, p_route text, p_message text, p_digest text, p_stack text, p_meta jsonb)
+returns integer
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare new_count integer;
+begin
+  insert into public.error_events (fingerprint, source, route, message, digest, stack, meta)
+  values (p_fingerprint, p_source, p_route, p_message, p_digest, p_stack, coalesce(p_meta, '{}'::jsonb))
+  on conflict (fingerprint) do update
+    set count = public.error_events.count + 1,
+        last_at = now(),
+        message = excluded.message,
+        stack = coalesce(excluded.stack, public.error_events.stack),
+        meta = excluded.meta
+  returning count into new_count;
+  return new_count;
+end;
+$$;
+revoke all on function public.error_event_record(text, text, text, text, text, text, jsonb) from public, anon, authenticated;
+
+-- A record counts only once the server has matched it to the chain.
+alter table public.trade_records add column if not exists verified_at timestamptz;
+alter table public.trade_records add column if not exists verify_note text;
+alter table public.gifts         add column if not exists verified_at timestamptz;
+alter table public.gifts         add column if not exists verify_note text;
+alter table public.earn_actions  add column if not exists verified_at timestamptz;
+alter table public.earn_actions  add column if not exists verify_note text;
+alter table public.gift_pools    add column if not exists verified_at timestamptz;
+alter table public.gift_pools    add column if not exists verify_note text;
+
+create index if not exists trade_records_tx_idx on public.trade_records (tx_hash);
+create index if not exists gifts_tx_idx on public.gifts (tx_hash);
+create index if not exists gift_pool_claims_tx_idx on public.gift_pool_claims (tx_hash);
+create index if not exists trade_records_unverified_idx on public.trade_records (created_at) where verified_at is null and tx_hash is not null;
+create index if not exists gifts_unverified_idx on public.gifts (created_at) where verified_at is null and tx_hash is not null;
+
+revoke all on all tables in schema public from anon, authenticated;

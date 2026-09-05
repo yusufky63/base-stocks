@@ -63,7 +63,13 @@ const nextConfig: NextConfig = {
   // Node resolves it at runtime and the optional x402 imports stay lazy and never execute.
   serverExternalPackages: ["@base-org/account", "@coinbase/cdp-sdk"],
   turbopack: {
-    resolveAlias: Object.fromEntries(optionalX402.map((s) => [s, { browser: EMPTY }])),
+    resolveAlias: {
+      ...Object.fromEntries(optionalX402.map((s) => [s, { browser: EMPTY }])),
+      // The mini app SDK's core imports Solana's web3 library for a Solana wallet provider this
+      // app never asks for; it is ~650 KB of the first bundle. A stub with the same named exports
+      // (each failing loudly if ever called) takes its place in the browser.
+      "@solana/web3.js": { browser: "./src/lib/solana-stub.ts" },
+    },
   },
   /** `/.well-known/farcaster.json` is a fixed path in the mini app spec; the manifest itself is built per environment. */
   rewrites: async () => [{ source: "/.well-known/farcaster.json", destination: "/api/farcaster-manifest" }],

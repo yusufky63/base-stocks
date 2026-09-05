@@ -1,6 +1,7 @@
 import { touchActivity } from "@/lib/activity-pulse";
 import { z } from "zod";
 import { AppError, errorResponse } from "@/lib/errors";
+import { recordError } from "@/lib/error-sink";
 import { enforceDurableRateLimit, enforceRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
 import { normalizeAddress } from "@/lib/address";
 import type { Address } from "viem";
@@ -36,7 +37,9 @@ export function route<Ctx = unknown>(opts: RouteOptions, handler: Handler<Ctx>):
       return await handler(req, ctx);
     } catch (err) {
       if (!(err instanceof AppError) || err.httpStatus >= 500) {
-        console.error(`[api] ${new URL(req.url).pathname}`, err instanceof Error ? err.message : err);
+        const path = new URL(req.url).pathname;
+        console.error(`[api] ${path}`, err instanceof Error ? err.message : err);
+        void recordError({ source: "route", route: path, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, meta: { method: req.method } });
       }
       return errorResponse(err);
     }

@@ -16,7 +16,7 @@ const INITIAL_CHUNK = 100_000n;
 const events = b20AssetAbi.filter((x) => x.type === "event" && ["Announcement", "EndAnnouncement", "MultiplierUpdated", "UIMultiplierUpdateCancelled", "ExtraMetadataUpdated"].includes(x.name));
 
 export async function getCorporateActions(asset: Address): Promise<{ events: CorporateActionEvent[]; scannedFromBlock: number }> {
-  return cached(`announcements:${asset.toLowerCase()}`, { ttlMs: 10 * 60_000, staleMs: 60 * 60_000 }, async () => {
+  return cached(`announcements:${asset.toLowerCase()}`, { ttlMs: 10 * 60_000, staleMs: 60 * 60_000, shared: true }, async () => {
     const client = getServerPublicClient();
     const latest = await client.getBlockNumber();
     const from = latest > LOOKBACK_BLOCKS ? latest - LOOKBACK_BLOCKS : 0n;

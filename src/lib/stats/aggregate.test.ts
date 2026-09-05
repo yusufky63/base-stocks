@@ -28,8 +28,9 @@ const assets = [
   { canonicalId: GOOGL, address: GOOGL, symbol: "GOOGLc", underlying: "GOOGL", decimals: 8, priceUsd: null },
 ];
 
+/** Records here are ones the server has already matched to the chain (`verifiedAt`), as every counted record must be. */
 function trade(over: Partial<TradeRecord> & { id: string; assetAddress: Address }): TradeRecord {
-  return { owner: A, side: "buy", sellAmount: "1800000", buyAmount: "100000000", usdValue: 1.8, provider: "kyber", status: "submitted", createdAt: NOW - DAY, ...over };
+  return { owner: A, side: "buy", sellAmount: "1800000", buyAmount: "100000000", usdValue: 1.8, provider: "kyber", status: "submitted", createdAt: NOW - DAY, verifiedAt: NOW - DAY, ...over };
 }
 
 function base(over: Partial<StatsInput> = {}): StatsInput {
@@ -100,7 +101,7 @@ describe("only what the chain confirmed", () => {
 
 describe("gifts", () => {
   it("counts a gift bought for someone as one purchase and one gift", () => {
-    const gift: GiftRecord = { id: "g1", kind: "buy-for-recipient", sender: A, recipient: B, assetAddress: AAPL, rawAmount: "401447", memo: "0x00", txHash: hash(9), status: "submitted", createdAt: NOW - DAY };
+    const gift: GiftRecord = { id: "g1", kind: "buy-for-recipient", sender: A, recipient: B, assetAddress: AAPL, rawAmount: "401447", memo: "0x00", txHash: hash(9), status: "submitted", createdAt: NOW - DAY, verifiedAt: NOW - DAY };
     const stats = aggregateStats(base({ trades: [trade({ id: "t9", txHash: hash(9), assetAddress: AAPL, usdValue: 1.32, provider: "okx", recipient: B })], gifts: [gift], receipts: new Map([ok(9)]) }));
     expect(stats.windows.all.trades).toBe(1);
     expect(stats.windows.all.tradeVolumeUsd).toBe(1.32);
@@ -110,7 +111,7 @@ describe("gifts", () => {
   });
 
   it("counts ten links funded in one transaction as ten links, and tells claimed from open from expired", () => {
-    const link = (i: number, over: Partial<GiftRecord> = {}): GiftRecord => ({ id: `l${i}`, kind: "claim-link", sender: A, recipient: ZERO, assetAddress: AAPL, rawAmount: "100000000", memo: "0x00", txHash: hash(11), status: "submitted", createdAt: NOW - 2 * DAY, escrowId: "0x01", expiresAt: NOW + DAY, ...over });
+    const link = (i: number, over: Partial<GiftRecord> = {}): GiftRecord => ({ id: `l${i}`, kind: "claim-link", sender: A, recipient: ZERO, assetAddress: AAPL, rawAmount: "100000000", memo: "0x00", txHash: hash(11), status: "submitted", createdAt: NOW - 2 * DAY, escrowId: "0x01", expiresAt: NOW + DAY, verifiedAt: NOW - 2 * DAY, ...over });
     const gifts = [
       ...Array.from({ length: 7 }, (_, i) => link(i)),
       link(7, { status: "claimed", recipient: C, claimTx: hash(12) }),
@@ -126,7 +127,8 @@ describe("gifts", () => {
   });
 
   it("values pools at today's price and counts claims the log or the receipt confirmed", () => {
-    const pool: PoolRecord = { id: "p1", onchainId: "0x01", creator: A, gateMode: "open", gateAddress: ZERO, slots: 5, legs: [{ token: AAPL, amountPerClaim: "100000000" }, { token: NVDA, amountPerClaim: "50000000" }], expiry: NOW + DAY, lockedUntil: 0, visibility: "public", verified: false, quests: [], memo: "0x00", txHash: hash(20), status: "live", createdAt: NOW - DAY };
+    const pool: PoolRecord = { id: "p1", onchainId: "0x01", creator: A, gateMode: "open", gateAddress: ZERO, slots: 5, legs: [{ token: AAPL, amountPerClaim: "100000000" }, { token: NVDA, amountPerClaim: "50000000" }], expiry: NOW + DAY, lockedUntil: 0, visibility: "public", verified: false, quests: [], memo: "0x00", txHash: hash(20), status: "live", createdAt: NOW - DAY, verifiedAt: NOW - DAY };
+    // B's claim was reported by the page and not yet matched to a `PoolClaimed` log: it waits, it does not count.
     const claims: PoolClaim[] = [
       { poolId: "p1", claimant: B, status: "confirmed", questProof: {}, txHash: hash(21), createdAt: NOW - DAY },
       { poolId: "p1", claimant: C, status: "reconciled", questProof: {}, txHash: hash(22), blockNumber: 22, createdAt: NOW - DAY },
@@ -134,14 +136,26 @@ describe("gifts", () => {
     ];
     const stats = aggregateStats(base({ pools: [pool], poolClaims: claims, receipts: new Map([ok(20), ok(21)]) }));
     expect(stats.gifts.pools).toMatchObject({ created: 1, live: 1, slots: 5, claimsConfirmed: 1, claimsReconciled: 1, sharesValueUsdToday: 7.5 });
-    expect(stats.windows.all.poolClaims).toBe(2);
-    expect(stats.trading.byAsset.find((a) => a.symbol === "AAPLc")?.gifted).toBe(2);
+    expect(stats.windows.all.poolClaims).toBe(1);
+    expect(stats.trading.byAsset.find((a) => a.symbol === "AAPLc")?.gifted).toBe(1);
+  });
+});
+
+describe("what the server has not matched to the chain", () => {
+  it("counts nothing the server has not matched, and nothing the chain contradicted", () => {
+    const unmatched = trade({ id: "u", txHash: hash(1), assetAddress: AAPL, verifiedAt: undefined });
+    const contradicted = trade({ id: "c", txHash: hash(2), assetAddress: NVDA, status: "failed", verifyNote: "The stock did not arrive in that wallet in this transaction.", verifiedAt: undefined });
+    const reverted = trade({ id: "r", txHash: hash(3), assetAddress: GOOGL, status: "failed", verifyNote: "reverted", verifiedAt: undefined });
+    const stats = aggregateStats(base({ trades: [unmatched, contradicted, reverted], receipts: new Map([ok(1), ok(2), [hash(3), { status: "reverted", blockNumber: 3 }]]) }));
+    expect(stats.windows.all.trades).toBe(0);
+    expect(stats.windows.all.reverted).toBe(1);
+    expect(stats.verification).toMatchObject({ verified: 2, reverted: 1, disowned: 1 });
   });
 });
 
 describe("earn, windows and days", () => {
   it("sums deposits and withdrawals by venue", () => {
-    const earn = (id: string, action: "deposit" | "withdraw", provider: string, usd: number, n: number, at: number): EarnActionRecord => ({ id, owner: A, opportunityId: `${provider}:x`, provider, action, amount: String(usd * 1e6), usdValue: usd, txHash: hash(n), createdAt: at });
+    const earn = (id: string, action: "deposit" | "withdraw", provider: string, usd: number, n: number, at: number): EarnActionRecord => ({ id, owner: A, opportunityId: `${provider}:x`, provider, action, amount: String(usd * 1e6), usdValue: usd, txHash: hash(n), createdAt: at, verifiedAt: at });
     const stats = aggregateStats(base({ earnActions: [earn("1", "deposit", "morpho", 10, 1, NOW - 2 * DAY), earn("2", "deposit", "aave", 5, 2, NOW - 10 * DAY), earn("3", "withdraw", "morpho", 4, 3, NOW - 3600_000)], receipts: new Map([ok(1), ok(2), ok(3)]) }));
     expect(stats.earn.deposits).toEqual({ count: 2, usd: 15 });
     expect(stats.earn.withdrawals).toEqual({ count: 1, usd: 4 });
@@ -151,7 +165,7 @@ describe("earn, windows and days", () => {
   });
 
   it("keeps liquidity positions apart from USDC lending", () => {
-    const rec = (id: string, provider: string, action: EarnActionRecord["action"], usd: number, n: number): EarnActionRecord => ({ id, owner: A, opportunityId: `lp:${provider}:1`, provider, action, amount: "1000000", usdValue: usd, txHash: hash(n), createdAt: NOW - DAY });
+    const rec = (id: string, provider: string, action: EarnActionRecord["action"], usd: number, n: number): EarnActionRecord => ({ id, owner: A, opportunityId: `lp:${provider}:1`, provider, action, amount: "1000000", usdValue: usd, txHash: hash(n), createdAt: NOW - DAY, verifiedAt: NOW - DAY });
     const stats = aggregateStats(base({ earnActions: [rec("1", "uniswap", "deposit", 20, 1), rec("2", "aerodrome", "collect", 0.5, 2), rec("3", "uniswap", "withdraw", 19, 3), rec("4", "morpho", "deposit", 10, 4)], receipts: new Map([ok(1), ok(2), ok(3), ok(4)]) }));
     expect(stats.earn.deposits).toEqual({ count: 1, usd: 10 });
     expect(stats.earn.liquidity).toEqual({ added: { count: 1, usd: 20 }, removed: { count: 1, usd: 19 }, collected: { count: 1, usd: 0.5 } });

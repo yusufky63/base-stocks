@@ -5,6 +5,9 @@ import { StrategiesShell } from "@/components/strategies/StrategiesShell";
 import { loadAssetsResponse } from "@/lib/server-data";
 import { getRepos } from "@/db/repositories";
 
+/** Rendered at most every 60 s and served from the cache between; the client refreshes prices itself. */
+export const revalidate = 60;
+
 type Props = { params: Promise<{ template: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

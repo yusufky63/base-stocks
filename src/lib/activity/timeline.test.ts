@@ -22,8 +22,9 @@ const assets = [
   { canonicalId: GOOGL, address: GOOGL, symbol: "GOOGLc", decimals: 8 },
 ];
 
+/** Records here are ones the server has already matched to the chain (`verifiedAt`), as every kept record is. */
 function trade(over: Partial<TradeRecord> & { id: string; txHash: Hash; assetAddress: Address }): TradeRecord {
-  return { owner: ME, side: "buy", sellAmount: "1800000", buyAmount: "500000", usdValue: 1.8, provider: "kyber", status: "submitted", createdAt: 1_000_000, ...over };
+  return { owner: ME, side: "buy", sellAmount: "1800000", buyAmount: "500000", usdValue: 1.8, provider: "kyber", status: "submitted", createdAt: 1_000_000, verifiedAt: 1_000_000, ...over };
 }
 
 function input(over: Partial<TimelineInput>): TimelineInput {
@@ -84,7 +85,7 @@ describe("one transaction, one row", () => {
   /** Buying for someone writes a trade row and a gift row on the same hash; the gift is the story. */
   it("shows a gift bought for someone once, as the gift, with the purchase price on it", () => {
     const tx = hash(9);
-    const gift: GiftRecord = { id: "g1", kind: "buy-for-recipient", sender: ME, recipient: OTHER, assetAddress: AAPL, rawAmount: "401447", memo: "0x00", txHash: tx, status: "submitted", createdAt: 1_000_000 };
+    const gift: GiftRecord = { id: "g1", kind: "buy-for-recipient", sender: ME, recipient: OTHER, assetAddress: AAPL, rawAmount: "401447", memo: "0x00", txHash: tx, status: "submitted", createdAt: 1_000_000, verifiedAt: 1_000_000 };
     const items = buildTimeline(input({ trades: [trade({ id: "t9", txHash: tx, assetAddress: AAPL, usdValue: 1.32, provider: "okx", recipient: OTHER })], gifts: [gift], receipts: new Map([[tx, ok(60)]]) }));
     expect(items).toHaveLength(1);
     expect(items[0]!.type).toBe("send");
@@ -95,7 +96,7 @@ describe("one transaction, one row", () => {
 
   it("folds gift links funded in one transaction into one row with a count", () => {
     const tx = hash(11);
-    const gifts: GiftRecord[] = Array.from({ length: 10 }, (_, i) => ({ id: `l${i}`, kind: "claim-link", sender: ME, recipient: "0x0000000000000000000000000000000000000000", assetAddress: AAPL, rawAmount: "100000", memo: "0x00", txHash: tx, status: "submitted", createdAt: 1_000_000 + i, escrowId: "0x01", expiresAt: 9_999_999_999_999 }));
+    const gifts: GiftRecord[] = Array.from({ length: 10 }, (_, i) => ({ id: `l${i}`, kind: "claim-link", sender: ME, recipient: "0x0000000000000000000000000000000000000000", assetAddress: AAPL, rawAmount: "100000", memo: "0x00", txHash: tx, status: "submitted", createdAt: 1_000_000 + i, escrowId: "0x01", expiresAt: 9_999_999_999_999, verifiedAt: 1_000_000 }));
     const items = buildTimeline(input({ gifts, receipts: new Map([[tx, ok(70)]]) }));
     expect(items).toHaveLength(1);
     expect(items[0]!.count).toBe(10);
@@ -126,7 +127,7 @@ describe("what the chain shows that no record explains", () => {
   it("gives the claimant the claim transaction and hides the escrow hop on both sides", () => {
     const deposit = hash(30);
     const claim = hash(31);
-    const gift: GiftRecord = { id: "g30", kind: "claim-link", sender: OTHER, recipient: ME, assetAddress: AAPL, rawAmount: "2000000", memo: "0x00", txHash: deposit, claimTx: claim, status: "claimed", createdAt: 1_000_000, escrowId: "0x01", expiresAt: 9_999_999_999_999 };
+    const gift: GiftRecord = { id: "g30", kind: "claim-link", sender: OTHER, recipient: ME, assetAddress: AAPL, rawAmount: "2000000", memo: "0x00", txHash: deposit, claimTx: claim, status: "claimed", createdAt: 1_000_000, escrowId: "0x01", expiresAt: 9_999_999_999_999, verifiedAt: 1_000_000 };
     const escrow = "0x8D9fE4b3Ab9BecbE1181d15d51FB9724561C7f55" as Address;
     const items = buildTimeline(input({ gifts: [gift], transfers: [transfer(claim, escrow, ME, 12)], receipts: new Map([[claim, ok(12)]]) }));
     expect(items).toHaveLength(1);
@@ -139,7 +140,7 @@ describe("what the chain shows that no record explains", () => {
 });
 
 describe("pools", () => {
-  const pool: PoolRecord = { id: "pool_1", onchainId: "0x01", creator: ME, gateMode: "open", gateAddress: "0x0000000000000000000000000000000000000000", slots: 5, legs: [{ token: AAPL, amountPerClaim: "200000" }], expiry: 9_999_999_999_999, lockedUntil: 0, visibility: "public", verified: false, quests: [], memo: "0x00", txHash: hash(40), status: "live", createdAt: 1_000_000 };
+  const pool: PoolRecord = { id: "pool_1", onchainId: "0x01", creator: ME, gateMode: "open", gateAddress: "0x0000000000000000000000000000000000000000", slots: 5, legs: [{ token: AAPL, amountPerClaim: "200000" }], expiry: 9_999_999_999_999, lockedUntil: 0, visibility: "public", verified: false, quests: [], memo: "0x00", txHash: hash(40), status: "live", createdAt: 1_000_000, verifiedAt: 1_000_000 };
 
   it("shows the funding deposit as one row worth every share", () => {
     const [row] = buildTimeline(input({ pools: [pool], receipts: new Map([[hash(40), ok(80)]]) }));
@@ -159,6 +160,28 @@ describe("pools", () => {
   it("does not show a ticket that was issued but never used", () => {
     const claim: PoolClaim = { poolId: "pool_1", claimant: OTHER, status: "issued", questProof: {}, createdAt: 1_000_000 };
     expect(buildTimeline(input({ owner: OTHER, poolClaims: [{ claim, pool }] }))).toHaveLength(0);
+  });
+});
+
+describe("what the server has not matched to the chain", () => {
+  /**
+   * The write routes take any hash a browser sends; the receipt decides afterwards. Until the server
+   * has matched a record it is pending even when the receipt says success, and a record the receipt
+   * contradicted (filed under a wallet the transfer never touched) is not this wallet's at all.
+   */
+  it("keeps an unmatched record pending despite a successful receipt, and hides a contradicted one", () => {
+    // Filed a moment ago: still inside the window a pending record is shown for.
+    const unmatched = trade({ id: "u", txHash: hash(70), assetAddress: AAPL, verifiedAt: undefined, createdAt: Date.now() });
+    const contradicted = trade({ id: "c", txHash: hash(71), assetAddress: NVDA, status: "failed", verifyNote: "The stock did not arrive in that wallet in this transaction.", verifiedAt: undefined });
+    const items = buildTimeline(input({ trades: [unmatched, contradicted], receipts: new Map([[hash(70), ok(1)], [hash(71), ok(2)]]) }));
+    expect(items.map((i) => i.id)).toEqual(["trade:u"]);
+    expect(items[0]!.verified).toBe(false);
+  });
+
+  it("takes the wallet's own transfer index as proof even before the server matched the record", () => {
+    const t = trade({ id: "w", txHash: hash(72), assetAddress: AAPL, verifiedAt: undefined });
+    const items = buildTimeline(input({ trades: [t], transfers: [{ txHash: hash(72), blockNumber: 5n, asset: AAPL, from: OTHER, to: ME, value: 1n }] }));
+    expect(items[0]!.verified).toBe(true);
   });
 });
 

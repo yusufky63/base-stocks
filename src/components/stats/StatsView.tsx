@@ -339,7 +339,7 @@ function Gifts({ data }: { data: PlatformStats }) {
         <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-1">Gift pools</div>
         <KeyValue k="Funded" v={`${n(pools.created)} · ${n(pools.live)} open · ${n(pools.closed)} closed`} />
         <KeyValue k="Shares offered" v={n(pools.slots)} />
-        <KeyValue k="Shares claimed" v={`${n(pools.claimsConfirmed + pools.claimsReconciled)} · ${n(pools.claimsReconciled)} matched to a PoolClaimed log`} />
+        <KeyValue k="Shares claimed" v={`${n(pools.claimsReconciled)} matched to a PoolClaimed log${pools.claimsConfirmed > 0 ? ` · ${n(pools.claimsConfirmed)} awaiting proof` : ""}`} />
         <KeyValue k="Shares offered, worth today" v={formatUsd(pools.sharesValueUsdToday)} />
       </div>
       <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">Transfers carry no USD figure at the time, so gifts are valued at today&apos;s price. A gift bought for someone is also one trade in the trading figures.</p>
@@ -402,13 +402,14 @@ function Verification({ data }: { data: PlatformStats }) {
   return (
     <Module>
       <ModuleHeader title="How these numbers are made" />
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-px bg-line">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-px bg-line">
         {[
           { label: "Verified", value: n(v.verified), tone: "positive" as const },
           { label: "Pending", value: n(v.pending), tone: v.pending > 0 ? ("warning" as const) : ("neutral" as const) },
           { label: "Reverted", value: n(v.reverted), tone: v.reverted > 0 ? ("danger" as const) : ("neutral" as const) },
           { label: "No transaction", value: n(v.withoutTx), tone: "neutral" as const },
           { label: "Duplicates collapsed", value: n(v.duplicatesCollapsed), tone: "neutral" as const },
+          { label: "Contradicted", value: n(v.disowned), tone: v.disowned > 0 ? ("danger" as const) : ("neutral" as const) },
           { label: "Not checked", value: n(v.unchecked), tone: v.unchecked > 0 ? ("warning" as const) : ("neutral" as const) },
         ].map((t) => (
           <div key={t.label} className="bg-canvas p-4 flex flex-col gap-1.5">
@@ -422,6 +423,7 @@ function Verification({ data }: { data: PlatformStats }) {
       </div>
       <ul className="px-4 py-3 border-t border-line text-[13px] text-ink-secondary flex flex-col gap-1.5 list-disc pl-8">
         <li>Every transaction hash the app recorded is looked up on Base once; the receipt is kept, so the numbers are the same from every server. Only receipts that say <span className="font-mono">success</span> count.</li>
+        <li>A record the browser filed counts only after the server matched it to the chain: the stock arrived in the wallet it names, the escrow or the pool emitted the event for that id. A record the receipt contradicts is left out entirely, not even as a failure.</li>
         <li>One transaction, one stock, one side is one trade. The basket executor writes both an execution and a trade row per leg, and an auto-invest run writes one row per stock: they are merged on that key, never added twice.</li>
         <li>A gift bought for someone is one trade and one gift on the same transaction, and appears in both sections on purpose.</li>
         <li>Records without a hash (a review that was closed, a draft) and hashes not yet mined are listed above and excluded. Times use the block when it is known, otherwise the app&apos;s clock.</li>

@@ -186,7 +186,7 @@ function dedupe(items: NewsItem[], limit: number): NewsItem[] {
 
 /** Headlines for one ticker, merged from all sources, relevance-filtered, de-duplicated, newest first. */
 export async function getNews(ticker: string, name: string, limit = 8): Promise<NewsItem[]> {
-  const all = await cached(`news:${ticker}`, { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000 }, async () => {
+  const all = await cached(`news:${ticker}`, { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000, shared: true }, async () => {
     const tasks: Array<Promise<NewsItem[]>> = [google(ticker, name), ...TICKER_FEEDS.map((f) => feed(f.via, f.url(ticker), ticker, f.source))];
     const results = await Promise.allSettled(tasks);
     const merged: NewsItem[] = [];
@@ -212,7 +212,7 @@ export async function getMarketNews(tickers: Array<{ ticker: string; name: strin
 
 /** Market-wide business headlines (CNBC, MarketWatch, WSJ, Investing.com), newest first. */
 export async function getMarketWideNews(limit = 20): Promise<NewsItem[]> {
-  const all = await cached("news:markets", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000 }, async () => {
+  const all = await cached("news:markets", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000, shared: true }, async () => {
     const results = await Promise.allSettled(MARKET_FEEDS.map((f) => feed(f.via, f.url, "MARKETS", f.source)));
     const merged: NewsItem[] = [];
     results.forEach((r, i) => {
@@ -233,7 +233,7 @@ export async function getMarketWideNews(limit = 20): Promise<NewsItem[]> {
  * title is tagged with the listed tickers it names.
  */
 export async function getEcosystemNews(limit = 20, tickers: string[] = []): Promise<NewsItem[]> {
-  const all = await cached("news:ecosystem", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000 }, async () => {
+  const all = await cached("news:ecosystem", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000, shared: true }, async () => {
     const results = await Promise.allSettled(ECOSYSTEM_QUERIES.map((q) => googleSearch("ecosystem", q, "BASE")));
     const merged: NewsItem[] = [];
     results.forEach((r) => {
@@ -332,7 +332,7 @@ async function xTimeline(handle: string): Promise<NewsItem[]> {
  * account, so anything older than thirty days is left out rather than shown as news.
  */
 export async function getXPosts(limit = 20, tickers: string[] = []): Promise<NewsItem[]> {
-  const all = await cached("news:x", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000 }, async () => {
+  const all = await cached("news:x", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000, shared: true }, async () => {
     const results = await Promise.allSettled(X_ACCOUNTS.map((h) => xTimeline(h)));
     const merged: NewsItem[] = [];
     results.forEach((r, i) => {

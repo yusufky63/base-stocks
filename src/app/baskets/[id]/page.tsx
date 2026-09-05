@@ -3,6 +3,9 @@ import { getRepos } from "@/db/repositories";
 import { BasketDetailView } from "@/components/community/BasketDetailView";
 import { StrategiesShell } from "@/components/strategies/StrategiesShell";
 
+/** Rendered at most every 60 s and served from the cache between; the client refreshes prices itself. */
+export const revalidate = 60;
+
 type Props = { params: Promise<{ id: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

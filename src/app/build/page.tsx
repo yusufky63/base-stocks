@@ -5,6 +5,9 @@ import { StrategiesShell } from "@/components/strategies/StrategiesShell";
 import { loadAssetsResponse, loadTemplates } from "@/lib/server-data";
 import { Skeleton } from "@/components/ui/primitives";
 
+/** Rendered at most every 60 s and served from the cache between; the client refreshes prices itself. */
+export const revalidate = 60;
+
 export const metadata: Metadata = { title: "Build" };
 
 export default async function BuildPage() {

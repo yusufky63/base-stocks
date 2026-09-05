@@ -1,0 +1,31 @@
+name: Monitor
+
+# Uptime and alerting without a third party: every half hour, ask the deployment how it is and
+# fail the run — which emails the repository's owner — when it is not well. `/api/health`
+# decides what "not well" means (storage missing, a dependency down, the keeper out of gas,
+# errors piling up); this workflow only reads its answer.
+on:
+  schedule:
+    - cron: "3,33 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: ${{ vars.MONITOR_ENABLED != 'false' }}
+    steps:
+      - name: Ask the deployment
+        env:
+          APP_URL: ${{ secrets.APP_URL || 'https://basestocks.finance' }}
+        run: |
+          curl -fsS --max-time 30 "$APP_URL/api/health" -o health.json || { echo "health endpoint unreachable"; exit 1; }
+          node -e "
+            const h = require('./health.json');
+            console.log('deploy', h.deploy && h.deploy.commit, '| storage', JSON.stringify(h.storage), '| alerts', JSON.stringify(h.alerts));
+            const problems = [];
+            if (!h.ok) problems.push('health says not ok');
+            if (h.storage && h.storage.tablesReady === false) problems.push('storage tables missing: ' + h.storage.missing.join(', '));
+            for (const a of h.alerts || []) problems.push(a);
+            if (problems.length) { console.error('ALERT\n- ' + problems.join('\n- ')); process.exit(1); }
+            console.log('all clear');
+          "

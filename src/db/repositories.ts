@@ -29,6 +29,7 @@ import {
   type PoolClaimRepo,
   type PoolRepo,
 } from "./pool-repos";
+import { MemoryChainTransferRepo, MemoryWalletIndexRepo, SupabaseChainTransferRepo, SupabaseWalletIndexRepo, type ChainTransferRepo, type WalletIndexRepo } from "./index-repos";
 
 /* ------------------------------ Types ------------------------------ */
 
@@ -45,6 +46,13 @@ export interface TradeRecord {
   status: "submitted" | "confirmed" | "failed";
   recipient?: Address;
   createdAt: number;
+  /**
+   * When the server matched this record to the chain (the receipt shows what the record claims).
+   * Unset means unproven: the timeline shows it as pending and the statistics leave it out.
+   */
+  verifiedAt?: number;
+  /** Why verification refused it, when it did. */
+  verifyNote?: string;
 }
 
 /** App-side record of an Earn deposit/withdrawal (activity source; verified against the receipt). */
@@ -60,6 +68,13 @@ export interface EarnActionRecord {
   usdValue: number | null;
   txHash?: Hash;
   createdAt: number;
+  /**
+   * When the server matched this record to the chain (the receipt shows what the record claims).
+   * Unset means unproven: the timeline shows it as pending and the statistics leave it out.
+   */
+  verifiedAt?: number;
+  /** Why verification refused it, when it did. */
+  verifyNote?: string;
 }
 
 export interface DiscoveredAsset {
@@ -107,6 +122,7 @@ export interface GiftRepo {
   get(id: string): Promise<GiftRecord | null>;
   /** Every gift, newest first, for platform statistics. */
   listAll(limit?: number): Promise<GiftRecord[]>;
+  listUnverified(limit?: number): Promise<GiftRecord[]>;
 }
 export interface ExecutionRepo {
   create(e: PortfolioExecution): Promise<PortfolioExecution>;
@@ -118,15 +134,20 @@ export interface ExecutionRepo {
 export interface TradeRepo {
   create(t: TradeRecord): Promise<TradeRecord>;
   update(id: string, patch: Partial<TradeRecord>): Promise<TradeRecord | null>;
+  get(id: string): Promise<TradeRecord | null>;
   listByOwner(owner: Address): Promise<TradeRecord[]>;
   /** Submitted trades (with tx hash) since a timestamp, for community aggregates. */
   listSince(sinceMs: number, limit?: number): Promise<TradeRecord[]>;
   listAll(limit?: number): Promise<TradeRecord[]>;
+  /** Records with a hash the server has not matched to the chain yet, oldest first. */
+  listUnverified(limit?: number): Promise<TradeRecord[]>;
 }
 export interface EarnActionRepo {
   create(a: EarnActionRecord): Promise<EarnActionRecord>;
+  update(id: string, patch: Partial<EarnActionRecord>): Promise<EarnActionRecord | null>;
   listByOwner(owner: Address): Promise<EarnActionRecord[]>;
   listAll(limit?: number): Promise<EarnActionRecord[]>;
+  listUnverified(limit?: number): Promise<EarnActionRecord[]>;
 }
 export interface DigestRepo {
   get(key: string): Promise<DigestRecord | null>;
@@ -174,6 +195,8 @@ export interface Repos {
   poolClaims: PoolClaimRepo;
   receipts: ReceiptRepo;
   cursors: CursorRepo;
+  chainTransfers: ChainTransferRepo;
+  walletIndex: WalletIndexRepo;
   backend: "memory" | "supabase";
 }
 
@@ -212,6 +235,9 @@ class MemoryGiftRepo implements GiftRepo {
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
+  async listUnverified(limit = 200) {
+    return [...this.items.values()].filter((g) => g.txHash && !g.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
+  }
 }
 
 class MemoryExecutionRepo implements ExecutionRepo {
@@ -244,6 +270,9 @@ class MemoryTradeRepo implements TradeRepo {
     this.items.set(t.id, t);
     return t;
   }
+  async get(id: string) {
+    return this.items.get(id) ?? null;
+  }
   async update(id: string, patch: Partial<TradeRecord>) {
     const cur = this.items.get(id);
     if (!cur) return null;
@@ -263,6 +292,9 @@ class MemoryTradeRepo implements TradeRepo {
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
+  async listUnverified(limit = 200) {
+    return [...this.items.values()].filter((t) => t.txHash && !t.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
+  }
 }
 
 class MemoryEarnActionRepo implements EarnActionRepo {
@@ -271,11 +303,21 @@ class MemoryEarnActionRepo implements EarnActionRepo {
     this.items.set(a.id, a);
     return a;
   }
+  async update(id: string, patch: Partial<EarnActionRecord>) {
+    const cur = this.items.get(id);
+    if (!cur) return null;
+    const next = { ...cur, ...patch };
+    this.items.set(id, next);
+    return next;
+  }
   async listByOwner(owner: Address) {
     return [...this.items.values()].filter((a) => lower(a.owner) === lower(owner)).sort((a, b) => b.createdAt - a.createdAt);
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+  async listUnverified(limit = 200) {
+    return [...this.items.values()].filter((a) => a.txHash && !a.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
   }
 }
 
@@ -455,6 +497,8 @@ class SupabaseGiftRepo implements GiftRepo {
     if (g.expiresAt !== undefined) r.expires_at = g.expiresAt;
     if (g.claimTx !== undefined) r.claim_tx = g.claimTx;
     if (g.createdAt !== undefined) r.created_at = new Date(g.createdAt).toISOString();
+    if (g.verifiedAt !== undefined) r.verified_at = g.verifiedAt === null ? null : new Date(g.verifiedAt).toISOString();
+    if (g.verifyNote !== undefined) r.verify_note = g.verifyNote;
     return r;
   }
   private fromRow(r: Row): GiftRecord {
@@ -474,6 +518,8 @@ class SupabaseGiftRepo implements GiftRepo {
       escrowId: (r.escrow_id as GiftRecord["escrowId"] | null) ?? undefined,
       expiresAt: r.expires_at !== null && r.expires_at !== undefined ? Number(r.expires_at) : undefined,
       claimTx: (r.claim_tx as Hash | null) ?? undefined,
+      verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
+      verifyNote: (r.verify_note as string | null) ?? undefined,
     };
   }
   async create(g: GiftRecord) {
@@ -499,6 +545,11 @@ class SupabaseGiftRepo implements GiftRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return (await selectAll("gifts", limit)).map((r) => this.fromRow(r));
+  }
+  async listUnverified(limit = 200) {
+    const { data, error } = await sb().from("gifts").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
+    if (error) throw error;
+    return (data ?? []).map((r) => this.fromRow(r as Row));
   }
 }
 
@@ -619,6 +670,8 @@ class SupabaseTradeRepo implements TradeRepo {
     if (t.status !== undefined) r.status = t.status;
     if (t.recipient !== undefined) r.recipient = t.recipient?.toLowerCase();
     if (t.createdAt !== undefined) r.created_at = new Date(t.createdAt).toISOString();
+    if (t.verifiedAt !== undefined) r.verified_at = t.verifiedAt === null ? null : new Date(t.verifiedAt).toISOString();
+    if (t.verifyNote !== undefined) r.verify_note = t.verifyNote;
     return r;
   }
   private fromRow(r: Row): TradeRecord {
@@ -635,12 +688,19 @@ class SupabaseTradeRepo implements TradeRepo {
       status: r.status as TradeRecord["status"],
       recipient: (r.recipient as Address | null) ?? undefined,
       createdAt: new Date(String(r.created_at)).getTime(),
+      verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
+      verifyNote: (r.verify_note as string | null) ?? undefined,
     };
   }
   async create(t: TradeRecord) {
     const { error } = await sb().from("trade_records").insert(this.toRow(t));
     if (error) throw error;
     return t;
+  }
+  async get(id: string) {
+    const { data, error } = await sb().from("trade_records").select("*").eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? this.fromRow(data as Row) : null;
   }
   async update(id: string, patch: Partial<TradeRecord>) {
     const { data, error } = await sb().from("trade_records").update(this.toRow(patch)).eq("id", id).select("*").maybeSingle();
@@ -660,6 +720,11 @@ class SupabaseTradeRepo implements TradeRepo {
   async listAll(limit = LIST_ALL_MAX) {
     return (await selectAll("trade_records", limit)).map((r) => this.fromRow(r));
   }
+  async listUnverified(limit = 200) {
+    const { data, error } = await sb().from("trade_records").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
+    if (error) throw error;
+    return (data ?? []).map((r) => this.fromRow(r as Row));
+  }
 }
 
 class SupabaseEarnActionRepo implements EarnActionRepo {
@@ -674,14 +739,37 @@ class SupabaseEarnActionRepo implements EarnActionRepo {
       usdValue: r.usd_value === null || r.usd_value === undefined ? null : Number(r.usd_value),
       txHash: (r.tx_hash as Hash | null) ?? undefined,
       createdAt: new Date(String(r.created_at)).getTime(),
+      verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
+      verifyNote: (r.verify_note as string | null) ?? undefined,
     };
   }
   async create(a: EarnActionRecord) {
-    const { error } = await sb()
-      .from("earn_actions")
-      .insert({ id: a.id, wallet_address: a.owner.toLowerCase(), opportunity_id: a.opportunityId, provider: a.provider, action: a.action, amount: a.amount, usd_value: a.usdValue, tx_hash: a.txHash ?? null, created_at: new Date(a.createdAt).toISOString() });
+    const { error } = await sb().from("earn_actions").insert({
+      id: a.id,
+      wallet_address: a.owner.toLowerCase(),
+      opportunity_id: a.opportunityId,
+      provider: a.provider,
+      action: a.action,
+      amount: a.amount,
+      usd_value: a.usdValue,
+      tx_hash: a.txHash ?? null,
+      created_at: new Date(a.createdAt).toISOString(),
+      verified_at: a.verifiedAt ? new Date(a.verifiedAt).toISOString() : null,
+      verify_note: a.verifyNote ?? null,
+    });
     if (error) throw error;
     return a;
+  }
+  async update(id: string, patch: Partial<EarnActionRecord>) {
+    const row: Row = {};
+    if (patch.usdValue !== undefined) row.usd_value = patch.usdValue;
+    if (patch.amount !== undefined) row.amount = patch.amount;
+    if (patch.txHash !== undefined) row.tx_hash = patch.txHash;
+    if (patch.verifiedAt !== undefined) row.verified_at = patch.verifiedAt === null ? null : new Date(patch.verifiedAt).toISOString();
+    if (patch.verifyNote !== undefined) row.verify_note = patch.verifyNote;
+    const { data, error } = await sb().from("earn_actions").update(row).eq("id", id).select("*").maybeSingle();
+    if (error) throw error;
+    return data ? this.fromRow(data as Row) : null;
   }
   async listByOwner(owner: Address) {
     const { data, error } = await sb().from("earn_actions").select("*").eq("wallet_address", owner.toLowerCase()).order("created_at", { ascending: false }).limit(200);
@@ -690,6 +778,11 @@ class SupabaseEarnActionRepo implements EarnActionRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return (await selectAll("earn_actions", limit)).map((r) => this.fromRow(r));
+  }
+  async listUnverified(limit = 200) {
+    const { data, error } = await sb().from("earn_actions").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
+    if (error) throw error;
+    return (data ?? []).map((r) => this.fromRow(r as Row));
   }
 }
 
@@ -850,18 +943,18 @@ export function getRepos(): Repos {
       backend: "supabase",
       // Reads fall back to seeds/empty and writes are dropped (logged) when a table is missing.
       templates: resilient("templates", new SupabaseTemplateRepo(), { list: (activeOnly?: boolean) => memoryTemplates.list(activeOnly), getBySlug: (slug: string) => memoryTemplates.getBySlug(slug) }),
-      gifts: resilient("gifts", new SupabaseGiftRepo(), { create: (g: GiftRecord) => g, update: null, listByOwner: [], listAll: [] }),
+      gifts: resilient("gifts", new SupabaseGiftRepo(), { create: (g: GiftRecord) => g, update: null, listByOwner: [], listAll: [], listUnverified: [] }),
       executions: resilient("executions", new SupabaseExecutionRepo(), { create: (e: PortfolioExecution) => e, update: null, get: null, listByOwner: [], listAll: [] }),
-      trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, listByOwner: [], listSince: [], listAll: [] }),
+      trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, get: null, listByOwner: [], listSince: [], listAll: [], listUnverified: [] }),
       watchlists: resilient("watchlists", new SupabaseWatchlistRepo(), { list: [], add: undefined, remove: undefined, summary: { entries: 0, wallets: 0 } }),
       discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined }),
       profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined, listAll: [] }),
       baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [], countWallets: 0, listWallets: [] }),
       automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], listAuto: [], listAll: [], create: (r: unknown) => r, update: null, remove: undefined }),
-      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, listByOwner: [], listAll: [] }),
+      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listUnverified: [] }),
       digests: resilient("digests", new SupabaseDigestRepo(), { get: null, put: undefined, latest: null, summary: { count: 0, costUsd: 0 } }),
-      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [] }),
+      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [], listUnverified: [] }),
       // `claimOnce` falls back to allowing the claim: the contract, not this table, is what stops
       // an address taking two shares. A storage blip must not lock people out of a live campaign.
       poolClaims: resilient("poolClaims", new SupabasePoolClaimRepo(), { claimOnce: (c: PoolClaim) => c, update: null, get: null, listByPool: [], listByClaimant: [], countByPool: 0, listAll: [] }),
@@ -869,6 +962,8 @@ export function getRepos(): Repos {
       receipts: resilient("receipts", new SupabaseReceiptRepo(), { getMany: [], putMany: undefined }),
       // Without a stored cursor a sweep starts from the floor again: slower, never wrong.
       cursors: resilient("cursors", new SupabaseCursorRepo(), { get: null, set: undefined }),
+      chainTransfers: resilient("chainTransfers", new SupabaseChainTransferRepo(), { insertMany: 0, listByWallet: [] }),
+      walletIndex: resilient("walletIndex", new SupabaseWalletIndexRepo(), { get: null, upsert: undefined, listWallets: [] }),
     };
   } else {
     metrics.count("db.memoryBackend");
@@ -890,6 +985,8 @@ export function getRepos(): Repos {
       poolClaims: new MemoryPoolClaimRepo(),
       receipts: new MemoryReceiptRepo(),
       cursors: new MemoryCursorRepo(),
+      chainTransfers: new MemoryChainTransferRepo(),
+      walletIndex: new MemoryWalletIndexRepo(),
     };
   }
   return repos;

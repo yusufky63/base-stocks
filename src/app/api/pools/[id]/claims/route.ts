@@ -6,6 +6,8 @@ import { reconcilePool, requirePool } from "@/services/pool-service";
 import { reverseResolve } from "@/services/basename-service";
 import { proofSummary } from "@/services/quest-service";
 import { sessionAddress } from "@/lib/auth/session";
+import { verdictError, verifyPoolClaim } from "@/services/tx-verify-service";
+import { AppError } from "@/lib/errors";
 import type { PoolClaim } from "@/domain/pool";
 
 const recordSchema = z.object({
@@ -44,15 +46,22 @@ export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key
 
 /**
  * A claim page reporting its own transaction. Unauthenticated on purpose — the claimant may be a
- * brand-new passkey wallet that has never signed in — and treated as a hint, not evidence: the
- * row lands as `confirmed` and only the log sweep promotes it to `reconciled`.
+ * brand-new passkey wallet that has never signed in — so the receipt is the evidence: the hash
+ * must carry `PoolClaimed` for this pool and this wallet, and then the row lands as `reconciled`
+ * straight away. A receipt not in yet leaves the row `confirmed` (unproven) for the sweeps; one
+ * that says something else is refused.
  */
 export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "pools.write", limit: 60, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const pool = await requirePool((await params).id);
   const body = await parseBody(req, recordSchema);
   const repos = getRepos();
 
-  const patch = { status: "confirmed" as const, txHash: body.txHash as Hash };
+  const v = await verifyPoolClaim(pool, body.claimant, body.txHash as Hash);
+  if (!v.ok && v.state !== "pending") {
+    const e = verdictError(v);
+    throw new AppError(e.code, e.message, e.status);
+  }
+  const patch = v.ok ? { status: "reconciled" as const, txHash: body.txHash as Hash, blockNumber: v.blockNumber } : { status: "confirmed" as const, txHash: body.txHash as Hash };
   const existing = await repos.poolClaims.get(pool.id, body.claimant).catch(() => null);
   if (existing) {
     await repos.poolClaims.update(pool.id, body.claimant, patch).catch(() => null);
@@ -60,7 +69,7 @@ export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { ke
     const claim: PoolClaim = { poolId: pool.id, claimant: body.claimant, questProof: {}, createdAt: Date.now(), ...patch };
     await repos.poolClaims.claimOnce(claim).catch(() => null);
   }
-  return json({ ok: true }, { status: 201 });
+  return json({ ok: true, verification: v.ok ? "verified" : "pending" }, { status: 201 });
 });
 
 /** Pull the roster back into line with the chain. Cheap, idempotent, safe to spam-click. */

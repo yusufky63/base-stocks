@@ -5,7 +5,8 @@ import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { ChevronDown, Wallet } from "lucide-react";
 import type { Address } from "viem";
 import { MINI_APP_CONNECTOR_ID, hasReown } from "@/config/wagmi";
-import { getAppKit } from "@/config/appkit";
+import { ensureAppKit, getAppKit } from "@/config/appkit";
+import { useTheme } from "./ThemeProvider";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { Button, cx } from "@/components/ui/primitives";
 import { Sheet } from "@/components/ui/Sheet";
@@ -28,6 +29,7 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
   const { disconnect } = useDisconnect();
   const { isMiniApp } = useMiniApp();
   const { connectors, connect } = useConnect();
+  const { resolved: theme } = useTheme();
 
   // A wallet extension can answer eth_accounts with an empty list (locked, or a second extension
   // owning window.ethereum) while Wagmi still reports "connected". AppKit then looks up the
@@ -50,16 +52,18 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
       setOpen(true);
       return;
     }
-    const kit = hasReown ? getAppKit() : null;
-    if (!kit) {
+    if (!hasReown) {
       setOpen(true);
       return;
     }
     // open() resolves once the modal is on screen (after its wallet list has loaded); until then the
-    // button shows it is working instead of looking like it ignored the tap.
+    // button shows it is working instead of looking like it ignored the tap. The modal itself is
+    // loaded on demand, so the first tap may also be waiting for the module.
     if (opening) return;
     setOpening(true);
-    void kit.open().finally(() => setOpening(false));
+    void (getAppKit() ? Promise.resolve(getAppKit()) : ensureAppKit(theme))
+      .then((kit) => (kit ? kit.open() : setOpen(true)))
+      .finally(() => setOpening(false));
   };
 
   if (isConnected && address) {

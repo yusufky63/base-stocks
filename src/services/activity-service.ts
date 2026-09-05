@@ -1,15 +1,11 @@
 import { formatUnits, type Address, type Hash } from "viem";
 import type { ActivityItem } from "@/domain/activity";
 import type { PoolRecord } from "@/domain/pool";
-import { b20AssetAbi } from "@/lib/b20/abi";
-import { getServerPublicClient } from "@/lib/viem/server-client";
-import { cached } from "@/lib/cache";
-import { metrics } from "@/lib/http";
 import { getRepos } from "@/db/repositories";
 import { getAssets } from "./b20-asset-service";
 import { reverseResolve } from "./basename-service";
-import { blockTimes, getReceiptStates } from "./receipt-service";
-import { reconcileEarnForWallet } from "./earn-reconcile-service";
+import { getReceiptStates } from "./receipt-service";
+import { transfersForWallet } from "./chain-index-service";
 import { buildTimeline, settleRecord, type TimelineTransfer } from "@/lib/activity/timeline";
 import { USDC_DECIMALS } from "@/config/chain";
 
@@ -18,79 +14,18 @@ export type { ReceiptState } from "./receipt-service";
 
 /**
  * Unified activity timeline (spec §33).
- * Sources: app records (trades, gifts, baskets, earn, pools) and the chain's own `Transfer` logs.
- * The rows are assembled by `buildTimeline`, which is pure; this file does the reading.
- * An app record is "verified" when the chain shows the transfer or the receipt says it succeeded.
+ * Sources: app records (trades, gifts, baskets, earn, pools) and the wallet's own transfers from
+ * the app's index of tokenized-stock transfers (`chain-index-service`), which replaced the
+ * per-wallet log scan. The rows are assembled by `buildTimeline`, which is pure; this file does
+ * the reading. An app record is "verified" when the chain shows the transfer or the server has
+ * matched it to its receipt.
  */
-const LOOKBACK_BLOCKS = 120_000n;
-const CHUNK = 10_000n;
 /** How many app-record hashes one timeline read verifies at most; the rest stay pending until the next look. */
 const MAX_RECEIPTS = 120;
-
-interface ScanState {
-  upTo: bigint;
-  items: TimelineTransfer[];
-  at: number;
-}
-/** Per-owner scan position so a refresh only reads the blocks mined since the last scan (bounded owners). */
-const SCAN_STATE = new Map<string, ScanState>();
-const SCAN_STATE_MAX = 300;
-
-async function scanTransfers(owner: Address, assets: Address[]): Promise<TimelineTransfer[]> {
-  const key = owner.toLowerCase();
-  return cached(`activity:scan:${key}`, { ttlMs: 90_000, staleMs: 10 * 60_000 }, async () => {
-    const client = getServerPublicClient();
-    const latest = await client.getBlockNumber();
-    const floor = latest > LOOKBACK_BLOCKS ? latest - LOOKBACK_BLOCKS : 0n;
-    const prev = SCAN_STATE.get(key);
-    const incremental = !!prev && prev.upTo >= floor;
-    const from = incremental ? prev.upTo + 1n : floor;
-    const out: TimelineTransfer[] = incremental ? prev.items.filter((t) => t.blockNumber >= floor) : [];
-    let upTo = incremental ? prev.upTo : floor - 1n;
-    const transferEvent = b20AssetAbi.find((x) => x.type === "event" && x.name === "Transfer")!;
-    for (let start = from; start <= latest; start += CHUNK + 1n) {
-      const end = start + CHUNK > latest ? latest : start + CHUNK;
-      try {
-        const [sent, received] = await Promise.all([
-          client.getLogs({ address: assets, event: transferEvent as typeof b20AssetAbi[number] & { type: "event" }, args: { from: owner }, fromBlock: start, toBlock: end }),
-          client.getLogs({ address: assets, event: transferEvent as typeof b20AssetAbi[number] & { type: "event" }, args: { to: owner }, fromBlock: start, toBlock: end }),
-        ]);
-        for (const log of [...sent, ...received]) {
-          const args = log.args as { from?: Address; to?: Address; value?: bigint };
-          if (!args.from || !args.to || args.value === undefined || !log.transactionHash || log.blockNumber === null) continue;
-          out.push({ txHash: log.transactionHash, blockNumber: log.blockNumber, asset: log.address as Address, from: args.from, to: args.to, value: args.value });
-        }
-        upTo = end;
-      } catch (err) {
-        metrics.count("activity.scan", false, err instanceof Error ? err.message : String(err));
-        break; // public RPC range limit: keep what we have and resume from `upTo` next time
-      }
-    }
-    // de-dupe (a self-transfer appears twice; incremental merges could repeat a boundary block)
-    const seen = new Set<string>();
-    const deduped = out.filter((t) => {
-      const k = `${t.txHash}:${t.asset}:${t.from}:${t.to}:${t.value}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-    // Block times, so a transfer nobody recorded still sorts by when it happened.
-    const times = await blockTimes(deduped.filter((t) => t.timestamp === undefined).map((t) => Number(t.blockNumber))).catch(() => new Map<number, number>());
-    for (const t of deduped) if (t.timestamp === undefined) t.timestamp = times.get(Number(t.blockNumber));
-    if (SCAN_STATE.size >= SCAN_STATE_MAX) {
-      const oldest = [...SCAN_STATE.entries()].sort((x, y) => x[1].at - y[1].at)[0];
-      if (oldest) SCAN_STATE.delete(oldest[0]);
-    }
-    SCAN_STATE.set(key, { upTo, items: deduped, at: Date.now() });
-    return deduped;
-  });
-}
 
 export async function getActivity(owner: Address): Promise<ActivityItem[]> {
   const repos = getRepos();
   const assets = await getAssets();
-  // A deposit whose record the browser lost is filled in from the venue's event before the read.
-  await reconcileEarnForWallet(owner).catch(() => undefined);
   const [trades, gifts, executions, earnActions, pools, claims, transfers] = await Promise.all([
     repos.trades.listByOwner(owner),
     repos.gifts.listByOwner(owner),
@@ -98,7 +33,7 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
     repos.earnActions.listByOwner(owner),
     repos.pools.listByCreator(owner).catch(() => [] as PoolRecord[]),
     repos.poolClaims.listByClaimant(owner).catch(() => []),
-    scanTransfers(owner, assets.map((a) => a.address)).catch(() => [] as TimelineTransfer[]),
+    transfersForWallet(owner).catch(() => [] as TimelineTransfer[]),
   ]);
   // The pools behind this wallet's claims (its own pools are already in hand).
   const poolById = new Map(pools.map((p) => [p.id, p]));

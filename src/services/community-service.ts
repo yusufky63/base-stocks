@@ -14,7 +14,7 @@ const HANDLE_RE = /^[a-z0-9][a-z0-9_-]{2,23}$/;
 
 /** Anonymous 7-day aggregates from submitted app trades: most bought / most sold, active traders. */
 export async function getCommunityPulse(): Promise<CommunityPulse> {
-  return cached("community:pulse", { ttlMs: 60_000, staleMs: 10 * 60_000 }, async () => {
+  return cached("community:pulse", { ttlMs: 60_000, staleMs: 10 * 60_000, shared: true }, async () => {
     const repos = getRepos();
     const since = Date.now() - 7 * 24 * 3600_000;
     const [trades, assets, topBaskets] = await Promise.all([repos.trades.listSince(since), getAssets(), repos.baskets.list({ sort: "votes", limit: 5 })]);

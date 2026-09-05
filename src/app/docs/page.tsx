@@ -15,9 +15,9 @@ import {
 import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow/index";
 import { GPV2_SETTLEMENT, GPV2_VAULT_RELAYER } from "@/providers/trading/cow/adapter";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
-import { Dither } from "@/components/fx/Dither";
 import { IntegrationMark } from "@/components/common/IntegrationMark";
 import { LinkButton } from "@/components/ui/primitives";
+import { Dither } from "@/components/fx/lazy";
 
 export const metadata: Metadata = {
   title: "Technical docs",

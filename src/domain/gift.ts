@@ -24,6 +24,12 @@ export interface GiftRecord {
   expiresAt?: number;
   /** Claim-link gifts: the claim transaction, once someone claimed. */
   claimTx?: Hash;
+  /**
+   * When the server matched the record's latest state to the chain. Unset means unproven: the
+   * timeline shows it as pending and the statistics leave it out.
+   */
+  verifiedAt?: number;
+  verifyNote?: string;
 }
 
 /** What the recipient resolver returns for a Basename or raw address. */

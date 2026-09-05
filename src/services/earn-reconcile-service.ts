@@ -1,6 +1,5 @@
 import type { Address, Hash } from "viem";
 import { getRepos, type EarnActionRecord, type ReceiptRow } from "@/db/repositories";
-import { cached } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { USDC_ADDRESS } from "@/config/chain";
@@ -15,7 +14,7 @@ import { blockTimes } from "./receipt-service";
  *
  * - `sweepEarn` walks forward from a stored cursor over every wallet the app knows, for the
  *   statistics and the daily cron. Bounded per call so a serverless invocation stays inside its budget.
- * - `reconcileEarnForWallet` looks at one wallet's recent blocks when its timeline is read.
+ * - `registerWallet` (chain-index-service) reconciles one wallet once, when it first appears.
  *
  * Both are idempotent: a transaction already recorded (by the browser or an earlier sweep) is skipped.
  */
@@ -26,8 +25,6 @@ const CHUNK = 10_000n;
 const DEFAULT_MAX_BLOCKS = 120_000n;
 const WALLET_BATCH = 200;
 const CURSOR_KEY = "earn:sweep";
-/** How far a per-wallet look reaches on its first pass; later passes are incremental. */
-const WALLET_LOOKBACK = 30_000n;
 
 /** The USDC venues the app can deposit into, as the reconciliation sees them. */
 export async function earnVenues(): Promise<EarnVenue[]> {
@@ -44,7 +41,7 @@ export async function earnVenues(): Promise<EarnVenue[]> {
 /** Every wallet the app has any record of; a deposit whose record was lost still belongs to one of these. */
 export async function knownWallets(): Promise<Address[]> {
   const repos = getRepos();
-  const [trades, gifts, executions, earn, pools, claims, rules, profiles, baskets, snapshotWallets] = await Promise.all([
+  const [trades, gifts, executions, earn, pools, claims, rules, profiles, baskets, snapshotWallets, indexedWallets] = await Promise.all([
     repos.trades.listAll(),
     repos.gifts.listAll(),
     repos.executions.listAll(),
@@ -55,6 +52,7 @@ export async function knownWallets(): Promise<Address[]> {
     repos.profiles.listAll(),
     repos.baskets.list({ sort: "new", limit: 1_000 }),
     repos.snapshots.listWallets(),
+    repos.walletIndex.listWallets(),
   ]);
   const set = new Set<string>();
   const add = (a: string | undefined) => {
@@ -73,6 +71,7 @@ export async function knownWallets(): Promise<Address[]> {
   for (const p of profiles) add(p.address);
   for (const b of baskets) add(b.owner);
   for (const w of snapshotWallets) add(w);
+  for (const w of indexedWallets) add(w);
   return [...set] as Address[];
 }
 
@@ -206,25 +205,4 @@ export async function sweepEarn(opts: { fromBlock?: bigint; maxBlocks?: bigint }
   const r = await reconcileEarn(wallets, from, to);
   await repos.cursors.set(CURSOR_KEY, Number(to)).catch(() => undefined);
   return { ...r, head: head.toString(), wallets: wallets.length, more: to < head };
-}
-
-/** Per-wallet progress of the timeline's own look: the block each wallet has been read up to. */
-const WALLET_UP_TO = new Map<string, bigint>();
-
-/**
- * One wallet's recent venue events, for its activity timeline. The first look reaches back
- * `WALLET_LOOKBACK` blocks; every later one reads only what was mined since. Cached briefly so a
- * page that polls does not turn into a log scan.
- */
-export async function reconcileEarnForWallet(owner: Address): Promise<ReconcileResult> {
-  const key = owner.toLowerCase();
-  return cached(`earn:reconcile:${key}`, { ttlMs: 90_000, staleMs: 10 * 60_000 }, async () => {
-    const head = await getServerPublicClient().getBlockNumber();
-    const prev = WALLET_UP_TO.get(key);
-    const floor = head > WALLET_LOOKBACK ? head - WALLET_LOOKBACK : 0n;
-    const from = prev !== undefined && prev + 1n > floor ? prev + 1n : floor;
-    const r = await reconcileEarn([owner], from, head);
-    WALLET_UP_TO.set(key, head);
-    return r;
-  });
 }

@@ -1,0 +1,34 @@
+name: Refresh
+
+# The time-sensitive maintenance jobs, every fifteen minutes. Vercel's Hobby cron runs at most
+# once a day, which is fine for discovery and cache sweeps but not for the index of stock
+# transfers, the verification of records filed while their receipt was pending, the Earn and
+# pool reconciliations, or the shared statistics. Each job is its own request so none of them
+# can eat another's serverless budget; a failing job fails this run (and GitHub tells you).
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    if: ${{ vars.REFRESH_ENABLED != 'false' }}
+    steps:
+      - name: Run maintenance jobs
+        env:
+          APP_URL: ${{ secrets.APP_URL || 'https://basestocks.finance' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET secret is not set"; exit 1; fi
+          failed=0
+          for job in index verify earn pools stats status; do
+            echo "== $job"
+            if curl -fsS "$APP_URL/api/cron/refresh?job=$job" -H "Authorization: Bearer $CRON_SECRET" -o out.json; then
+              node -e "const r=require('./out.json'); for (const x of r.results) console.log(x.job, x.ms+'ms', x.error ? 'ERROR '+x.error : JSON.stringify(x.result));"
+              if node -e "const r=require('./out.json'); process.exit(r.ok ? 0 : 1)"; then :; else failed=1; fi
+            else
+              echo "request failed"; failed=1
+            fi
+          done
+          exit $failed

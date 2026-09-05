@@ -2,35 +2,56 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider, cookieToInitialState } from "wagmi";
+import { WagmiProvider } from "wagmi";
 import { wagmiConfig } from "@/config/wagmi";
 import { ensureAppKit, getAppKit } from "@/config/appkit";
 import { ThemeProvider, useTheme } from "@/components/layout/ThemeProvider";
 import { MiniAppProvider } from "@/components/layout/MiniAppProvider";
 
+/**
+ * Loads the wallet modal once the page is idle, so the first tap on "Connect" is answered at
+ * once — and never before, so a visitor who only reads prices never downloads it. The modal's
+ * UI is a second bundle AppKit imports on the first open(); that is warmed too.
+ */
 function AppKitBoot() {
   const { resolved } = useTheme();
   useEffect(() => {
-    const kit = ensureAppKit(resolved);
-    kit?.setThemeMode(resolved);
-  }, [resolved]);
-  // The modal's UI is a separate bundle AppKit imports on the first open(), which is why the first
-  // tap on "Connect" used to look ignored for a few seconds. Load it once the page is idle instead.
-  useEffect(() => {
-    const kit = getAppKit();
-    if (!kit) return;
-    const warm = () => void (kit as unknown as { injectModalUi?: () => Promise<void> }).injectModalUi?.().catch(() => undefined);
+    let cancelled = false;
+    const warm = () => {
+      void ensureAppKit(resolved).then((kit) => {
+        if (cancelled || !kit) return;
+        kit.setThemeMode(resolved);
+        void (kit as unknown as { injectModalUi?: () => Promise<void> }).injectModalUi?.().catch(() => undefined);
+      });
+    };
+    const existing = getAppKit();
+    if (existing) {
+      existing.setThemeMode(resolved);
+      return;
+    }
     if ("requestIdleCallback" in window) {
       const id = window.requestIdleCallback(warm, { timeout: 4_000 });
-      return () => window.cancelIdleCallback(id);
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(id);
+      };
     }
     const t = setTimeout(warm, 1_500);
-    return () => clearTimeout(t);
-  }, []);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [resolved]);
   return null;
 }
 
-export function Providers({ children, cookies }: { children: ReactNode; cookies: string | null }) {
+/**
+ * Wagmi hydrates the connection on the client after mount (`ssr: true`), so the server renders
+ * every page as "not connected" and needs no cookie for it. That is what lets pages be cached
+ * and served from the edge instead of rendered per request; the price is a moment of
+ * "Connect" on a full page load for a wallet that is connected, before it reconnects.
+ */
+export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -39,10 +60,9 @@ export function Providers({ children, cookies }: { children: ReactNode; cookies:
         },
       }),
   );
-  const initialState = cookieToInitialState(wagmiConfig, cookies ?? undefined);
 
   return (
-    <WagmiProvider config={wagmiConfig} initialState={initialState}>
+    <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <AppKitBoot />

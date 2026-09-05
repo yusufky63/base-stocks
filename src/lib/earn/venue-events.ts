@@ -85,5 +85,7 @@ export function earnRecordFromEvent(venue: EarnVenue, ev: VenueEvent, blockTimeS
     usdValue: Number(ev.amount) / 10 ** USDC_DECIMALS,
     txHash: ev.txHash,
     createdAt: blockTimeSec ? blockTimeSec * 1000 : Date.now(),
+    // Read from the venue's own log: verified by construction.
+    verifiedAt: Date.now(),
   };
 }

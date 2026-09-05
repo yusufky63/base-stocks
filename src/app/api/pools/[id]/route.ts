@@ -3,6 +3,7 @@ import type { Hash } from "viem";
 import { route, json, parseBody, hashSchema } from "@/lib/api";
 import { getRepos } from "@/db/repositories";
 import { buildPoolView, getPoolView, requirePool } from "@/services/pool-service";
+import { verdictError, verifyPoolCreate } from "@/services/tx-verify-service";
 import { sessionAddress } from "@/lib/auth/session";
 import { serverEnv } from "@/config/env";
 import { AppError } from "@/lib/errors";
@@ -27,27 +28,31 @@ export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key
 });
 
 /**
- * Records what the wallet did (`txHash`, `status`) and lets the creator edit presentation.
+ * Records what the wallet did and lets the creator edit presentation.
  *
- * Transaction bookkeeping needs no signature — it is an index, never proof, and the chain is
- * re-read on every view. Anything that changes who sees the pool does: publishing needs the
- * creator's session, and `verified` needs the admin token.
+ * The funding hash is matched to a `PoolCreated` log for this pool by this creator before it is
+ * kept (a receipt not in yet leaves the pool pending for the verification sweep). Everything
+ * else — a status the creator reports, how the pool is shown — needs the creator's session, and
+ * `verified` needs the admin token. The chain is re-read on every view regardless.
  */
 export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "pools.write", limit: 60, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const body = await parseBody(req, patchSchema);
   const record = await requirePool(id);
+  const signedIn = sessionAddress(req);
+  const isCreator = !!signedIn && signedIn.toLowerCase() === record.creator.toLowerCase();
 
   const patch: Partial<PoolRecord> = {};
-  if (body.txHash) patch.txHash = body.txHash as Hash;
-  if (body.status) patch.status = body.status;
+  if (body.txHash) {
+    Object.assign(patch, await settlePoolFunding(record, body.txHash as Hash));
+  } else if (body.status !== undefined) {
+    if (!isCreator) throw new AppError("UNAUTHORIZED", "Sign in with the creating wallet to change this pool's state.", 401);
+    patch.status = body.status;
+  }
 
   const wantsOwnerChange = body.visibility !== undefined || body.title !== undefined || body.message !== undefined;
   if (wantsOwnerChange) {
-    const signedIn = sessionAddress(req);
-    if (!signedIn || signedIn.toLowerCase() !== record.creator.toLowerCase()) {
-      throw new AppError("UNAUTHORIZED", "Sign in with the creating wallet to change how this pool is shown.", 401);
-    }
+    if (!isCreator) throw new AppError("UNAUTHORIZED", "Sign in with the creating wallet to change how this pool is shown.", 401);
     if (body.visibility !== undefined) patch.visibility = body.visibility;
     if (body.title !== undefined) patch.title = body.title;
     if (body.message !== undefined) patch.message = body.message;
@@ -64,3 +69,15 @@ export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { k
   if (!updated) throw new AppError("NOT_FOUND", "Pool not found", 404);
   return json({ view: await buildPoolView(updated) });
 });
+
+/** Match the funding hash to this pool's own `PoolCreated`; pending receipts are settled by the sweep. */
+export async function settlePoolFunding(pool: PoolRecord, txHash: Hash): Promise<Partial<PoolRecord>> {
+  const v = await verifyPoolCreate(pool, txHash);
+  if (v.ok) return { txHash, status: pool.status === "draft" || pool.status === "failed" ? "submitted" : pool.status, verifiedAt: Date.now(), verifyNote: undefined };
+  if (v.state === "mismatch") {
+    const e = verdictError(v);
+    throw new AppError(e.code, e.message, e.status);
+  }
+  if (v.state === "reverted") return { txHash, status: "failed", verifyNote: "reverted" };
+  return { txHash, status: pool.status === "draft" ? "submitted" : pool.status };
+}

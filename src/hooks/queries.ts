@@ -27,6 +27,7 @@ import type { Timeframe } from "@/domain/market";
 import type { OrderView } from "@/domain/trade";
 import type { CommunityPulse } from "@/domain/community";
 import type { PlatformStats } from "@/domain/stats";
+import { useAuth } from "./useAuth";
 
 export const qk = {
   config: ["config"] as const,
@@ -229,18 +230,26 @@ export function useTxStatus(hash?: Hash) {
 
 export function useWatchlist(owner?: Address) {
   const qc = useQueryClient();
+  const auth = useAuth();
   const list = useQuery({
     queryKey: qk.watchlist(owner ?? ""),
     queryFn: async () => (await apiGet<{ assets: Address[] }>(`/api/watchlist?owner=${owner}`)).assets,
     enabled: !!owner,
     staleTime: 60_000,
   });
+  // A watchlist is the wallet's own to edit, so the first change asks for a sign-in (once per session).
   const add = useMutation({
-    mutationFn: (assetAddress: Address) => apiPost("/api/watchlist", { owner, assetAddress }),
+    mutationFn: async (assetAddress: Address) => {
+      await auth.ensureSignedIn();
+      return apiPost("/api/watchlist", { owner, assetAddress });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.watchlist(owner ?? "") }),
   });
   const remove = useMutation({
-    mutationFn: (assetAddress: Address) => apiDelete("/api/watchlist", { owner, assetAddress }),
+    mutationFn: async (assetAddress: Address) => {
+      await auth.ensureSignedIn();
+      return apiDelete("/api/watchlist", { owner, assetAddress });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.watchlist(owner ?? "") }),
   });
   const set = new Set((list.data ?? []).map((a) => a.toLowerCase()));

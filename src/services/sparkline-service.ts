@@ -31,7 +31,7 @@ function bucketSeries(rounds: { time: number; price: number }[], start: number, 
  * markets table's labelled "7d" column). One cached computation serves all visitors; 15-minute TTL.
  */
 export async function getSparklines(assets: B20Asset[]): Promise<{ d1: Record<string, number[]>; d7: Record<string, number[]> }> {
-  return cached("sparklines:1d7d:v1", { ttlMs: 15 * 60_000, staleMs: 60 * 60_000 }, async () => {
+  return cached("sparklines:1d7d:v1", { ttlMs: 15 * 60_000, staleMs: 60 * 60_000, shared: true }, async () => {
     const now = Math.floor(Date.now() / 1000);
     const d1: Record<string, number[]> = {};
     const d7: Record<string, number[]> = {};

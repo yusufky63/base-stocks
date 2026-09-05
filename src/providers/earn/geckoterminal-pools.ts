@@ -41,7 +41,7 @@ export interface DexPoolInfo {
 }
 
 export async function getDexPools(asset: Address, opts: { includeUnknown?: boolean } = {}): Promise<DexPoolInfo[]> {
-  const all = await cached(`gt:pools:all:${asset.toLowerCase()}`, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000 }, async () => {
+  const all = await cached(`gt:pools:all:${asset.toLowerCase()}`, { ttlMs: 5 * 60_000, staleMs: 30 * 60_000, shared: true }, async () => {
     const raw = await breaker.run(async () => {
       await gate("geckoterminal", 2_200);
       const { status, data } = await fetchJson<unknown>(`${BASE_URL}/networks/base/tokens/${asset.toLowerCase()}?include=top_pools`, { headers: { accept: "application/json;version=20230302" }, timeoutMs: 8_000, provider: "geckoterminal" });
