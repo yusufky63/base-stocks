@@ -97,6 +97,8 @@ export interface PlatformStats {
     byAsset: AssetStat[];
     /** Trades the app recorded without a USD value; counted, not summed. */
     withoutUsd: number;
+    /** Integrator fees the routes charged on verified trades, in USD (from each record's fee rate at the time). */
+    integratorFeeUsd: number;
   };
   strategies: {
     executions: { started: number; complete: number; partial: number; failed: number; legsConfirmed: number; legsFailed: number; usd: number };
@@ -133,6 +135,8 @@ export interface PlatformStats {
   };
   daily: DailyStat[];
   ledger: LedgerEntry[];
+  /** How much of the history came from stored daily rollups rather than the records read now. */
+  rollup: { days: number; through: string | null; liveSince: number | null };
   verification: {
     /** Transactions the app recorded, by what the chain said about them. */
     verified: number;
@@ -147,4 +151,29 @@ export interface PlatformStats {
     /** Hashes whose receipt could not be read this time (counted as pending). */
     unchecked: number;
   };
+}
+
+/**
+ * One finished day, reduced once and stored (`stats_daily`). The live computation reads only the
+ * recent days' records and adds these for everything before, so `/stats` costs the same at ten
+ * thousand records as at a hundred. Every field is a sum of verified events on that day except
+ * `wallets`, which is kept as a list so distinct wallets across days can still be counted.
+ */
+export interface DayRollup {
+  /** YYYY-MM-DD, UTC, by block time. */
+  day: string;
+  /** Verified events that day. */
+  events: number;
+  /** Distinct wallets with a verified event that day, lowercase. */
+  wallets: string[];
+  /** The event-derived counters; baskets and plan runs stay record-derived and are not here. */
+  summary: Omit<StatsSummary, "wallets" | "basketsBuilt" | "planRuns" | "planRunUsd">;
+  byProvider: Record<string, StatsCounter>;
+  byAsset: Record<string, { buys: number; buyUsd: number; sells: number; sellUsd: number; gifted: number }>;
+  earnByProvider: Record<string, { deposits: number; depositUsd: number; withdrawals: number; withdrawalUsd: number }>;
+  liquidity: { added: StatsCounter; removed: StatsCounter; collected: StatsCounter };
+  feeUsd: number;
+  verifiedTx: number;
+  revertedTx: number;
+  computedAt: number;
 }

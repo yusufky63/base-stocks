@@ -29,6 +29,10 @@ The narrative and FAQ live in the app at `/how-it-works`. The technical referenc
 - **Public feed**: the latest verified transactions, with no wallet named, on Home and on Activity for visitors without a wallet; the same shared-cached object as the counters and `/stats`.
 - **Screener and heatmap**: Markets filters by status and sector; the heatmap colours each stock by its 24h move and doubles the three deepest markets.
 - **Benchmark**: the equal-weight index of the listed stocks runs dashed behind the portfolio's value history, one shared-cached series per window.
+- **Market clock and premium meter**: the ticker says whether the NYSE is open and when that changes; every stock page shows how far the pool price sits from the Chainlink reference.
+- **Gift a basket**: any template or basket becomes a one-share package, claimable with a link, from the stocks you hold.
+- **Statistics that stay cheap**: finished days are rolled up once and stored; `/stats` reads the recent days and the rollups, so it costs the same at ten thousand records as at a hundred.
+- **An integrator fee, off by default**: set a rate and a recipient and KyberSwap, CoW and 0x routes carry it, shown on the quote and summed on `/stats`.
 - **Return to target on a schedule**: a buy-only manual plan from the Rebalance tab, legs computed from live holdings on each run, confirmed in the wallet, never automatic, never a sell.
 
 ## Stack

@@ -1,31 +1,29 @@
 import { formatUnits, type Address, type Hash } from "viem";
-import type { AssetStat, DailyStat, LedgerEntry, LedgerKind, PlatformStats, StatsSummary, StatsWindowKey } from "@/domain/stats";
+import type { AssetStat, DailyStat, DayRollup, LedgerEntry, LedgerKind, PlatformStats, StatsCounter, StatsSummary, StatsWindowKey } from "@/domain/stats";
 import type { GiftRecord } from "@/domain/gift";
 import type { PoolClaim, PoolRecord } from "@/domain/pool";
 import type { PortfolioExecution } from "@/domain/portfolio";
-import type { AutomationRule, CommunityBasket, Profile } from "@/domain/community";
 import type { EarnActionRecord, TradeRecord } from "@/db/repositories";
+import type { AutomationRule, CommunityBasket, Profile } from "@/domain/community";
 import type { ReceiptState } from "@/services/receipt-service";
 
 /**
- * Platform statistics, computed from records and receipts handed in — no database, no RPC —
- * so every rule below is testable and every number on `/stats` can be traced to one of them.
+ * Platform statistics, computed from the app's own records and the chain's receipts. Pure: hand it
+ * the records and it answers; the service around it decides what to load.
  *
- * The rules that keep the numbers honest:
+ * Two rules everything here follows:
  *
- * - **A transaction counts once it succeeded on Base.** The app writes a record when a wallet
- *   submits something; the receipt decides whether it happened. Reverted and unmined records are
- *   reported in `verification`, never summed.
- * - **One (transaction, stock, side) is one trade.** The basket executor writes an execution *and*
- *   a trade row per leg, a retried request can post the same trade twice, and an AutoInvest run
- *   writes one row per stock on one hash. Trade rows and execution steps are merged on that key,
- *   so a $7.20 basket is $7.20 of volume, not $14.40.
- * - **A gift bought for someone is one purchase and one gift**, on the same hash: it is in trade
- *   volume (stock was bought) and in gifts (it went to someone else), and says so on the page.
- * - **Gifts are valued at today's price** because the app never recorded a USD figure for a
- *   transfer; the label says "today" wherever that number appears.
+ * 1. **A record counts once the chain agrees.** Every event carries the state of its receipt, and
+ *    only `verified` events reach a total. A record the chain contradicted is nobody's.
+ * 2. **One transaction, one trade per stock.** A basket of four is four trades on one hash; the
+ *    same (hash, stock, side) filed twice is one.
+ *
+ * Scale is handled by **daily rollups**: a finished day is reduced once to a `DayRollup` (its
+ * counters, its wallets, its per-stock and per-route breakdowns) and stored; from then on the
+ * live computation reads only the records of the recent days and adds the rollups for the rest.
+ * The totals stay reproducible — a rollup is the same function over the same records — while the
+ * cost of `/stats` stops growing with the number of records ever written.
  */
-
 export interface StatsAsset {
   canonicalId: string;
   address: Address;
@@ -56,6 +54,13 @@ export interface StatsInput {
   receipts: Map<string, ReceiptState>;
   /** Hashes that were not even asked about this time (over the budget); reported, treated as pending. */
   unchecked?: number;
+  /**
+   * Finished days already reduced to rollups. Events on or after `liveSince` come from the
+   * records handed in; the rollups cover the days before it. Without `liveSince` the records are
+   * taken to be everything and the rollups are ignored.
+   */
+  rollups?: DayRollup[];
+  liveSince?: number;
 }
 
 type State = "verified" | "reverted" | "pending";
@@ -75,6 +80,8 @@ interface StatEvent {
   provider?: string;
   /** Stock that changed hands, in token units, per asset (gifts and claims). */
   units?: Array<{ assetId: string; units: number }>;
+  /** The integrator fee this trade carried, in USD, when the route charged one. */
+  feeUsd?: number;
 }
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -90,8 +97,30 @@ const LEDGER_MAX = 40;
 const lower = (s: string | undefined | null) => (s ?? "").toLowerCase();
 const isHash = (h: string | undefined | null): h is Hash => !!h && /^0x[0-9a-fA-F]{64}$/.test(h);
 const round2 = (n: number) => Math.round(n * 100) / 100;
+export const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-export function aggregateStats(input: StatsInput): PlatformStats {
+interface Extracted {
+  events: StatEvent[];
+  execStats: { started: number; complete: number; partial: number; failed: number; legsConfirmed: number; legsFailed: number; usd: number };
+  basketsBuiltAt: number[];
+  direct: { sendExisting: number; buyForRecipient: number; valueUsdToday: number };
+  links: { created: number; claimed: number; reclaimed: number; open: number; expired: number; valueUsdToday: number };
+  poolStats: { created: number; live: number; closed: number; slots: number; claimsConfirmed: number; claimsReconciled: number; sharesValueUsdToday: number };
+  autoInvest: { plans: number; active: number; paused: number; cancelled: number; runs: number; keeperRuns: number; walletRuns: number; failedRuns: number; usd: number };
+  manualPlans: { plans: number; active: number; runs: number; usd: number };
+  runsAt: Array<{ at: number; usd: number }>;
+  known: Set<string>;
+  referenced: Set<string>;
+  withoutTx: number;
+  duplicatesCollapsed: number;
+  withoutUsd: number;
+  disownedRecords: number;
+  /** Stock per trade hash, for execution legs that carry no units of their own. */
+  assetByTx: Map<string, string>;
+}
+
+/** Every record turned into events with the chain's verdict attached, plus the per-record status counters. */
+function extractEvents(input: StatsInput): Extracted {
   const { now } = input;
   const assetById = new Map(input.assets.map((a) => [a.canonicalId, a]));
   const symbolOf = (address: string) => assetById.get(lower(address))?.symbol ?? address.slice(0, 8);
@@ -130,6 +159,7 @@ export function aggregateStats(input: StatsInput): PlatformStats {
   const events: StatEvent[] = [];
   const known = new Set<string>();
   const referenced = new Set<string>();
+  const assetByTx = new Map<string, string>();
   let withoutTx = 0;
   let duplicatesCollapsed = 0;
   let withoutUsd = 0;
@@ -146,6 +176,7 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     }
     const tx = lower(t.txHash);
     referenced.add(tx);
+    if (!assetByTx.has(tx)) assetByTx.set(tx, lower(t.assetAddress));
     const key = `${tx}:${lower(t.assetAddress)}:${t.side}`;
     if (tradeKeys.has(key)) {
       duplicatesCollapsed += 1;
@@ -159,7 +190,8 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     tradeKeys.add(key);
     if (!tradeUsdByTx.has(tx)) tradeUsdByTx.set(tx, t.usdValue);
     if (state === "verified" && t.usdValue === null) withoutUsd += 1;
-    events.push({ kind: t.side, at: atOf(tx, t.createdAt), wallet: lower(t.owner), txHash: tx, usd: t.usdValue, state, blockNumber: blockOf(tx), symbol: symbolOf(t.assetAddress), label: t.side === "buy" ? "Bought" : "Sold", side: t.side, provider: t.provider, units: [{ assetId: lower(t.assetAddress), units: unitsOf(t.assetAddress, t.side === "buy" ? t.buyAmount : t.sellAmount) }] });
+    const feeUsd = t.feeBps && t.usdValue !== null ? (t.usdValue * t.feeBps) / 10_000 : undefined;
+    events.push({ kind: t.side, at: atOf(tx, t.createdAt), wallet: lower(t.owner), txHash: tx, usd: t.usdValue, state, blockNumber: blockOf(tx), symbol: symbolOf(t.assetAddress), label: t.side === "buy" ? "Bought" : "Sold", side: t.side, provider: t.provider, units: [{ assetId: lower(t.assetAddress), units: unitsOf(t.assetAddress, t.side === "buy" ? t.buyAmount : t.sellAmount) }], feeUsd });
   }
 
   /* ------------------------------ executions ------------------------------ */
@@ -191,7 +223,7 @@ export function aggregateStats(input: StatsInput): PlatformStats {
       const key = `${tx}:${lower(s.assetAddress)}:${side}`;
       if (tradeKeys.has(key)) continue;
       tradeKeys.add(key);
-      events.push({ kind: side, at: atOf(tx, e.createdAt), wallet: lower(e.owner), txHash: tx, usd: s.targetUsd, state, blockNumber: blockOf(tx), symbol: symbolOf(s.assetAddress), label: side === "buy" ? "Bought" : "Sold", side, provider: s.provider ?? "basket", units: [] });
+      events.push({ kind: side, at: atOf(tx, e.createdAt), wallet: lower(e.owner), txHash: tx, usd: s.targetUsd, state, blockNumber: blockOf(tx), symbol: symbolOf(s.assetAddress), label: side === "buy" ? "Bought" : "Sold", side, provider: s.provider ?? "basket", units: [{ assetId: lower(s.assetAddress), units: 0 }] });
     }
     execStats.legsConfirmed += confirmed;
     execStats.legsFailed += failed;
@@ -344,6 +376,8 @@ export function aggregateStats(input: StatsInput): PlatformStats {
         if (auto) autoInvest.failedRuns += 1;
         continue;
       }
+      // A toward-target run that found the mix in balance did its job without buying; it is not a purchase.
+      if (h.note && !(h.spentUsd && h.spentUsd > 0)) continue;
       const tx = isHash(h.txHash) ? lower(h.txHash) : null;
       if (tx) {
         if (runHashes.has(tx)) continue;
@@ -381,177 +415,19 @@ export function aggregateStats(input: StatsInput): PlatformStats {
     autoInvest.usd += run.usd;
   }
 
-  /* -------------------------------- people -------------------------------- */
   for (const p of input.profiles) known.add(lower(p.address));
   for (const b of input.baskets) known.add(lower(b.owner));
-  const verified = events.filter((e) => e.state === "verified");
-  const transacting = new Set(verified.map((e) => e.wallet));
-  for (const w of transacting) known.add(w);
 
-  /* ------------------------------- windows -------------------------------- */
-  const windows = Object.fromEntries(
-    WINDOWS.map(({ key, ms }) => {
-      const since = ms === null ? 0 : now - ms;
-      return [key, summarize(events, since, basketsBuiltAt, runsAt)];
-    }),
-  ) as Record<StatsWindowKey, StatsSummary>;
-
-  /* ------------------------------ breakdowns ------------------------------ */
-  const byProvider = new Map<string, { count: number; usd: number }>();
-  const byAsset = new Map<string, AssetStat>();
-  const assetRow = (assetId: string): AssetStat => {
-    const a = assetById.get(assetId);
-    const row = byAsset.get(assetId) ?? { assetAddress: (a?.address ?? assetId) as Address, symbol: a?.symbol ?? assetId.slice(0, 8), underlying: a?.underlying ?? assetId.slice(0, 8), buys: 0, buyUsd: 0, sells: 0, sellUsd: 0, gifted: 0 };
-    byAsset.set(assetId, row);
-    return row;
-  };
-  for (const e of verified) {
-    if (e.kind === "buy" || e.kind === "sell") {
-      const p = byProvider.get(e.provider ?? "unknown") ?? { count: 0, usd: 0 };
-      p.count += 1;
-      p.usd += e.usd ?? 0;
-      byProvider.set(e.provider ?? "unknown", p);
-      const assetId = e.units?.[0]?.assetId ?? lower(input.trades.find((t) => lower(t.txHash) === e.txHash)?.assetAddress);
-      if (assetId) {
-        const row = assetRow(assetId);
-        if (e.kind === "buy") {
-          row.buys += 1;
-          row.buyUsd += e.usd ?? 0;
-        } else {
-          row.sells += 1;
-          row.sellUsd += e.usd ?? 0;
-        }
-      }
-    } else if (e.kind === "gift" || e.kind === "link-claim" || e.kind === "pool-claim") {
-      for (const u of e.units ?? []) assetRow(u.assetId).gifted += u.units;
-    }
-  }
-  const earnByProvider = new Map<string, { deposits: number; depositUsd: number; withdrawals: number; withdrawalUsd: number }>();
-  const earn = { deposits: { count: 0, usd: 0 }, withdrawals: { count: 0, usd: 0 } };
-  const liquidity = { added: { count: 0, usd: 0 }, removed: { count: 0, usd: 0 }, collected: { count: 0, usd: 0 } };
-  for (const e of verified) {
-    const bucket = e.kind === "lp-add" ? liquidity.added : e.kind === "lp-remove" ? liquidity.removed : e.kind === "lp-collect" ? liquidity.collected : null;
-    if (bucket) {
-      bucket.count += 1;
-      bucket.usd += e.usd ?? 0;
-      continue;
-    }
-    if (e.kind !== "earn-deposit" && e.kind !== "earn-withdraw") continue;
-    const row = earnByProvider.get(e.provider ?? "unknown") ?? { deposits: 0, depositUsd: 0, withdrawals: 0, withdrawalUsd: 0 };
-    if (e.kind === "earn-deposit") {
-      row.deposits += 1;
-      row.depositUsd += e.usd ?? 0;
-      earn.deposits.count += 1;
-      earn.deposits.usd += e.usd ?? 0;
-    } else {
-      row.withdrawals += 1;
-      row.withdrawalUsd += e.usd ?? 0;
-      earn.withdrawals.count += 1;
-      earn.withdrawals.usd += e.usd ?? 0;
-    }
-    earnByProvider.set(e.provider ?? "unknown", row);
-  }
-
-  /* --------------------------------- daily -------------------------------- */
-  const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-  const daily: DailyStat[] = [];
-  for (let i = DAILY_DAYS - 1; i >= 0; i--) daily.push({ day: dayKey(now - i * 24 * 3600_000), trades: 0, volumeUsd: 0, events: 0, wallets: 0 });
-  const dayIndex = new Map(daily.map((d, i) => [d.day, i]));
-  const dayWallets = new Map<string, Set<string>>();
-  for (const e of verified) {
-    const i = dayIndex.get(dayKey(e.at));
-    if (i === undefined) continue;
-    const d = daily[i]!;
-    d.events += 1;
-    if (e.kind === "buy" || e.kind === "sell") {
-      d.trades += 1;
-      d.volumeUsd += e.usd ?? 0;
-    }
-    const set = dayWallets.get(d.day) ?? new Set<string>();
-    set.add(e.wallet);
-    dayWallets.set(d.day, set);
-  }
-  for (const d of daily) {
-    d.wallets = dayWallets.get(d.day)?.size ?? 0;
-    d.volumeUsd = round2(d.volumeUsd);
-  }
-
-  /* -------------------------------- ledger -------------------------------- */
-  // One receipt, one line: records that share a hash and a kind (gift links funded together) fold
-  // into one entry with a count, so the ledger reads like the chain does.
-  const folded = new Map<string, LedgerEntry>();
-  for (const e of [...verified].sort((a, b) => b.at - a.at || (b.blockNumber ?? 0) - (a.blockNumber ?? 0))) {
-    const key = `${e.txHash}:${e.kind}`;
-    const cur = folded.get(key);
-    if (cur) {
-      cur.count = (cur.count ?? 1) + 1;
-      if (e.usd !== null) cur.usd = round2((cur.usd ?? 0) + e.usd);
-      if (cur.symbol !== e.symbol) cur.symbol = `${cur.count} stocks`;
-      continue;
-    }
-    folded.set(key, { at: e.at, kind: e.kind, label: e.label, symbol: e.symbol, usd: e.usd === null ? undefined : round2(e.usd), txHash: e.txHash as Hash, blockNumber: e.blockNumber });
-  }
-  const ledger = [...folded.values()].slice(0, LEDGER_MAX);
-
-  /* ----------------------------- verification ----------------------------- */
-  let verifiedTx = 0;
-  let revertedTx = 0;
-  let pendingTx = 0;
-  for (const h of referenced) {
-    const r = input.receipts.get(h);
-    if (!r || r.status === "pending") pendingTx += 1;
-    else if (r.status === "success") verifiedTx += 1;
-    else revertedTx += 1;
-  }
-
-  return {
-    generatedAt: now,
-    windows,
-    trading: {
-      byProvider: [...byProvider.entries()].map(([provider, v]) => ({ provider, count: v.count, usd: round2(v.usd) })).sort((a, b) => b.usd - a.usd || b.count - a.count),
-      byAsset: [...byAsset.values()].map((r) => ({ ...r, buyUsd: round2(r.buyUsd), sellUsd: round2(r.sellUsd), gifted: Math.round(r.gifted * 1e8) / 1e8 })).sort((a, b) => b.buyUsd + b.sellUsd - (a.buyUsd + a.sellUsd)),
-      withoutUsd,
-    },
-    strategies: {
-      executions: { ...execStats, usd: round2(execStats.usd) },
-      autoInvest: { ...autoInvest, usd: round2(autoInvest.usd) },
-      manualPlans: { ...manualPlans, usd: round2(manualPlans.usd) },
-      community: { baskets: input.baskets.length, votes: input.baskets.reduce((s, b) => s + b.votes, 0), clones: input.baskets.reduce((s, b) => s + b.clones, 0) },
-    },
-    gifts: {
-      direct: { ...direct, valueUsdToday: round2(direct.valueUsdToday) },
-      links: { ...links, valueUsdToday: round2(links.valueUsdToday) },
-      pools: { ...poolStats, sharesValueUsdToday: round2(poolStats.sharesValueUsdToday) },
-    },
-    earn: {
-      deposits: { count: earn.deposits.count, usd: round2(earn.deposits.usd) },
-      withdrawals: { count: earn.withdrawals.count, usd: round2(earn.withdrawals.usd) },
-      byProvider: [...earnByProvider.entries()].map(([provider, v]) => ({ provider, deposits: v.deposits, depositUsd: round2(v.depositUsd), withdrawals: v.withdrawals, withdrawalUsd: round2(v.withdrawalUsd) })).sort((a, b) => b.depositUsd - a.depositUsd),
-      liquidity: {
-        added: { count: liquidity.added.count, usd: round2(liquidity.added.usd) },
-        removed: { count: liquidity.removed.count, usd: round2(liquidity.removed.usd) },
-        collected: { count: liquidity.collected.count, usd: round2(liquidity.collected.usd) },
-      },
-    },
-    people: {
-      transactingWallets: transacting.size,
-      knownWallets: known.size,
-      profiles: input.profiles.length,
-      publicProfiles: input.profiles.filter((p) => p.isPublic).length,
-      watchlistEntries: input.watchlists.entries,
-      watchlistWallets: input.watchlists.wallets,
-      portfolioWallets: input.portfolioWallets,
-      aiBriefs: input.digests.count,
-      aiSpendUsd: round2(input.aiSpendUsd),
-    },
-    daily,
-    ledger,
-    verification: { verified: verifiedTx, reverted: revertedTx, pending: pendingTx, withoutTx, duplicatesCollapsed, disowned: disownedRecords, unchecked: input.unchecked ?? 0 },
-  };
+  return { events, execStats, basketsBuiltAt, direct, links, poolStats, autoInvest, manualPlans, runsAt, known, referenced, withoutTx, duplicatesCollapsed, withoutUsd, disownedRecords, assetByTx };
 }
 
-function summarize(events: StatEvent[], since: number, basketsBuiltAt: number[], runsAt: Array<{ at: number; usd: number }>): StatsSummary {
-  const s: StatsSummary = { trades: 0, tradeVolumeUsd: 0, buys: 0, buyVolumeUsd: 0, sells: 0, sellVolumeUsd: 0, wallets: 0, directGifts: 0, linksCreated: 0, linksClaimed: 0, poolsCreated: 0, poolClaims: 0, earnDeposits: 0, earnDepositUsd: 0, earnWithdrawals: 0, earnWithdrawalUsd: 0, lpAdds: 0, lpAddUsd: 0, basketsBuilt: 0, planRuns: 0, planRunUsd: 0, reverted: 0 };
+/* ------------------------------ reductions ------------------------------ */
+
+const emptySummary = (): StatsSummary => ({ trades: 0, tradeVolumeUsd: 0, buys: 0, buyVolumeUsd: 0, sells: 0, sellVolumeUsd: 0, wallets: 0, directGifts: 0, linksCreated: 0, linksClaimed: 0, poolsCreated: 0, poolClaims: 0, earnDeposits: 0, earnDepositUsd: 0, earnWithdrawals: 0, earnWithdrawalUsd: 0, lpAdds: 0, lpAddUsd: 0, basketsBuilt: 0, planRuns: 0, planRunUsd: 0, reverted: 0 });
+
+/** Counters over the events at or after `since`; `wallets` is the set behind `summary.wallets`. */
+function summarize(events: StatEvent[], since: number, basketsBuiltAt: number[], runsAt: Array<{ at: number; usd: number }>): { summary: StatsSummary; wallets: Set<string> } {
+  const s = emptySummary();
   const wallets = new Set<string>();
   for (const e of events) {
     if (e.at < since) continue;
@@ -606,13 +482,335 @@ function summarize(events: StatEvent[], since: number, basketsBuiltAt: number[],
         break;
     }
   }
-  s.wallets = wallets.size;
   s.basketsBuilt = basketsBuiltAt.filter((at) => at >= since).length;
   for (const r of runsAt) {
     if (r.at < since) continue;
     s.planRuns += 1;
     s.planRunUsd += r.usd;
   }
-  for (const k of ["tradeVolumeUsd", "buyVolumeUsd", "sellVolumeUsd", "earnDepositUsd", "earnWithdrawalUsd", "lpAddUsd", "planRunUsd"] as const) s[k] = round2(s[k]);
-  return s;
+  s.wallets = wallets.size;
+  return { summary: s, wallets };
+}
+
+/** Adds a rollup's counters onto a summary (the event-derived fields only; baskets and plan runs stay record-derived). */
+function addRollupSummary(s: StatsSummary, r: DayRollup): void {
+  const src = r.summary;
+  s.trades += src.trades;
+  s.tradeVolumeUsd += src.tradeVolumeUsd;
+  s.buys += src.buys;
+  s.buyVolumeUsd += src.buyVolumeUsd;
+  s.sells += src.sells;
+  s.sellVolumeUsd += src.sellVolumeUsd;
+  s.directGifts += src.directGifts;
+  s.linksCreated += src.linksCreated;
+  s.linksClaimed += src.linksClaimed;
+  s.poolsCreated += src.poolsCreated;
+  s.poolClaims += src.poolClaims;
+  s.earnDeposits += src.earnDeposits;
+  s.earnDepositUsd += src.earnDepositUsd;
+  s.earnWithdrawals += src.earnWithdrawals;
+  s.earnWithdrawalUsd += src.earnWithdrawalUsd;
+  s.lpAdds += src.lpAdds;
+  s.lpAddUsd += src.lpAddUsd;
+  s.reverted += src.reverted;
+}
+
+interface Breakdown {
+  byProvider: Map<string, StatsCounter>;
+  byAsset: Map<string, { buys: number; buyUsd: number; sells: number; sellUsd: number; gifted: number }>;
+  earnByProvider: Map<string, { deposits: number; depositUsd: number; withdrawals: number; withdrawalUsd: number }>;
+  liquidity: { added: StatsCounter; removed: StatsCounter; collected: StatsCounter };
+  feeUsd: number;
+}
+
+const emptyBreakdown = (): Breakdown => ({ byProvider: new Map(), byAsset: new Map(), earnByProvider: new Map(), liquidity: { added: { count: 0, usd: 0 }, removed: { count: 0, usd: 0 }, collected: { count: 0, usd: 0 } }, feeUsd: 0 });
+
+/** Per-route, per-stock and per-venue totals over verified events, added onto `into`. */
+function breakdown(verified: StatEvent[], assetByTx: Map<string, string>, into: Breakdown = emptyBreakdown()): Breakdown {
+  const assetRow = (assetId: string) => {
+    const row = into.byAsset.get(assetId) ?? { buys: 0, buyUsd: 0, sells: 0, sellUsd: 0, gifted: 0 };
+    into.byAsset.set(assetId, row);
+    return row;
+  };
+  for (const e of verified) {
+    if (e.kind === "buy" || e.kind === "sell") {
+      const p = into.byProvider.get(e.provider ?? "unknown") ?? { count: 0, usd: 0 };
+      p.count += 1;
+      p.usd += e.usd ?? 0;
+      into.byProvider.set(e.provider ?? "unknown", p);
+      into.feeUsd += e.feeUsd ?? 0;
+      const assetId = e.units?.[0]?.assetId ?? assetByTx.get(e.txHash);
+      if (assetId) {
+        const row = assetRow(assetId);
+        if (e.kind === "buy") {
+          row.buys += 1;
+          row.buyUsd += e.usd ?? 0;
+        } else {
+          row.sells += 1;
+          row.sellUsd += e.usd ?? 0;
+        }
+      }
+      continue;
+    }
+    if (e.kind === "gift" || e.kind === "link-claim" || e.kind === "pool-claim") {
+      for (const u of e.units ?? []) assetRow(u.assetId).gifted += u.units;
+      continue;
+    }
+    const bucket = e.kind === "lp-add" ? into.liquidity.added : e.kind === "lp-remove" ? into.liquidity.removed : e.kind === "lp-collect" ? into.liquidity.collected : null;
+    if (bucket) {
+      bucket.count += 1;
+      bucket.usd += e.usd ?? 0;
+      continue;
+    }
+    if (e.kind !== "earn-deposit" && e.kind !== "earn-withdraw") continue;
+    const row = into.earnByProvider.get(e.provider ?? "unknown") ?? { deposits: 0, depositUsd: 0, withdrawals: 0, withdrawalUsd: 0 };
+    if (e.kind === "earn-deposit") {
+      row.deposits += 1;
+      row.depositUsd += e.usd ?? 0;
+    } else {
+      row.withdrawals += 1;
+      row.withdrawalUsd += e.usd ?? 0;
+    }
+    into.earnByProvider.set(e.provider ?? "unknown", row);
+  }
+  return into;
+}
+
+function addRollupBreakdown(into: Breakdown, r: DayRollup): void {
+  for (const [k, v] of Object.entries(r.byProvider)) {
+    const p = into.byProvider.get(k) ?? { count: 0, usd: 0 };
+    p.count += v.count;
+    p.usd += v.usd;
+    into.byProvider.set(k, p);
+  }
+  for (const [k, v] of Object.entries(r.byAsset)) {
+    const row = into.byAsset.get(k) ?? { buys: 0, buyUsd: 0, sells: 0, sellUsd: 0, gifted: 0 };
+    row.buys += v.buys;
+    row.buyUsd += v.buyUsd;
+    row.sells += v.sells;
+    row.sellUsd += v.sellUsd;
+    row.gifted += v.gifted;
+    into.byAsset.set(k, row);
+  }
+  for (const [k, v] of Object.entries(r.earnByProvider)) {
+    const row = into.earnByProvider.get(k) ?? { deposits: 0, depositUsd: 0, withdrawals: 0, withdrawalUsd: 0 };
+    row.deposits += v.deposits;
+    row.depositUsd += v.depositUsd;
+    row.withdrawals += v.withdrawals;
+    row.withdrawalUsd += v.withdrawalUsd;
+    into.earnByProvider.set(k, row);
+  }
+  for (const key of ["added", "removed", "collected"] as const) {
+    into.liquidity[key].count += r.liquidity[key].count;
+    into.liquidity[key].usd += r.liquidity[key].usd;
+  }
+  into.feeUsd += r.feeUsd;
+}
+
+/* ------------------------------- rollups -------------------------------- */
+
+/**
+ * One finished day, reduced. The same extraction as the live computation, kept to the events
+ * whose block time falls on `day`, so a day rolled up and a day computed live add to the same
+ * totals. Records handed in should cover the day generously (a claim's record was created when
+ * its link was funded, weeks before); the filter on `at` does the rest.
+ */
+export function buildDayRollup(input: StatsInput, day: string): DayRollup {
+  const x = extractEvents(input);
+  const dayEvents = x.events.filter((e) => dayKey(e.at) === day);
+  const verified = dayEvents.filter((e) => e.state === "verified");
+  const { summary, wallets } = summarize(dayEvents, 0, [], []);
+  const b = breakdown(verified, x.assetByTx);
+  const hashes = new Map<string, State>();
+  for (const e of dayEvents) if (!hashes.has(e.txHash) || e.state === "verified") hashes.set(e.txHash, e.state);
+  let verifiedTx = 0;
+  let revertedTx = 0;
+  for (const state of hashes.values()) {
+    if (state === "verified") verifiedTx += 1;
+    else if (state === "reverted") revertedTx += 1;
+  }
+  const { wallets: _w, basketsBuilt: _b, planRuns: _p, planRunUsd: _u, ...counters } = summary;
+  void _w;
+  void _b;
+  void _p;
+  void _u;
+  return {
+    day,
+    events: verified.length,
+    wallets: [...wallets],
+    summary: counters,
+    byProvider: Object.fromEntries(b.byProvider),
+    byAsset: Object.fromEntries(b.byAsset),
+    earnByProvider: Object.fromEntries(b.earnByProvider),
+    liquidity: b.liquidity,
+    feeUsd: b.feeUsd,
+    verifiedTx,
+    revertedTx,
+    computedAt: input.now,
+  };
+}
+
+/* ------------------------------- aggregate ------------------------------ */
+
+export function aggregateStats(input: StatsInput): PlatformStats {
+  const { now } = input;
+  const assetById = new Map(input.assets.map((a) => [a.canonicalId, a]));
+  const x = extractEvents(input);
+
+  // Live events are the ones after the rollup boundary; the rollups stand for the days before.
+  const liveSince = input.liveSince ?? 0;
+  const liveDay = dayKey(liveSince);
+  const rollups = liveSince > 0 ? (input.rollups ?? []).filter((r) => r.day < liveDay).sort((a, b) => (a.day < b.day ? -1 : 1)) : [];
+  const events = liveSince > 0 ? x.events.filter((e) => e.at >= liveSince) : x.events;
+  const verified = events.filter((e) => e.state === "verified");
+
+  /* ------------------------------- windows -------------------------------- */
+  const windows = {} as Record<StatsWindowKey, StatsSummary>;
+  const allWallets = new Set<string>();
+  for (const { key, ms } of WINDOWS) {
+    const since = ms === null ? 0 : now - ms;
+    const { summary, wallets } = summarize(events, since, x.basketsBuiltAt, x.runsAt);
+    if (ms === null) {
+      for (const w of wallets) allWallets.add(w);
+      for (const r of rollups) {
+        addRollupSummary(summary, r);
+        for (const w of r.wallets) allWallets.add(w);
+      }
+      summary.wallets = allWallets.size;
+    }
+    windows[key] = summary;
+  }
+
+  /* ------------------------------ breakdowns ------------------------------ */
+  const b = breakdown(verified, x.assetByTx);
+  for (const r of rollups) addRollupBreakdown(b, r);
+  const byAsset: AssetStat[] = [...b.byAsset.entries()].map(([assetId, r]) => {
+    const a = assetById.get(assetId);
+    return { assetAddress: (a?.address ?? assetId) as Address, symbol: a?.symbol ?? assetId.slice(0, 8), underlying: a?.underlying ?? assetId.slice(0, 8), buys: r.buys, buyUsd: round2(r.buyUsd), sells: r.sells, sellUsd: round2(r.sellUsd), gifted: Math.round(r.gifted * 1e8) / 1e8 };
+  });
+  const earn = { deposits: { count: 0, usd: 0 }, withdrawals: { count: 0, usd: 0 } };
+  for (const v of b.earnByProvider.values()) {
+    earn.deposits.count += v.deposits;
+    earn.deposits.usd += v.depositUsd;
+    earn.withdrawals.count += v.withdrawals;
+    earn.withdrawals.usd += v.withdrawalUsd;
+  }
+
+  /* -------------------------------- people -------------------------------- */
+  const known = new Set(x.known);
+  for (const w of allWallets) known.add(w);
+
+  /* --------------------------------- daily -------------------------------- */
+  const daily: DailyStat[] = [];
+  for (let i = DAILY_DAYS - 1; i >= 0; i--) daily.push({ day: dayKey(now - i * 24 * 3600_000), trades: 0, volumeUsd: 0, events: 0, wallets: 0 });
+  const dayIndex = new Map(daily.map((d, i) => [d.day, i]));
+  const dayWallets = new Map<string, Set<string>>();
+  for (const e of verified) {
+    const i = dayIndex.get(dayKey(e.at));
+    if (i === undefined) continue;
+    const d = daily[i]!;
+    d.events += 1;
+    if (e.kind === "buy" || e.kind === "sell") {
+      d.trades += 1;
+      d.volumeUsd += e.usd ?? 0;
+    }
+    const set = dayWallets.get(d.day) ?? new Set<string>();
+    set.add(e.wallet);
+    dayWallets.set(d.day, set);
+  }
+  // A rolled-up day inside the chart's range (the rollup boundary is closer than 30 days) reads from its rollup.
+  for (const r of rollups) {
+    const i = dayIndex.get(r.day);
+    if (i === undefined) continue;
+    const d = daily[i]!;
+    d.events += r.events;
+    d.trades += r.summary.trades;
+    d.volumeUsd += r.summary.tradeVolumeUsd;
+    const set = dayWallets.get(d.day) ?? new Set<string>();
+    for (const w of r.wallets) set.add(w);
+    dayWallets.set(d.day, set);
+  }
+  for (const d of daily) {
+    d.wallets = dayWallets.get(d.day)?.size ?? 0;
+    d.volumeUsd = round2(d.volumeUsd);
+  }
+
+  /* -------------------------------- ledger -------------------------------- */
+  // One receipt, one line: records that share a hash and a kind (gift links funded together) fold
+  // into one entry with a count, so the ledger reads like the chain does.
+  const folded = new Map<string, LedgerEntry>();
+  for (const e of [...verified].sort((a, b) => b.at - a.at || (b.blockNumber ?? 0) - (a.blockNumber ?? 0))) {
+    const key = `${e.txHash}:${e.kind}`;
+    const cur = folded.get(key);
+    if (cur) {
+      cur.count = (cur.count ?? 1) + 1;
+      if (e.usd !== null) cur.usd = round2((cur.usd ?? 0) + e.usd);
+      if (cur.symbol !== e.symbol) cur.symbol = `${cur.count} stocks`;
+      continue;
+    }
+    folded.set(key, { at: e.at, kind: e.kind, label: e.label, symbol: e.symbol, usd: e.usd === null ? undefined : round2(e.usd), txHash: e.txHash as Hash, blockNumber: e.blockNumber });
+  }
+  const ledger = [...folded.values()].slice(0, LEDGER_MAX);
+
+  /* ----------------------------- verification ----------------------------- */
+  let verifiedTx = 0;
+  let revertedTx = 0;
+  let pendingTx = 0;
+  for (const h of x.referenced) {
+    const r = input.receipts.get(h);
+    if (!r || r.status === "pending") pendingTx += 1;
+    else if (r.status === "success") verifiedTx += 1;
+    else revertedTx += 1;
+  }
+  for (const r of rollups) {
+    verifiedTx += r.verifiedTx;
+    revertedTx += r.revertedTx;
+  }
+
+  return {
+    generatedAt: now,
+    windows,
+    trading: {
+      byProvider: [...b.byProvider.entries()].map(([provider, v]) => ({ provider, count: v.count, usd: round2(v.usd) })).sort((a, b2) => b2.usd - a.usd || b2.count - a.count),
+      byAsset: byAsset.sort((a, b2) => b2.buyUsd + b2.sellUsd - (a.buyUsd + a.sellUsd)),
+      withoutUsd: x.withoutUsd,
+      integratorFeeUsd: round2(b.feeUsd),
+    },
+    strategies: {
+      executions: { ...x.execStats, usd: round2(x.execStats.usd) },
+      autoInvest: { ...x.autoInvest, usd: round2(x.autoInvest.usd) },
+      manualPlans: { ...x.manualPlans, usd: round2(x.manualPlans.usd) },
+      community: { baskets: input.baskets.length, votes: input.baskets.reduce((s, bk) => s + bk.votes, 0), clones: input.baskets.reduce((s, bk) => s + bk.clones, 0) },
+    },
+    gifts: {
+      direct: { ...x.direct, valueUsdToday: round2(x.direct.valueUsdToday) },
+      links: { ...x.links, valueUsdToday: round2(x.links.valueUsdToday) },
+      pools: { ...x.poolStats, sharesValueUsdToday: round2(x.poolStats.sharesValueUsdToday) },
+    },
+    earn: {
+      deposits: { count: earn.deposits.count, usd: round2(earn.deposits.usd) },
+      withdrawals: { count: earn.withdrawals.count, usd: round2(earn.withdrawals.usd) },
+      byProvider: [...b.earnByProvider.entries()].map(([provider, v]) => ({ provider, deposits: v.deposits, depositUsd: round2(v.depositUsd), withdrawals: v.withdrawals, withdrawalUsd: round2(v.withdrawalUsd) })).sort((a, b2) => b2.depositUsd - a.depositUsd),
+      liquidity: {
+        added: { count: b.liquidity.added.count, usd: round2(b.liquidity.added.usd) },
+        removed: { count: b.liquidity.removed.count, usd: round2(b.liquidity.removed.usd) },
+        collected: { count: b.liquidity.collected.count, usd: round2(b.liquidity.collected.usd) },
+      },
+    },
+    people: {
+      transactingWallets: allWallets.size,
+      knownWallets: known.size,
+      profiles: input.profiles.length,
+      publicProfiles: input.profiles.filter((p) => p.isPublic).length,
+      watchlistEntries: input.watchlists.entries,
+      watchlistWallets: input.watchlists.wallets,
+      portfolioWallets: input.portfolioWallets,
+      aiBriefs: input.digests.count,
+      aiSpendUsd: round2(input.aiSpendUsd),
+    },
+    daily,
+    ledger,
+    verification: { verified: verifiedTx, reverted: revertedTx, pending: pendingTx, withoutTx: x.withoutTx, duplicatesCollapsed: x.duplicatesCollapsed, disowned: x.disownedRecords, unchecked: input.unchecked ?? 0 },
+    rollup: { days: rollups.length, through: rollups.length ? rollups[rollups.length - 1]!.day : null, liveSince: liveSince > 0 ? liveSince : null },
+  };
 }

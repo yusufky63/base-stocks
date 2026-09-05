@@ -22,7 +22,7 @@ jobs:
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET secret is not set"; exit 1; fi
           failed=0
-          for job in index verify earn pools stats status; do
+          for job in index verify earn pools rollup stats status; do
             echo "== $job"
             if curl -fsS "$APP_URL/api/cron/refresh?job=$job" -H "Authorization: Bearer $CRON_SECRET" -o out.json; then
               node -e "const r=require('./out.json'); for (const x of r.results) console.log(x.job, x.ms+'ms', x.error ? 'ERROR '+x.error : JSON.stringify(x.result));"

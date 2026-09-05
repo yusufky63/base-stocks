@@ -1,5 +1,7 @@
 import type { Address, Hex } from "viem";
 import { serverEnv } from "@/config/env";
+import { USDC_ADDRESS } from "@/config/chain";
+import { integratorFee } from "@/lib/fees";
 import type { ExecutableQuote, IndicativeQuote, TradeIntent, TradeProvider } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { CircuitBreaker, fetchJson } from "@/lib/http";
@@ -49,6 +51,15 @@ async function fetchRoute(intent: TradeIntent): Promise<{ summary: KyberRouteSum
     amountIn: intent.sellAmount.toString(),
     gasInclude: "true",
   });
+  // The fee is taken in USDC whichever side it is on, so it reads as a dollar line; the route
+  // summary returned here carries it (`extraFee`) into the build step and the quoted output is net of it.
+  const fee = integratorFee();
+  if (fee) {
+    p.set("chargeFeeBy", intent.buyToken.toLowerCase() === USDC_ADDRESS.toLowerCase() ? "currency_out" : "currency_in");
+    p.set("feeAmount", String(fee.bps));
+    p.set("isInBps", "true");
+    p.set("feeReceiver", fee.recipient);
+  }
   return breaker.run(async () => {
     const { status, data } = await fetchJson<unknown>(`${BASE_URL}/routes?${p}`, { headers: headers(), timeoutMs: 5_000, provider: "kyber" });
     if (status === 429) throw new AppError("PROVIDER_UNAVAILABLE", "kyber: rate limited", 503);
@@ -86,6 +97,7 @@ function normalize(summary: KyberRouteSummary, router: Address, intent: TradeInt
       simulationIncomplete: true,
     },
     fetchedAt: Date.now(),
+    integratorFeeBps: integratorFee()?.bps,
   };
 }
 

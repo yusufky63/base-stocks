@@ -11,18 +11,19 @@ This document is the technical reference. The product narrative and FAQ are on t
 | Area | Route | What it does |
 | --- | --- | --- |
 | Home | `/` | Quick buy (live stocks first), movers, news brief, portfolio summary, platform counters, the public feed ("Live on Base": latest verified transactions, no wallet named), ticker rows (prices on by default, headlines opt-in). |
-| Markets | `/markets` | All 13 stocks with status chip (Live / Thin / Very thin / No pool / Not issued / Paused), sparkline, price, 24h, Chainlink reference, single Buy action. A screener (status and sector chips) drives a heatmap — tiles coloured by the 24h move, the three deepest markets doubled — and the table below it; all client-side over the assets response the page already holds. Region notice for restricted visitors. |
-| Stock | `/stocks/[address]` | Price header with freshness, candles + volume with zoom, trade panel (USDC or ETH, route picker, gift mode), tabs: Your position (+ LP line, your trades), Earn or borrow, Details (contract, oracle, liquidity map). |
+| Markets | `/markets` | A market clock in the ticker (NYSE open / closed, next boundary in ET; off hours prices come from the pools). All 13 stocks with status chip (Live / Thin / Very thin / No pool / Not issued / Paused), sparkline, price, 24h, Chainlink reference, single Buy action. A screener (status and sector chips) drives a heatmap — tiles coloured by the 24h move, the three deepest markets doubled — and the table below it; all client-side over the assets response the page already holds. Region notice for restricted visitors. |
+| Stock | `/stocks/[address]` | Price header with freshness and a premium meter (pool price against the Chainlink reference, ±20 % gauge), a "this stock on BStocks" box in Details (from the platform statistics), candles + volume with zoom, trade panel (USDC or ETH, route picker, gift mode), tabs: Your position (+ LP line, your trades), Earn or borrow, Details (contract, oracle, liquidity map). |
 | Strategies | `/build`, `/community`, `/automate` | One section with three routed tabs: Build (guided AI draft, allocation editor, plan preview, templates, publish, hand-off to Automate), Community (7-day pulse, published baskets, votes, clones), Automate (auto-invest plans run by the AutoInvest contract, or plans you confirm per run; guided or AI-drafted). Template pages live under `/build/[slug]`, community baskets under `/baskets/[id]` and public pages under `/u/[ref]`, all inside the section shell. |
 | Earn | `/earn` | Idle-USDC venues executed in-app (Morpho vaults, Aave V3, Compound v3), your liquidity positions, stock-specific venues with type filters and an honest scan note. |
 | Portfolio | `/portfolio` | Value (stocks + USDC + Earn + LP), allocation, history (with the equal-weight index of the listed stocks as a dashed benchmark), daily AI summary, gift inbox, plans card, Earn card; tabs in the URL (`?tab=rebalance`): Rebalance (drift against a template or a saved target, one measure everywhere, blocked legs shown as such, threshold 2.5/5/10%, and "return to target on a schedule" — a buy-only manual plan), Activity, Profile (Basename identity, visibility, badges with progress). |
 | Public profile | `/u/[handle-or-address]` | Allocation in percent (if public), badges, published baskets, referral counters. |
 | Gift receipt | `/gifts/[id]` | Public page for a submitted gift: from, to, amount, message, tx proof, share. |
-| Gift pools | `/pools`, `/pools/[id]` | One deposit, many equal shares: public directory, claim page and the creator's roster + close-and-withdraw panel. Gift links, bulk links and pool links can be printed as QR cards (`src/lib/print-cards.ts`: drawn in the browser, four A6 cards to an A4 sheet, no server sees the link). |
+| Gift pools | `/pools`, `/pools/[id]` | One deposit, many equal shares: public directory, claim page and the creator's roster + close-and-withdraw panel. A basket can be gifted as a package: "Gift as a package" on a template or in Build opens the pool creator with the basket's stocks pre-picked and one share (`/gifts?basket=0x…,0x…&title=`; stocks the wallet does not hold are left out and named). Gift links, bulk links and pool links can be printed as QR cards (`src/lib/print-cards.ts`: drawn in the browser, four A6 cards to an A4 sheet, no server sees the link). |
 | News | `/news` | Headlines per stock and market-wide, "Today's brief" (shared AI summary every 6 h). |
 | Settings | `/settings` | Slippage, ticker rows, motion, diagnostics (providers, geoblock mode, storage backend). |
 | Status | `/status` | Live probes of every dependency. |
-| Stats | `/stats` | Platform statistics with the verified ledger; every figure is one receipt on Base. |
+| Stats | `/stats` | Platform statistics with the verified ledger; every figure is one receipt on Base. Rows from the reader's own timeline are marked "you" (client-side, nothing is sent). Daily rollups keep the cost flat as records grow (§10). |
+| Reference | `/docs/reference` | `docs/HOW_IT_WORKS.md` rendered at build time (`src/lib/markdown.ts`), so the page and the file cannot drift; `/docs` stays the hand-written narrative. |
 | Install | `/manifest.webmanifest` | Web app manifest (`src/app/manifest.ts`): installable on phones and desktops, standalone window, shortcuts to Markets, Portfolio and Gift. No service worker on purpose — a page that quotes prices must never be served stale from a cache. |
 | How it works | `/how-it-works` | Narrative, safety model, fees, FAQ. |
 | Admin | `/admin` | Verification of newly discovered B20 tokens (admin token). |
@@ -197,7 +198,13 @@ One deposit, many equal claims — the contract behind `/pools`. Ownerless like 
 
 ---
 
+### 10.1 Statistics at scale: daily rollups
+
+`stats_daily` holds one row per finished day: the day's verified events reduced to counters, distinct wallets, per-stock, per-route and per-venue totals (`DayRollup`, built by `buildDayRollup` in `src/lib/stats/aggregate.ts`). A day is finished once it is 35 days behind (`LIVE_DAYS`); the `rollup` cron job reduces up to 14 such days per run, oldest first and contiguously, so "the day after the latest rollup" is always the live boundary. The live computation (`getPlatformStats`) then reads only records created after that boundary (gifts 120 days further back, because a claim link's record predates its claim by up to 90 days) and adds the rollups for everything before, event by event the same way; the 30-day windows, the daily chart and the ledger always come from live records. A rollup that overlaps the live window is ignored rather than double-counted. Without any rollups (a fresh database) everything is read live, as before. Status counters that are not events — open links, live pools, plans, executions, profiles — still come from their tables.
+
 ## 11. Environment variables
+
+- `INTEGRATOR_FEE_BPS` / `INTEGRATOR_FEE_RECIPIENT`: integrator fee on routes that can carry one and price it into the quote (KyberSwap, CoW, 0x), in basis points, capped at 100; off unless both are set. Shown on the quote, stored on the trade record (`fee_bps`), summed on `/stats`.
 
 | Variable | Purpose |
 | --- | --- |
@@ -240,7 +247,7 @@ No CoinGecko key is used (keyless DexScreener + GeckoTerminal). Coinbase Onramp 
 | `GET/POST /api/portfolio/plan`, `/[address]`, `/executions`, `/intent`, `/digest` | Plans, snapshot, executions (written and read only by the signed-in owner), AI basket draft, daily brief |
 | `GET/POST/PATCH /api/automation`, `POST /api/automation/prepare-run`, `POST /api/automation/intent` | Rules (auto plans mirrored from the chain), owner-side run preparation, AI plan draft |
 | `GET/POST /api/cron/automation` | Keeper tick (bearer `CRON_SECRET`): runs due auto plans, reports what it did |
-| `GET /api/cron/refresh?job=` | Maintenance, one job per request (bearer `CRON_SECRET`): `index` (stock transfers touching indexed wallets), `verify` (records filed while pending), `earn` (venue events), `pools` (`PoolClaimed` logs), `stats`, `status`, `discovery`, `sweep` (expired cache and rate-limit rows); `all` runs the sequence |
+| `GET /api/cron/refresh?job=` | Maintenance, one job per request (bearer `CRON_SECRET`): `index` (stock transfers touching indexed wallets), `verify` (records filed while pending), `earn` (venue events), `pools` (`PoolClaimed` logs), `rollup` (finished days reduced to `stats_daily`), `stats`, `status`, `discovery`, `sweep` (expired cache and rate-limit rows); `all` runs the sequence |
 | `POST /api/errors` | The browser's error boundaries report here (rate-limited; a message and a path, never who) |
 | `GET /api/earn`, `/api/earn/[address]`, `POST /api/earn/prepare`, `GET /api/earn/lp` | Discovery, deposit calls, LP positions |
 | `GET/POST /api/gifts`, `GET/PATCH /api/gifts/[id]` | Gift records and receipts |

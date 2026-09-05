@@ -16,6 +16,8 @@ export interface PoolRepo {
   listOpen(limit: number): Promise<PoolRecord[]>;
   /** Every pool, newest first, for platform statistics. */
   listAll(limit?: number): Promise<PoolRecord[]>;
+  /** Pools created in [fromMs, toMs), oldest first, for the statistics' live window and daily rollups. */
+  listBetween(fromMs: number, toMs: number, limit?: number): Promise<PoolRecord[]>;
   /** Funded pools the server has not matched to the chain yet, oldest first. */
   listUnverified(limit?: number): Promise<PoolRecord[]>;
 }
@@ -30,6 +32,7 @@ export interface PoolClaimRepo {
   countByPool(poolId: string): Promise<number>;
   /** Every claim row, newest first, for platform statistics. */
   listAll(limit?: number): Promise<PoolClaim[]>;
+  listBetween(fromMs: number, toMs: number, limit?: number): Promise<PoolClaim[]>;
 }
 
 const LIST_ALL_MAX = 5_000;
@@ -74,6 +77,12 @@ export class MemoryPoolRepo implements PoolRepo {
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return [...this.items.values()]
+      .filter((x) => x.createdAt >= fromMs && x.createdAt < toMs)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
+  }
   async listUnverified(limit = 200) {
     return [...this.items.values()].filter((p) => p.txHash && !p.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
   }
@@ -109,6 +118,12 @@ export class MemoryPoolClaimRepo implements PoolClaimRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return [...this.items.values()]
+      .filter((x) => x.createdAt >= fromMs && x.createdAt < toMs)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
   }
 }
 
@@ -261,6 +276,18 @@ export class SupabasePoolRepo implements PoolRepo {
     for (let i = 0; i < rows.length; i += 200) out.push(...(await this.withLegs(rows.slice(i, i + 200))));
     return out;
   }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    const rows: Row[] = [];
+    for (let from = 0; from < limit; from += 1_000) {
+      const to = Math.min(from + 1_000, limit) - 1;
+      const { data, error } = await sb().from("gift_pools").select("*").gte("created_at", new Date(fromMs).toISOString()).lt("created_at", new Date(toMs).toISOString()).order("created_at", { ascending: true }).range(from, to);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      rows.push(...page);
+      if (page.length < to - from + 1) break;
+    }
+    return this.withLegs(rows);
+  }
   async listUnverified(limit = 200) {
     const { data, error } = await sb().from("gift_pools").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
     if (error) throw error;
@@ -339,6 +366,18 @@ export class SupabasePoolClaimRepo implements PoolClaimRepo {
     const { count, error } = await sb().from("gift_pool_claims").select("*", { count: "exact", head: true }).eq("pool_id", poolId);
     if (error) throw error;
     return count ?? 0;
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    const out: PoolClaim[] = [];
+    for (let from = 0; from < limit; from += 1_000) {
+      const to = Math.min(from + 1_000, limit) - 1;
+      const { data, error } = await sb().from("gift_pool_claims").select("*").gte("created_at", new Date(fromMs).toISOString()).lt("created_at", new Date(toMs).toISOString()).order("created_at", { ascending: true }).range(from, to);
+      if (error) throw error;
+      const page = (data ?? []) as Row[];
+      out.push(...page.map((r) => this.fromRow(r)));
+      if (page.length < to - from + 1) break;
+    }
+    return out;
   }
   async listAll(limit = LIST_ALL_MAX) {
     const out: PoolClaim[] = [];

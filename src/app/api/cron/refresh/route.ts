@@ -8,13 +8,14 @@ import { sweepOpenPools } from "@/services/pool-service";
 import { sweepEarn } from "@/services/earn-reconcile-service";
 import { sweepTransfers } from "@/services/chain-index-service";
 import { verifyPendingRecords } from "@/services/verify-records-service";
-import { getPlatformStats } from "@/services/stats-service";
+import { getPlatformStats, rollupStats } from "@/services/stats-service";
 import { getSharedStore } from "@/lib/shared-store";
+import { invalidate } from "@/lib/cache";
 import { getSupabaseAdmin } from "@/db/supabase";
 
 export const maxDuration = 60;
 
-const JOBS = ["discovery", "status", "pools", "verify", "earn", "index", "stats", "sweep"] as const;
+const JOBS = ["discovery", "status", "pools", "verify", "earn", "index", "rollup", "stats", "sweep"] as const;
 type Job = (typeof JOBS)[number];
 
 const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional() });
@@ -39,6 +40,13 @@ const runners: Record<Job, () => Promise<unknown>> = {
   verify: () => verifyPendingRecords(),
   earn: () => sweepEarn(),
   index: () => sweepTransfers(),
+  // Finished days are reduced to stored rollups before the statistics are recomputed, so the
+  // recomputation reads only the recent days' records.
+  rollup: async () => {
+    const r = await rollupStats();
+    if (r.written.length) invalidate("stats:");
+    return { written: r.written.length, through: r.through };
+  },
   stats: async () => {
     const s = await getPlatformStats();
     return { generatedAt: s.generatedAt, verified: s.verification.verified };

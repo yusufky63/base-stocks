@@ -5,6 +5,22 @@ import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation } from "@/domain/portfo
  * A basket handed from Build (or a template, or a community basket) to Automate travels in the
  * URL, so the link can be shared, bookmarked and opened later: `/automate?legs=<addr:bps,…>&name=…`.
  */
+/**
+ * Gift a basket as a one-share package: the pool creator with the basket's stocks pre-picked and
+ * one share. Only the stocks in the basket travel; the amounts are set on the Gift page, from
+ * what the wallet holds.
+ */
+export function giftBasketHref(allocations: Allocation[], name?: string): string {
+  const assets = allocations
+    .map((a) => a.assetAddress)
+    .filter((a): a is `0x${string}` => typeof a === "string" && a.startsWith("0x"))
+    .map((a) => a.toLowerCase())
+    .join(",");
+  const p = new URLSearchParams({ basket: assets });
+  if (name) p.set("title", name);
+  return `/gifts?${p.toString()}`;
+}
+
 export function automateHref(allocations: Allocation[], name?: string): string {
   const legs = allocations
     .filter((a) => a.weightBps > 0)

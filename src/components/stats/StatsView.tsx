@@ -4,7 +4,8 @@ import { LEDGER_LABEL } from "@/lib/stats/labels";
 import { useState } from "react";
 import Link from "next/link";
 import type { DailyStat, LedgerEntry, PlatformStats, StatsSummary, StatsWindowKey } from "@/domain/stats";
-import { useStats } from "@/hooks/queries";
+import { useAccount } from "wagmi";
+import { useActivity, useStats } from "@/hooks/queries";
 import { formatUsd, formatUsdCompact, timeAgo } from "@/lib/format";
 import { Badge, KeyValue, Module, ModuleHeader, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
@@ -230,7 +231,7 @@ function DailyTable({ days }: { days: DailyStat[] }) {
 /* ------------------------------ sections ------------------------------ */
 
 function Trading({ data }: { data: PlatformStats }) {
-  const { byAsset, byProvider, withoutUsd } = data.trading;
+  const { byAsset, byProvider, withoutUsd, integratorFeeUsd } = data.trading;
   return (
     <Module>
       <ModuleHeader title="Trading · all time" action={<Link href="/markets" className="text-[13px] text-primary font-medium">Markets</Link>} />
@@ -274,6 +275,7 @@ function Trading({ data }: { data: PlatformStats }) {
         {byProvider.map((p) => (
           <KeyValue key={p.provider} k={providerLabel(p.provider)} v={`${plural(p.count, "trade")} · ${formatUsd(p.usd)}`} />
         ))}
+        <KeyValue k="BStocks fee earned" v={integratorFeeUsd > 0 ? `${formatUsd(integratorFeeUsd)} · from each trade's own rate` : "none charged so far"} />
       </div>
       <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">
         A trade is one stock in one transaction; a basket of four is four trades, one auto-invest run of three stocks is three. Volume is the USD the app recorded when the quote was taken.
@@ -433,6 +435,11 @@ function Verification({ data }: { data: PlatformStats }) {
 }
 
 function Ledger({ entries }: { entries: LedgerEntry[] }) {
+  // The ledger names no wallet; the reader's own rows are found from their own timeline instead,
+  // so the feeling that "this is mine" needs nothing the page does not already hold.
+  const { address } = useAccount();
+  const { data: mine } = useActivity(address);
+  const own = new Set((mine ?? []).flatMap((it) => [it.txHash.toLowerCase(), ...(it.legs ?? []).map((l) => l.txHash?.toLowerCase() ?? "")]));
   return (
     <Module>
       <ModuleHeader title="Latest verified transactions" action={<span className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">last {entries.length}</span>} />
@@ -453,9 +460,10 @@ function Ledger({ entries }: { entries: LedgerEntry[] }) {
             </thead>
             <tbody>
               {entries.map((e, i) => (
-                <tr key={`${e.txHash}:${e.kind}:${i}`} className="border-t border-line">
+                <tr key={`${e.txHash}:${e.kind}:${i}`} className={cx("border-t border-line", own.has(e.txHash.toLowerCase()) && "bg-primary-soft/40")}>
                   <td className="px-4 py-1.5 whitespace-nowrap" title={new Date(e.at).toISOString()}>
                     {timeAgo(e.at)}
+                    {own.has(e.txHash.toLowerCase()) && <span className="ml-1.5 text-[9px] uppercase tracking-[0.08em] text-primary">you</span>}
                   </td>
                   <td className={cx("px-2 py-1.5 whitespace-nowrap", e.kind === "buy" || e.kind === "link-claim" || e.kind === "pool-claim" ? "text-positive-fg" : e.kind === "sell" ? "text-danger-fg" : "text-ink")}>
                     {LEDGER_LABEL[e.kind]}
@@ -473,7 +481,7 @@ function Ledger({ entries }: { entries: LedgerEntry[] }) {
           </table>
         </div>
       )}
-      <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">Each line is one receipt on Base; open it on Basescan to check the figure. Gift values are at today&apos;s price.</p>
+      <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">Each line is one receipt on Base; open it on Basescan to check the figure. Gift values are at today&apos;s price.{address ? " Rows marked “you” are transactions from your own timeline; nobody else sees the mark." : ""}</p>
     </Module>
   );
 }

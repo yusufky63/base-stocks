@@ -183,6 +183,9 @@ export default function DocsPage() {
             .
           </p>
           <nav className="mt-6 flex flex-wrap gap-1.5">
+            <Link href="/docs/reference" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-primary bg-primary-soft text-[12px] font-medium text-primary hover:bg-primary hover:text-primary-contrast transition-fast">
+              Full reference <ArrowUpRight size={12} strokeWidth={2} />
+            </Link>
             {NAV.map(([id, title], i) => (
               <a key={id} href={`#${id}`} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-canvas/70 text-[12px] font-medium text-ink-secondary hover:border-primary hover:text-primary transition-fast">
                 <span className="font-mono num text-[10px] text-ink-muted">{String(i + 1).padStart(2, "0")}</span> {title}

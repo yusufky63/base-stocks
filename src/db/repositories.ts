@@ -30,6 +30,7 @@ import {
   type PoolRepo,
 } from "./pool-repos";
 import { MemoryChainTransferRepo, MemoryWalletIndexRepo, SupabaseChainTransferRepo, SupabaseWalletIndexRepo, type ChainTransferRepo, type WalletIndexRepo } from "./index-repos";
+import { MemoryStatsDailyRepo, SupabaseStatsDailyRepo, type StatsDailyRepo } from "./stats-repos";
 
 /* ------------------------------ Types ------------------------------ */
 
@@ -46,6 +47,8 @@ export interface TradeRecord {
   status: "submitted" | "confirmed" | "failed";
   recipient?: Address;
   createdAt: number;
+  /** Integrator fee the route charged, in basis points of the trade; set by the server from its own configuration. */
+  feeBps?: number;
   /**
    * When the server matched this record to the chain (the receipt shows what the record claims).
    * Unset means unproven: the timeline shows it as pending and the statistics leave it out.
@@ -122,6 +125,8 @@ export interface GiftRepo {
   get(id: string): Promise<GiftRecord | null>;
   /** Every gift, newest first, for platform statistics. */
   listAll(limit?: number): Promise<GiftRecord[]>;
+  /** Gifts created in [fromMs, toMs), oldest first, for the statistics' live window and daily rollups. */
+  listBetween(fromMs: number, toMs: number, limit?: number): Promise<GiftRecord[]>;
   listUnverified(limit?: number): Promise<GiftRecord[]>;
 }
 export interface ExecutionRepo {
@@ -139,6 +144,8 @@ export interface TradeRepo {
   /** Submitted trades (with tx hash) since a timestamp, for community aggregates. */
   listSince(sinceMs: number, limit?: number): Promise<TradeRecord[]>;
   listAll(limit?: number): Promise<TradeRecord[]>;
+  /** Trades created in [fromMs, toMs), oldest first, for the statistics' live window and daily rollups. */
+  listBetween(fromMs: number, toMs: number, limit?: number): Promise<TradeRecord[]>;
   /** Records with a hash the server has not matched to the chain yet, oldest first. */
   listUnverified(limit?: number): Promise<TradeRecord[]>;
 }
@@ -147,6 +154,7 @@ export interface EarnActionRepo {
   update(id: string, patch: Partial<EarnActionRecord>): Promise<EarnActionRecord | null>;
   listByOwner(owner: Address): Promise<EarnActionRecord[]>;
   listAll(limit?: number): Promise<EarnActionRecord[]>;
+  listBetween(fromMs: number, toMs: number, limit?: number): Promise<EarnActionRecord[]>;
   listUnverified(limit?: number): Promise<EarnActionRecord[]>;
 }
 export interface DigestRepo {
@@ -197,6 +205,7 @@ export interface Repos {
   cursors: CursorRepo;
   chainTransfers: ChainTransferRepo;
   walletIndex: WalletIndexRepo;
+  statsDaily: StatsDailyRepo;
   backend: "memory" | "supabase";
 }
 
@@ -234,6 +243,12 @@ class MemoryGiftRepo implements GiftRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return [...this.items.values()]
+      .filter((x) => x.createdAt >= fromMs && x.createdAt < toMs)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
   }
   async listUnverified(limit = 200) {
     return [...this.items.values()].filter((g) => g.txHash && !g.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
@@ -292,6 +307,12 @@ class MemoryTradeRepo implements TradeRepo {
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return [...this.items.values()]
+      .filter((x) => x.createdAt >= fromMs && x.createdAt < toMs)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
+  }
   async listUnverified(limit = 200) {
     return [...this.items.values()].filter((t) => t.txHash && !t.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
   }
@@ -315,6 +336,12 @@ class MemoryEarnActionRepo implements EarnActionRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return [...this.items.values()]
+      .filter((x) => x.createdAt >= fromMs && x.createdAt < toMs)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
   }
   async listUnverified(limit = 200) {
     return [...this.items.values()].filter((a) => a.txHash && !a.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
@@ -422,6 +449,21 @@ async function selectAll(table: string, limit: number, orderBy = "created_at"): 
   for (let from = 0; from < limit; from += PAGE) {
     const to = Math.min(from + PAGE, limit) - 1;
     const { data, error } = await sb().from(table).select("*").order(orderBy, { ascending: false }).range(from, to);
+    if (error) throw error;
+    const rows = (data ?? []) as Row[];
+    out.push(...rows);
+    if (rows.length < to - from + 1) break;
+  }
+  return out;
+}
+
+/** Rows created in [fromMs, toMs), oldest first, in pages. */
+async function selectBetween(table: string, fromMs: number, toMs: number, limit: number): Promise<Row[]> {
+  const PAGE = 1_000;
+  const out: Row[] = [];
+  for (let from = 0; from < limit; from += PAGE) {
+    const to = Math.min(from + PAGE, limit) - 1;
+    const { data, error } = await sb().from(table).select("*").gte("created_at", new Date(fromMs).toISOString()).lt("created_at", new Date(toMs).toISOString()).order("created_at", { ascending: true }).range(from, to);
     if (error) throw error;
     const rows = (data ?? []) as Row[];
     out.push(...rows);
@@ -545,6 +587,9 @@ class SupabaseGiftRepo implements GiftRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return (await selectAll("gifts", limit)).map((r) => this.fromRow(r));
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return (await selectBetween("gifts", fromMs, toMs, limit)).map((r) => this.fromRow(r));
   }
   async listUnverified(limit = 200) {
     const { data, error } = await sb().from("gifts").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
@@ -672,6 +717,7 @@ class SupabaseTradeRepo implements TradeRepo {
     if (t.createdAt !== undefined) r.created_at = new Date(t.createdAt).toISOString();
     if (t.verifiedAt !== undefined) r.verified_at = t.verifiedAt === null ? null : new Date(t.verifiedAt).toISOString();
     if (t.verifyNote !== undefined) r.verify_note = t.verifyNote;
+    if (t.feeBps !== undefined) r.fee_bps = t.feeBps;
     return r;
   }
   private fromRow(r: Row): TradeRecord {
@@ -690,6 +736,7 @@ class SupabaseTradeRepo implements TradeRepo {
       createdAt: new Date(String(r.created_at)).getTime(),
       verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
       verifyNote: (r.verify_note as string | null) ?? undefined,
+      feeBps: r.fee_bps === null || r.fee_bps === undefined ? undefined : Number(r.fee_bps),
     };
   }
   async create(t: TradeRecord) {
@@ -719,6 +766,9 @@ class SupabaseTradeRepo implements TradeRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return (await selectAll("trade_records", limit)).map((r) => this.fromRow(r));
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return (await selectBetween("trade_records", fromMs, toMs, limit)).map((r) => this.fromRow(r));
   }
   async listUnverified(limit = 200) {
     const { data, error } = await sb().from("trade_records").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
@@ -778,6 +828,9 @@ class SupabaseEarnActionRepo implements EarnActionRepo {
   }
   async listAll(limit = LIST_ALL_MAX) {
     return (await selectAll("earn_actions", limit)).map((r) => this.fromRow(r));
+  }
+  async listBetween(fromMs: number, toMs: number, limit = 20_000) {
+    return (await selectBetween("earn_actions", fromMs, toMs, limit)).map((r) => this.fromRow(r));
   }
   async listUnverified(limit = 200) {
     const { data, error } = await sb().from("earn_actions").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
@@ -943,27 +996,29 @@ export function getRepos(): Repos {
       backend: "supabase",
       // Reads fall back to seeds/empty and writes are dropped (logged) when a table is missing.
       templates: resilient("templates", new SupabaseTemplateRepo(), { list: (activeOnly?: boolean) => memoryTemplates.list(activeOnly), getBySlug: (slug: string) => memoryTemplates.getBySlug(slug) }),
-      gifts: resilient("gifts", new SupabaseGiftRepo(), { create: (g: GiftRecord) => g, update: null, listByOwner: [], listAll: [], listUnverified: [] }),
+      gifts: resilient("gifts", new SupabaseGiftRepo(), { create: (g: GiftRecord) => g, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [] }),
       executions: resilient("executions", new SupabaseExecutionRepo(), { create: (e: PortfolioExecution) => e, update: null, get: null, listByOwner: [], listAll: [] }),
-      trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, get: null, listByOwner: [], listSince: [], listAll: [], listUnverified: [] }),
+      trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, get: null, listByOwner: [], listSince: [], listAll: [], listBetween: [], listUnverified: [] }),
       watchlists: resilient("watchlists", new SupabaseWatchlistRepo(), { list: [], add: undefined, remove: undefined, summary: { entries: 0, wallets: 0 } }),
       discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined }),
       profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined, listAll: [] }),
       baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [], countWallets: 0, listWallets: [] }),
       automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], listAuto: [], listAll: [], create: (r: unknown) => r, update: null, remove: undefined }),
-      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listUnverified: [] }),
+      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [] }),
       digests: resilient("digests", new SupabaseDigestRepo(), { get: null, put: undefined, latest: null, summary: { count: 0, costUsd: 0 } }),
-      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [], listUnverified: [] }),
+      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [], listBetween: [], listUnverified: [] }),
       // `claimOnce` falls back to allowing the claim: the contract, not this table, is what stops
       // an address taking two shares. A storage blip must not lock people out of a live campaign.
-      poolClaims: resilient("poolClaims", new SupabasePoolClaimRepo(), { claimOnce: (c: PoolClaim) => c, update: null, get: null, listByPool: [], listByClaimant: [], countByPool: 0, listAll: [] }),
+      poolClaims: resilient("poolClaims", new SupabasePoolClaimRepo(), { claimOnce: (c: PoolClaim) => c, update: null, get: null, listByPool: [], listByClaimant: [], countByPool: 0, listAll: [], listBetween: [] }),
       // A missing receipt cache only costs a chain read; it never blocks a verification.
       receipts: resilient("receipts", new SupabaseReceiptRepo(), { getMany: [], putMany: undefined }),
       // Without a stored cursor a sweep starts from the floor again: slower, never wrong.
       cursors: resilient("cursors", new SupabaseCursorRepo(), { get: null, set: undefined }),
       chainTransfers: resilient("chainTransfers", new SupabaseChainTransferRepo(), { insertMany: 0, listByWallet: [] }),
       walletIndex: resilient("walletIndex", new SupabaseWalletIndexRepo(), { get: null, upsert: undefined, listWallets: [] }),
+      // Without stored rollups the statistics read every record again: slower, never wrong.
+      statsDaily: resilient("statsDaily", new SupabaseStatsDailyRepo(), { list: [], upsert: undefined, latestDay: null }),
     };
   } else {
     metrics.count("db.memoryBackend");
@@ -987,6 +1042,7 @@ export function getRepos(): Repos {
       cursors: new MemoryCursorRepo(),
       chainTransfers: new MemoryChainTransferRepo(),
       walletIndex: new MemoryWalletIndexRepo(),
+      statsDaily: new MemoryStatsDailyRepo(),
     };
   }
   return repos;

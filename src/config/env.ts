@@ -33,6 +33,12 @@ const serverSchema = z.object({
   MORPHO_API_URL: z.string().url().default("https://api.morpho.org/graphql"),
   /** Chainlink stock feeds heartbeat every 24h (spec); 26h leaves a margin before a reading counts as stale. */
   ORACLE_STALENESS_SECONDS: z.coerce.number().int().positive().default(93_600),
+  /** Integrator fee on routes that can carry one (Kyber, Velora, CoW, 0x), in basis points; off without a recipient. Capped at 100 (1%). */
+  INTEGRATOR_FEE_BPS: z.coerce.number().int().min(0).max(100).optional(),
+  INTEGRATOR_FEE_RECIPIENT: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{40}$/)
+    .optional(),
   ZEROX_SWAP_FEE_BPS: z.coerce.number().int().min(0).max(1000).optional(),
   ZEROX_SWAP_FEE_RECIPIENT: z
     .string()

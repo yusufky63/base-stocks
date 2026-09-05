@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, Check, Gift, Layers, Repeat, Sparkles } from "lucide-react";
 import type { ActivityItem } from "@/domain/activity";
 import { formatTokenAmount, formatUsd, shortenAddress, timeAgo } from "@/lib/format";
@@ -162,8 +163,23 @@ function ActivityIcon({ type, gift, failed, compact }: { type: ActivityItem["typ
   );
 }
 
-export function ActivityList({ items, compact = false }: { items: ActivityItem[]; compact?: boolean }) {
-  if (items.length === 0) return <p className="px-4 py-4 text-[14px] text-ink-secondary">No activity yet.</p>;
+export function ActivityList({ items, compact = false, emptyHint }: { items: ActivityItem[]; compact?: boolean; emptyHint?: "story" }) {
+  if (items.length === 0)
+    return emptyHint === "story" ? (
+      <div className="px-4 py-5 flex flex-col gap-3 items-start">
+        <p className="text-[14px] text-ink-secondary max-w-[52ch]">Your first buy shows up here, checked against its receipt on Base. Tokenized stocks start from about a dollar, and a gift you receive lands here too.</p>
+        <div className="flex gap-2 flex-wrap">
+          <Link href="/markets" className="inline-flex items-center h-9 px-3 rounded-[6px] text-[13px] font-medium bg-primary text-primary-contrast hover:bg-primary-strong transition-fast">
+            Browse markets
+          </Link>
+          <Link href="/build" className="inline-flex items-center h-9 px-3 rounded-[6px] text-[13px] font-medium border border-line text-ink-secondary hover:text-ink hover:border-line-strong transition-fast">
+            Build a basket
+          </Link>
+        </div>
+      </div>
+    ) : (
+      <p className="px-4 py-4 text-[14px] text-ink-secondary">No activity yet.</p>
+    );
   return (
     <ul className="divide-y divide-line">
       {items.map((it) => {

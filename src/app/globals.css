@@ -613,3 +613,27 @@ input[type="number"]::-webkit-outer-spin-button {
     transform: scaleX(1);
   }
 }
+
+/* The technical reference, generated from Markdown at build time. */
+.prose-docs { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+.prose-docs h2, .prose-docs h3, .prose-docs h4 { color: var(--text); font-family: var(--font-display); letter-spacing: -0.01em; scroll-margin-top: 24px; }
+.prose-docs h2 { font-size: 22px; margin: 32px 0 10px; padding-top: 20px; border-top: 1px solid var(--line); }
+.prose-docs h2:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.prose-docs h3 { font-size: 16px; margin: 22px 0 8px; }
+.prose-docs h4 { font-size: 14px; margin: 16px 0 6px; }
+.prose-docs p { margin: 0 0 10px; max-width: 78ch; }
+.prose-docs ul, .prose-docs ol { margin: 0 0 12px; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; }
+.prose-docs li { max-width: 78ch; }
+.prose-docs code { font-family: var(--font-mono); font-size: 12px; background: var(--surface-muted); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.prose-docs pre { background: var(--surface-muted); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0 0 12px; font-size: 12px; line-height: 1.5; }
+.prose-docs pre code { background: transparent; padding: 0; }
+.prose-docs a { color: var(--primary); font-weight: 500; }
+.prose-docs a:hover { text-decoration: underline; }
+.prose-docs strong { color: var(--text); font-weight: 600; }
+.prose-docs blockquote { border-left: 2px solid var(--primary); margin: 0 0 12px; padding: 4px 12px; color: var(--text-secondary); }
+.prose-docs hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
+.prose-docs .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; margin: 0 0 14px; }
+.prose-docs table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.prose-docs th { text-align: left; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface); font-weight: 500; white-space: nowrap; }
+.prose-docs td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.prose-docs tr:last-child td { border-bottom: 0; }

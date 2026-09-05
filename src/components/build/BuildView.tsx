@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Repeat, Upload } from "lucide-react";
+import { Gift, Repeat, Upload } from "lucide-react";
 import type { Allocation, PortfolioTemplate } from "@/domain/portfolio";
 import type { CommunityBasket } from "@/domain/community";
 import { apiGet, apiPost, ApiError, type AssetsResponse, type DraftCommentary as Commentary } from "@/lib/client-api";
@@ -25,7 +25,7 @@ import type { SavedBasketSource } from "@/lib/recent-baskets";
 import { TemplateCard } from "./TemplateCard";
 import { partitionTemplates } from "@/lib/templates";
 import { validateAllocations } from "@/services/portfolio-service";
-import { automateHref } from "@/lib/automate-link";
+import { automateHref, giftBasketHref } from "@/lib/automate-link";
 import { SignInButton } from "@/components/layout/SignInButton";
 import { Dither } from "@/components/fx/lazy";
 
@@ -228,6 +228,10 @@ export function BuildView({ initialAssets, initialTemplates, embedded = false }:
                   <Repeat size={14} strokeWidth={1.75} /> Repeat this basket on a schedule
                 </Link>
                 <span className="text-ink-muted">Weekly, monthly, automatic or confirmed by you — set it up under Automate.</span>
+                <Link href={giftBasketHref(allocations, name)} className="inline-flex items-center gap-1.5 text-primary font-medium">
+                  <Gift size={14} strokeWidth={1.75} /> Gift this basket as a package
+                </Link>
+                <span className="text-ink-muted">One share, every stock in the mix, claimable with a link — from what you already hold.</span>
               </div>
             )}
             <Collapsible title="Publish this basket to the community" defaultOpen={wantsPublish}>

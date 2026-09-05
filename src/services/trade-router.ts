@@ -99,6 +99,10 @@ async function summarize(req: TradeRequest, asset: B20Asset, q: IndicativeQuote,
     priceImpactPct = req.side === "buy" ? raw : -raw;
   }
   const feeUsd = q.totalNetworkFeeWei !== null && ethUsd !== null ? Number(formatUnits(q.totalNetworkFeeWei, 18)) * ethUsd : null;
+  // The trade's dollar size, for pricing the integrator fee: the USDC leg when there is one, else the ETH paid.
+  const usdcSide = q.sellToken.toLowerCase() === USDC_ADDRESS.toLowerCase() ? q.sellAmount : q.buyToken.toLowerCase() === USDC_ADDRESS.toLowerCase() ? q.buyAmount : null;
+  const tradeUsd = usdcSide !== null ? Number(formatUnits(usdcSide, USDC_DECIMALS)) : isNativeEth(q.sellToken) && ethUsd !== null ? Number(formatUnits(q.sellAmount, NATIVE_ETH_DECIMALS)) * ethUsd : null;
+  const integratorFee = q.integratorFeeBps ? { bps: q.integratorFeeBps, usd: tradeUsd !== null ? (tradeUsd * q.integratorFeeBps) / 10_000 : null } : null;
   return {
     provider: q.provider,
     side: req.side,
@@ -114,6 +118,7 @@ async function summarize(req: TradeRequest, asset: B20Asset, q: IndicativeQuote,
     priceImpactBasis: basis?.basis ?? null,
     estimatedNetworkFeeWei: q.totalNetworkFeeWei?.toString() ?? null,
     estimatedNetworkFeeUsd: feeUsd,
+    integratorFee,
     liquidityAvailable: q.liquidityAvailable,
     allowanceRequired: q.issues.allowanceRequired,
     allowanceSpender: q.issues.allowanceSpender ?? q.allowanceTarget,

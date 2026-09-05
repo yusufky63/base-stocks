@@ -7,6 +7,7 @@ import { USDC_DECIMALS } from "@/config/chain";
 import { invalidatePortfolioSnapshot } from "@/services/portfolio-service";
 import { verdictError, verifyTrade } from "@/services/tx-verify-service";
 import { getServerPublicClient } from "@/lib/viem/server-client";
+import { feeBpsFor } from "@/lib/fees";
 
 const createSchema = z.object({
   id: z.string().min(8).max(64),
@@ -34,7 +35,8 @@ const createSchema = z.object({
 export const POST = route({ rateLimit: { key: "trades.write", limit: 60, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, createSchema);
   const repos = getRepos();
-  const base: TradeRecord = { ...body, txHash: body.txHash as Hash | undefined, status: "submitted", createdAt: Date.now() };
+  const feeBps = feeBpsFor(body.provider);
+  const base: TradeRecord = { ...body, txHash: body.txHash as Hash | undefined, status: "submitted", createdAt: Date.now(), ...(feeBps > 0 ? { feeBps } : {}) };
   if (!body.txHash) {
     if (body.provider !== "cow") throw new AppError("BAD_REQUEST", "A trade record needs its transaction hash; only signed orders are filed before settlement.", 400);
     await repos.trades.create(base);

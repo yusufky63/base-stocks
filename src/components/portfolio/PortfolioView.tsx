@@ -223,7 +223,19 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                   </span>
                 </Link>
               ))}
-              {data && data.holdings.length === 0 && <p className="px-4 py-4 text-[14px] text-ink-secondary">Nothing here yet.</p>}
+              {data && data.holdings.length === 0 && (
+                <div className="px-4 py-5 flex flex-col gap-3 items-start">
+                  <p className="text-[14px] text-ink-secondary max-w-[52ch]">No stock in this wallet yet. Your first position appears here the moment it lands — a quick buy from about a dollar, a basket, or a gift someone sends you.</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <Link href="/markets" className="inline-flex items-center h-9 px-3 rounded-[6px] text-[13px] font-medium bg-primary text-primary-contrast hover:bg-primary-strong transition-fast">
+                      Browse markets
+                    </Link>
+                    <Link href="/build" className="inline-flex items-center h-9 px-3 rounded-[6px] text-[13px] font-medium border border-line text-ink-secondary hover:text-ink hover:border-line-strong transition-fast">
+                      Build a basket
+                    </Link>
+                  </div>
+                </div>
+              )}
               {!data && isLoading && (
                 <div className="p-4 flex flex-col gap-2">
                   <Skeleton className="h-12" />

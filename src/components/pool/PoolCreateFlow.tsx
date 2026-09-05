@@ -64,25 +64,48 @@ interface LegDraft {
  * how many people it is for; the split is computed here and sent to the contract as an exact
  * per-claim amount, so nothing rounds onchain and no dust is left behind.
  */
-export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHolding[]; assets: B20AssetDTO[] }) {
+/** A basket handed over from Build: the stocks to pre-pick (lowercase), the number of shares, a title. */
+export interface PoolPreset {
+  assets: string[];
+  slots: number;
+  title?: string;
+}
+
+export function PoolCreateFlow({ holdings, assets, preset }: { holdings: PortfolioHolding[]; assets: B20AssetDTO[]; preset?: PoolPreset }) {
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
   const { isSignedIn, ensureSignedIn } = useAuth();
   const questsEnabled = useConfigFlags().data?.poolQuestsEnabled ?? false;
 
-  const [picked, setPicked] = useState<string[]>([]);
+  // Defaults come from the hand-off preset (when there is one) until the user touches a field;
+  // `holdings` may still be loading when the preset arrives, so the derived form follows them.
+  const [pickedState, setPickedState] = useState<string[] | null>(null);
+  const presetHeld = useMemo(() => (preset ? preset.assets.filter((a) => holdings.some((h) => h.assetAddress.toLowerCase() === a)).slice(0, MAX_POOL_LEGS) : null), [preset, holdings]);
+  const picked: string[] = pickedState ?? presetHeld ?? [];
+  const setPicked = (next: string[] | ((cur: string[]) => string[])) => setPickedState(typeof next === "function" ? next(picked) : next);
   const [drafts, setDrafts] = useState<Record<string, LegDraft>>({});
-  const [slots, setSlots] = useState(10);
+  const [slotsState, setSlotsState] = useState<number | null>(null);
+  const slots = slotsState ?? preset?.slots ?? 10;
+  const setSlots = (n: number) => setSlotsState(n);
   const [gateMode, setGateMode] = useState<PoolGateMode>("link");
   const [days, setDays] = useState(7);
   const [isPublic, setIsPublic] = useState(false);
-  const [title, setTitle] = useState("");
+  const [titleState, setTitleState] = useState<string | null>(null);
+  const title = titleState ?? preset?.title ?? "";
+  const setTitle = (t: string) => setTitleState(t);
   const [message, setMessage] = useState("");
   const [quests, setQuests] = useState<Quest[]>([]);
 
   const [phase, setPhase] = useState<Phase>("form");
   const [confirming, setConfirming] = useState(false);
+  const presetNote: string | null = preset && presetHeld
+    ? presetHeld.length === 0
+      ? "You hold none of this basket's stocks yet — buy the basket first, then come back to gift it."
+      : preset.assets.length > presetHeld.length
+        ? `Not held, so left out: ${preset.assets.filter((a) => !presetHeld.includes(a)).map((a) => assets.find((x) => x.canonicalId === a)?.underlying ?? a.slice(0, 8)).join(", ")}.`
+        : null
+    : null;
   const [error, setError] = useState<HumanError | null>(null);
   const [created, setCreated] = useState<{ pool: PoolRecord; link: string } | null>(null);
   const [txHash, setTxHash] = useState<Hash | undefined>();
@@ -548,6 +571,8 @@ export function PoolCreateFlow({ holdings, assets }: { holdings: PortfolioHoldin
       {confirming && (
         <Sheet open={confirming} onClose={() => setConfirming(false)} title="Before you create it" wide>
           <div className="flex flex-col gap-4">
+      {presetNote && <InfoBanner tone="warning">{presetNote}</InfoBanner>}
+      {preset && !presetNote && <InfoBanner>A package for one person: every stock of the basket, one share, claimable with a link. Set the amount per stock below.</InfoBanner>}
             <div className="border border-line rounded-[8px] overflow-hidden">
               <div className="px-4 py-2 border-b border-line bg-surface font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">What each person sees</div>
               <div className="p-4 flex flex-col gap-1">

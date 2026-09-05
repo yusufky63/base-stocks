@@ -4,6 +4,7 @@ import { BASE_CHAIN_ID, USDC_ADDRESS, isNativeEth } from "@/config/chain";
 import type { ExecutableQuote, IndicativeQuote, OrderView, SignedOrderRequest, TradeIntent, TradeProvider, TradeSide } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { CircuitBreaker, fetchJson, metrics } from "@/lib/http";
+import { integratorFee } from "@/lib/fees";
 
 /**
  * CoW Protocol on Base (docs.cow.fi). Not a swap transaction: the user signs an EIP-712 order,
@@ -127,6 +128,9 @@ async function cowRequest<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: st
 export function appDataFor(orderClass: "market" | "limit", slippageBps: number): { doc: string; hash: Hex } {
   const meta: Record<string, unknown> = { orderClass: { orderClass } };
   if (orderClass === "market") meta.quote = { slippageBips: Math.max(0, Math.min(10_000, Math.round(slippageBps))) };
+  // The partner fee lives in the app data, which the quote is asked with, so the quoted amounts are net of it.
+  const fee = integratorFee();
+  if (fee) meta.partnerFee = { bps: fee.bps, recipient: fee.recipient };
   const doc = JSON.stringify({ version: "1.3.0", appCode: APP_CODE, metadata: meta });
   return { doc, hash: keccak256(toHex(doc)) };
 }
@@ -276,6 +280,7 @@ function normalize(intent: TradeIntent, q: CowQuote): IndicativeQuote {
     route: [{ source: "CoW solvers", proportionBps: 10_000 }],
     issues: { allowanceRequired: false, allowanceSpender: GPV2_VAULT_RELAYER, balanceInsufficient: false, simulationIncomplete: true },
     fetchedAt: Date.now(),
+    integratorFeeBps: integratorFee()?.bps,
   };
 }
 

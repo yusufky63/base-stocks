@@ -26,6 +26,9 @@ export function CorporateActionsModule({ asset }: { asset: B20AssetDTO }) {
         {oraclePaused ? <Badge tone="danger">In progress</Badge> : pending ? <Badge tone="warning">Scheduled</Badge> : null}
       </div>
       {oraclePaused && <p className="text-[14px]">A corporate action is in progress. The reference price is frozen until the issuer updates the multiplier and price; onchain trading and transfers continue unless paused.</p>}
+      <p className="text-[13px] text-ink-secondary">
+        What this means for you: your raw token balance never changes. A split or dividend changes the multiplier, so the number of share-equivalents each token stands for changes with it, while the reference feed is total-return — it publishes price × multiplier — so one token is worth the same the day after as the day before. Your cost basis and profit or loss are kept in raw units and do not move either.
+      </p>
       {pending && (
         <p className="text-[14px]">
           The issuer has scheduled a multiplier change to {(Number(pending.multiplier) / 1e18).toFixed(4)}× effective {new Date(pending.effectiveAt * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC (ERC-8056 advance notice). Your token balance will not change; the number of share-equivalents each token represents will.

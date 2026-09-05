@@ -435,3 +435,14 @@ create index if not exists trade_records_unverified_idx on public.trade_records 
 create index if not exists gifts_unverified_idx on public.gifts (created_at) where verified_at is null and tx_hash is not null;
 
 revoke all on all tables in schema public from anon, authenticated;
+
+-- Daily rollups of the platform statistics: one finished day reduced once, read in place of its records.
+create table if not exists public.stats_daily (
+  day date primary key,
+  rollup jsonb not null,
+  events integer not null default 0,
+  computed_at timestamptz not null default now()
+);
+
+-- The integrator fee a route charged on a trade, in basis points, set by the server from its own configuration.
+alter table public.trade_records add column if not exists fee_bps integer;

@@ -3,7 +3,6 @@ import { getBalance } from "wagmi/actions";
 import { base } from "wagmi/chains";
 import { formatUnits, type Address } from "viem";
 import { baseAccount, injected } from "wagmi/connectors";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { base as appkitBase, type AppKitNetwork } from "@reown/appkit/networks";
 import { publicEnv } from "@/config/env";
@@ -46,9 +45,9 @@ export function couldBeMiniAppHost(): boolean {
 
 function buildConnectors() {
   return [
-    // Inside the Base app the wallet is the host's own: already unlocked, already on Base, already
-    // the user's identity there. First in the list so nothing has to be picked from a modal.
-    ...(couldBeMiniAppHost() ? [farcasterMiniApp()] : []),
+    // Inside the Base app the wallet is the host's own; its connector is registered on the fly by
+    // `registerMiniAppConnector` once the host is confirmed, so the SDK behind it (~400 KB) is
+    // never downloaded by a visitor in an ordinary tab.
     baseAccount({
       appName: APP_NAME,
       appLogoUrl: `${publicEnv.appUrl}/brand/icon-1024.png`,
@@ -105,3 +104,21 @@ export const wagmiConfig: Config = wagmiAdapter
       storage,
       multiInjectedProviderDiscovery: true,
     });
+
+let miniAppConnectorRegistered: Promise<void> | null = null;
+
+/**
+ * Adds the host wallet's connector to the running wagmi config, first in the list, and only
+ * once the page knows it is inside a mini app host. wagmi keeps its connectors in a store that
+ * accepts late additions (that is how it discovers injected wallets after load), so nothing about
+ * the provider tree changes; `useConnect` sees the new connector on its next render.
+ */
+export function registerMiniAppConnector(): Promise<void> {
+  miniAppConnectorRegistered ??= import("@farcaster/miniapp-wagmi-connector").then(({ farcasterMiniApp }) => {
+    const store = wagmiConfig._internal.connectors;
+    if (wagmiConfig.connectors.some((c) => c.id === MINI_APP_CONNECTOR_ID)) return;
+    const connector = store.setup(farcasterMiniApp());
+    store.setState((current) => [connector, ...current]);
+  });
+  return miniAppConnectorRegistered;
+}

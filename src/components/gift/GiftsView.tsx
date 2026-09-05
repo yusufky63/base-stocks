@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useAccount } from "wagmi";
 import { Gift as GiftIcon, Send } from "lucide-react";
 import type { PortfolioHolding } from "@/domain/portfolio";
@@ -24,14 +24,36 @@ import { SendSheet } from "./SendSheet";
 type Tab = "create" | "discover" | "history";
 type Mode = "address" | "link" | "bulk" | "pool";
 
+const subscribeNever = () => () => {};
+
+/** `?basket=0x…,0x…&title=` → the pool creator's preset, or null when the URL carries none. */
+function parseBasketPreset(search: string): { assets: string[]; slots: number; title?: string } | null {
+  const p = new URLSearchParams(search);
+  const basket = p.get("basket");
+  if (!basket) return null;
+  const assets = basket
+    .split(",")
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => /^0x[0-9a-f]{40}$/.test(a));
+  if (assets.length === 0) return null;
+  return { assets, slots: 1, title: p.get("title") ?? undefined };
+}
+
 /**
  * The Gift page: pick a stock you hold, choose how to give it — straight to an address or
  * Basename, one claim link, or a batch of links — and see everything sent and received.
  */
 export function GiftsView() {
   const { address, isConnected } = useAccount();
-  const [tab, setTab] = useState<Tab>("create");
-  const [mode, setMode] = useState<Mode>("link");
+  // A basket handed over from Build (`/gifts?basket=0x…,0x…&title=`) opens the pool creator with
+  // its stocks picked and one share. The URL is read as an external store — empty on the server,
+  // the real one after hydration — so the page stays static and nothing is set from an effect.
+  const search = useSyncExternalStore(subscribeNever, () => window.location.search, () => "");
+  const preset = useMemo(() => parseBasketPreset(search), [search]);
+  const [tabState, setTab] = useState<Tab | null>(null);
+  const [modeState, setMode] = useState<Mode | null>(null);
+  const tab: Tab = tabState ?? "create";
+  const mode: Mode = modeState ?? (preset ? "pool" : "link");
   const [picked, setPicked] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const portfolio = usePortfolio(address);
@@ -171,7 +193,7 @@ export function GiftsView() {
                 ]}
               />
               {mode === "pool" ? (
-                <PoolCreateFlow holdings={holdings} assets={assets.data?.assets ?? []} />
+                <PoolCreateFlow holdings={holdings} assets={assets.data?.assets ?? []} preset={preset ?? undefined} />
               ) : assetDTO && holding ? (
                 mode === "link" ? (
                   <ClaimLinkFlow key={`link-${assetDTO.address}`} asset={assetDTO} raw={raw} scaled={scaled} priceUsd={holding.priceUsd} />

@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Repeat } from "lucide-react";
+import { Gift, Repeat } from "lucide-react";
 import type { PortfolioTemplate, Allocation } from "@/domain/portfolio";
 import type { AssetsResponse } from "@/lib/client-api";
 import { useAssets } from "@/hooks/queries";
 import { bpsToPct, formatUsd } from "@/lib/format";
 import { hasMeaningfulChange, tradingStatus } from "@/lib/trading-status";
-import { automateHref } from "@/lib/automate-link";
+import { automateHref, giftBasketHref } from "@/lib/automate-link";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar, ColorDot } from "@/components/common/AllocationBar";
 import { Module, ModuleHeader, Button, LinkButton } from "@/components/ui/primitives";
@@ -32,9 +32,14 @@ export function TemplateDetailView({ template, initialAssets }: { template: Port
           <h1 className="display text-[32px] md:text-[48px] leading-none mt-2">{template.name}</h1>
           <p className="mt-2 max-w-[60ch] text-ink-secondary">{template.description}</p>
         </div>
-        <LinkButton href={automateHref(allocations, template.name)} size="sm">
-          <Repeat size={14} strokeWidth={1.75} /> Repeat on a schedule
-        </LinkButton>
+        <div className="flex gap-2 flex-wrap">
+          <LinkButton href={giftBasketHref(allocations, template.name)} size="sm">
+            <Gift size={14} strokeWidth={1.75} /> Gift as a package
+          </LinkButton>
+          <LinkButton href={automateHref(allocations, template.name)} size="sm">
+            <Repeat size={14} strokeWidth={1.75} /> Repeat on a schedule
+          </LinkButton>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start">

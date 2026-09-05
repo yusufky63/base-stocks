@@ -1,5 +1,6 @@
 import type { Address, Hex } from "viem";
 import { serverEnv } from "@/config/env";
+import { integratorFee } from "@/lib/fees";
 import { BASE_CHAIN_ID, EXECUTABLE_QUOTE_TTL_MS, USDC_ADDRESS } from "@/config/chain";
 import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 import type { ExecutableQuote, IndicativeQuote, TradeIntent, TradeProvider } from "@/domain/trade";
@@ -100,7 +101,6 @@ function toBig(v: string | null | undefined): bigint | null {
 }
 
 function buildParams(intent: TradeIntent, firm: boolean): URLSearchParams {
-  const env = serverEnv();
   const p = new URLSearchParams({
     chainId: String(intent.chainId),
     sellToken: intent.sellToken,
@@ -112,9 +112,10 @@ function buildParams(intent: TradeIntent, firm: boolean): URLSearchParams {
   if (firm && intent.recipient && intent.recipient.toLowerCase() !== intent.taker?.toLowerCase()) {
     p.set("recipient", intent.recipient);
   }
-  if (env.ZEROX_SWAP_FEE_BPS && env.ZEROX_SWAP_FEE_RECIPIENT) {
-    p.set("swapFeeBps", String(env.ZEROX_SWAP_FEE_BPS));
-    p.set("swapFeeRecipient", env.ZEROX_SWAP_FEE_RECIPIENT);
+  const fee = integratorFee();
+  if (fee) {
+    p.set("swapFeeBps", String(fee.bps));
+    p.set("swapFeeRecipient", fee.recipient);
     p.set("swapFeeToken", intent.sellToken);
   }
   return p;
@@ -185,6 +186,7 @@ function normalizeIndicative(raw: unknown, intent: TradeIntent): IndicativeQuote
       simulationIncomplete: d.issues?.simulationIncomplete ?? false,
     },
     fetchedAt: Date.now(),
+    integratorFeeBps: integratorFee()?.bps,
   };
 }
 

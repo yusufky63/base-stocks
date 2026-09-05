@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { useAccount, useConnect } from "wagmi";
 import type { Context as MiniAppContextTypes } from "@farcaster/miniapp-sdk";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { MINI_APP_CONNECTOR_ID, couldBeMiniAppHost } from "@/config/wagmi";
+import { MINI_APP_CONNECTOR_ID, couldBeMiniAppHost, registerMiniAppConnector } from "@/config/wagmi";
 import { externalTarget, miniAppSdk, openExternal } from "@/lib/miniapp-actions";
 
 /**
@@ -65,6 +65,8 @@ export function MiniAppProvider({ children }: { children: ReactNode }) {
         if (!inside) return outside();
         const context = await sdk.context.catch(() => null);
         if (cancelled) return;
+        // The host wallet's connector joins the config only now, inside a confirmed host.
+        await registerMiniAppConnector().catch(() => undefined);
         applySafeArea(context?.client.safeAreaInsets);
         document.documentElement.dataset.miniapp = "true";
         setState({ status: "inside", isMiniApp: true, context });

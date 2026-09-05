@@ -273,7 +273,7 @@ function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["ass
   const cells = [
     { label: "Live markets", value: String(live.length) },
     { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
-    { label: "24h volume", value: volume > 0 ? formatUsdCompact(volume) : "—" },
+    { label: "DEX volume · 24h", value: volume > 0 ? formatUsdCompact(volume) : "—" },
     { label: "Issued", value: `${items.filter((x) => BigInt(x.asset.totalSupply ?? "0") > 0n).length} / ${total}` },
   ];
   return (
@@ -338,8 +338,8 @@ function PlatformStatsModule() {
   const delivered = s ? s.directGifts + s.linksClaimed + s.poolClaims : 0;
   const cells = s
     ? [
-        { label: "Trade volume", value: formatUsdCompact(s.tradeVolumeUsd) },
-        { label: "Trades", value: s.trades.toLocaleString("en-US") },
+        { label: "Traded via BStocks", value: formatUsdCompact(s.tradeVolumeUsd) },
+        { label: "Trades here", value: s.trades.toLocaleString("en-US") },
         { label: "Wallets", value: s.wallets.toLocaleString("en-US") },
         { label: "Gifts delivered", value: delivered.toLocaleString("en-US") },
         { label: "USDC into Earn", value: formatUsdCompact(s.earnDepositUsd) },
