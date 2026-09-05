@@ -73,7 +73,7 @@ export function RebalanceExecutor({ snapshot, rows, summary, targetName }: { sna
             {sells > 0 && `Sell ${formatUsd(summary.sellsUsd)} first, then `}buy {formatUsd(summary.buysUsd)}. Each trade gets a fresh quote and a wallet confirmation; nothing runs in the background.
           </p>
           {skipped.length > 0 && (
-            <InfoBanner>
+            <InfoBanner tone="warning">
               {`Left out: ${skipped.map((x) => `${x.symbol} (${x.blocked})`).join(", ")}. That share stays as it is — nothing is bought or sold at a price you did not mean to accept.`}
             </InfoBanner>
           )}

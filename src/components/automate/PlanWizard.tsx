@@ -342,7 +342,7 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
       {/* 4. Go */}
       {error && <ErrorBanner message={error} />}
       {done ? (
-        <InfoBanner>
+        <InfoBanner tone="positive">
           {done.mode === "auto" ? (
             <>
               Plan started onchain. The first run is due now and will be picked up by the keeper{flags?.autoInvest?.keeperConfigured ? "" : " — none is configured here, so press Run now under Manage"}.{" "}

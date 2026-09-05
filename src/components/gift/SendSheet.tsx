@@ -274,7 +274,7 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
             </InfoBanner>
           ))}
           {(txState === "SUBMITTED" || txState === "PRECONFIRMED" || txState === "CONFIRMED") && <TxProgress state={txState} txHash={txHash} />}
-          {txState === "AWAITING_WALLET" && <InfoBanner>Confirm the transfer in your wallet.</InfoBanner>}
+          {txState === "AWAITING_WALLET" && <InfoBanner tone="info">Confirm the transfer in your wallet.</InfoBanner>}
           {error && <ErrorBanner message={error.message} detail={error.detail} />}
           <p className="text-[12px] text-ink-muted">Transfers are final. Double-check the recipient address above.</p>
         </div>

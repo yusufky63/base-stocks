@@ -37,7 +37,6 @@ const DESKTOP_NAV = [...NAV.filter((n) => n.href !== "/").map((n) => ({ ...n, ex
  */
 const FOOTER_LINKS = [
   ["/news", "News", "lg:hidden"],
-  ["/pools", "Gift pools", ""],
   ["/how-it-works", "How it works", ""],
   ["/how-it-works#faq", "FAQ", ""],
   ["/docs", "Docs", ""],

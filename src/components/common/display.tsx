@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, CircleAlert, CircleCheck, Copy, ExternalLink, Info, TriangleAlert } from "lucide-react";
 import type { Address } from "viem";
 import { formatPct, shortenAddress } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
@@ -74,9 +74,12 @@ export function Identity({ address, className }: { address: Address; className?:
 
 export function ErrorBanner({ message, detail, onRetry, className }: { message: string; detail?: string; onRetry?: () => void; className?: string }) {
   return (
-    <div role="alert" className={cx("border border-danger rounded-[8px] px-4 py-3 text-[14px] text-ink", className)}>
+    <div role="alert" className={cx("border border-danger/60 bg-danger-soft rounded-[8px] px-4 py-3 text-[14px] text-ink", className)}>
       <div className="flex items-start justify-between gap-3">
-        <span>{message}</span>
+        <span className="flex items-start gap-2.5">
+          <CircleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-[3px] text-danger-fg" aria-hidden />
+          <span>{message}</span>
+        </span>
         {onRetry && (
           <button type="button" onClick={onRetry} className="text-primary text-[13px] font-medium shrink-0 min-h-[44px] -my-2">
             Retry
@@ -92,14 +95,31 @@ export function ErrorBanner({ message, detail, onRetry, className }: { message: 
 export function AiQuotaNote({ remaining, className }: { remaining: number | null | undefined; className?: string }) {
   if (remaining === null || remaining === undefined) return null;
   if (remaining <= 0) return <span className={cx("font-medium text-danger-fg", className)}>No AI requests left today for this wallet. The allowance resets at 00:00 UTC.</span>;
-  if (remaining <= 3) return <span className={cx("font-medium text-ink", className)}>{remaining === 1 ? "Last AI request today for this wallet." : `Last ${remaining} AI requests today for this wallet.`}</span>;
+  if (remaining <= 3) return <span className={cx("font-medium text-warning-fg", className)}>{remaining === 1 ? "Last AI request today for this wallet." : `Last ${remaining} AI requests today for this wallet.`}</span>;
   return <span className={className}>{remaining} AI requests left today.</span>;
 }
 
-export function InfoBanner({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: "neutral" | "warning"; className?: string }) {
+export type BannerTone = "neutral" | "info" | "warning" | "positive" | "danger";
+
+/**
+ * Tone is colour and an icon, not just a border: amber for "look before you sign", green for
+ * "it landed", red for "it did not", blue for "this is how it works". Neutral stays quiet.
+ */
+const BANNER: Record<BannerTone, { box: string; icon: typeof Info | null; iconClass: string }> = {
+  neutral: { box: "border-line bg-surface text-ink-secondary", icon: null, iconClass: "" },
+  info: { box: "border-primary/40 bg-primary-soft text-ink", icon: Info, iconClass: "text-primary" },
+  warning: { box: "border-warning/60 bg-warning-soft text-ink", icon: TriangleAlert, iconClass: "text-warning-fg" },
+  positive: { box: "border-positive/60 bg-positive-soft text-ink", icon: CircleCheck, iconClass: "text-positive-fg" },
+  danger: { box: "border-danger/60 bg-danger-soft text-ink", icon: CircleAlert, iconClass: "text-danger-fg" },
+};
+
+export function InfoBanner({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: BannerTone; className?: string }) {
+  const t = BANNER[tone];
+  const Icon = t.icon;
   return (
-    <div role="status" className={cx("border rounded-[8px] px-4 py-3 text-[13px] text-ink-secondary", tone === "warning" ? "border-line-strong" : "border-line", className)}>
-      {children}
+    <div role={tone === "danger" ? "alert" : "status"} className={cx("flex items-start gap-2.5 border rounded-[8px] px-4 py-3 text-[13px]", t.box, className)}>
+      {Icon && <Icon size={15} strokeWidth={1.75} className={cx("shrink-0 mt-0.5", t.iconClass)} aria-hidden />}
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }

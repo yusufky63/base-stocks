@@ -176,7 +176,7 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
         </div>
 
         {live.provider === "cow" && (trade.state === "IDLE" || trade.state === "READY") && (
-          <InfoBanner>
+          <InfoBanner tone="info">
             You sign an order instead of sending a transaction. CoW Protocol solvers compete to fill it within about 30 minutes and pay the gas; if nobody can, it expires and nothing moves. A one-time approval for this amount is still a transaction{trade.sponsored ? " (sponsored)" : ""}.
           </InfoBanner>
         )}

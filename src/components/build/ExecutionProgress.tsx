@@ -41,7 +41,7 @@ export function ExecutionProgress({ execution, currentStepId, running, summary, 
                 <span className="font-mono text-[11px] uppercase text-ink-muted mr-2">{s.side ?? "buy"}</span>
                 {s.symbol.replace(/c$/, "")} <span className="text-ink-secondary font-normal">· {formatUsd(s.targetUsd)}</span>
               </div>
-              <div className="text-[12px] text-ink-muted">
+              <div className={cx("text-[12px]", s.status === "failed" ? "text-danger-fg" : "text-ink-muted")}>
                 {STEP_COPY[s.status]}
                 {s.errorMessage ? ` — ${s.errorMessage}` : ""}
               </div>
@@ -51,7 +51,7 @@ export function ExecutionProgress({ execution, currentStepId, running, summary, 
                 </div>
               )}
             </div>
-            <Badge tone={s.status === "confirmed" ? "positive" : s.status === "failed" ? "danger" : "neutral"}>{s.status}</Badge>
+            <Badge tone={s.status === "confirmed" ? "positive" : s.status === "failed" ? "danger" : s.status === "pending" ? "neutral" : "primary"}>{s.status}</Badge>
           </li>
         ))}
       </ul>

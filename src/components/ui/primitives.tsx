@@ -130,10 +130,10 @@ export function Chip({ active, className, children, ...rest }: ButtonHTMLAttribu
 export function Badge({ tone = "neutral", children, className }: { tone?: "neutral" | "positive" | "danger" | "primary" | "warning"; children: ReactNode; className?: string }) {
   const toneClass = {
     neutral: "border-line text-ink-secondary",
-    positive: "border-positive text-positive-fg",
-    danger: "border-danger text-danger-fg",
+    positive: "border-positive/70 text-positive-fg bg-positive-soft",
+    danger: "border-danger/70 text-danger-fg bg-danger-soft",
     primary: "border-primary text-primary bg-primary-soft",
-    warning: "border-line-strong text-ink",
+    warning: "border-warning/70 text-warning-fg bg-warning-soft",
   }[tone];
   return <span className={cx("inline-flex items-center h-6 px-2 rounded-[4px] border text-[11px] font-mono uppercase tracking-[0.08em]", toneClass, className)}>{children}</span>;
 }

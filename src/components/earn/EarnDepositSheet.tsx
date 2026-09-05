@@ -206,10 +206,10 @@ export function EarnDepositSheet({ open, onClose, opportunity, action, available
             <li key={r}>{r}</li>
           ))}
         </ul>
-        {state === "wallet" && <InfoBanner>Confirm in your wallet. {action === "deposit" ? "An exact approval for the venue is included." : ""}</InfoBanner>}
-        {state === "submitted" && <InfoBanner>Submitted to Base…</InfoBanner>}
+        {state === "wallet" && <InfoBanner tone="info">Confirm in your wallet. {action === "deposit" ? "An exact approval for the venue is included." : ""}</InfoBanner>}
+        {state === "submitted" && <InfoBanner tone="info">Submitted to Base…</InfoBanner>}
         {state === "confirmed" && (
-          <InfoBanner>
+          <InfoBanner tone="positive">
             Confirmed. {txHash && <TxLink hash={txHash} />}
           </InfoBanner>
         )}
