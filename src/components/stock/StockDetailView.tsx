@@ -31,6 +31,7 @@ import { SendSheet } from "@/components/gift/SendSheet";
 import { EarnModule } from "@/components/earn/EarnModule";
 import { ShareButton } from "@/components/common/ShareSheet";
 import { Coin3D } from "@/components/fx/lazy";
+import { isNotIssued } from "@/lib/trading-status";
 
 /**
  * Stock detail (spec §44). Desktop: chart + trade panel side by side. Mobile: chart first,
@@ -86,7 +87,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
           <Module ticks>
             <div className="p-4 md:p-5 flex items-start justify-between gap-4">
               <div className="flex items-center gap-4 min-w-0">
-                <Coin3D underlying={asset.underlying} symbol={asset.symbol} fallbackSrc={asset.logoURI} size={64} float muted={BigInt(asset.totalSupply ?? "0") === 0n} />
+                <Coin3D underlying={asset.underlying} symbol={asset.symbol} fallbackSrc={asset.logoURI} size={64} float muted={isNotIssued(asset)} />
                 <div className="min-w-0">
                   <div className="eyebrow mb-1">
                     {asset.underlying} · Coinbase Tokenized Stock
@@ -96,7 +97,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                   </h1>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     {asset.status === "paused" && <Badge tone="danger">Transfers paused</Badge>}
-                    {BigInt(asset.totalSupply ?? "0") === 0n && <Badge tone="warning">Not issued onchain yet</Badge>}
+                    {isNotIssued(asset) && <Badge tone="warning">Not issued onchain yet</Badge>}
                     {asset.oracle?.paused && <Badge tone="warning">Corporate action</Badge>}
                     {asset.pendingMultiplier && <Badge tone="warning">Multiplier change scheduled</Badge>}
                     {price?.displaySource === "reference" && <Badge>Reference price</Badge>}

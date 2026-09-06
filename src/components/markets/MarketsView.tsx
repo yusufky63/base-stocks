@@ -206,8 +206,9 @@ function MarketStats({ rows }: { rows: Array<{ asset: AssetsResponse["assets"][n
   const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
   const volume = live.reduce((sum, x) => sum + (x.price?.volume24hUsd ?? 0), 0);
   const up = live.filter((x) => (x.price?.marketChange24hPct ?? 0) > 0).length;
+  const known = rows.some((x) => x.price?.liquidityUsd !== null && x.price?.liquidityUsd !== undefined);
   const cells = [
-    { label: "Live markets", value: `${live.length} of ${rows.length}` },
+    { label: "Live markets", value: known ? `${live.length} of ${rows.length}` : "—" },
     { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
     { label: "24h volume", value: volume > 0 ? formatUsdCompact(volume) : "—" },
     { label: "Up today", value: live.length ? `${up} / ${live.length}` : "—" },

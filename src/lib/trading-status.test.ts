@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buyLegBlockedReason, hasMeaningfulChange, legPoolShare, premiumBeyondFloor, referenceGap, referenceGapNote, sortByTradingStatus, tradingStatus } from "./trading-status";
+import { buyLegBlockedReason, hasMeaningfulChange, isIssued, isNotIssued, legPoolShare, premiumBeyondFloor, referenceGap, referenceGapNote, sortByTradingStatus, tradingStatus } from "./trading-status";
 
 const asset = (over: { status?: "active" | "paused"; totalSupply?: string } = {}) => ({
   status: over.status ?? ("active" as const),
@@ -11,6 +11,22 @@ describe("trading status", () => {
   it("puts issuance and pauses ahead of any liquidity question", () => {
     expect(tradingStatus(asset({ status: "paused" }), price(5_000_000)).status).toBe("paused");
     expect(tradingStatus(asset({ totalSupply: "0" }), price(5_000_000)).status).toBe("not-issued");
+  });
+
+  /**
+   * The bug this covers: a node that failed to answer `totalSupply` was read as a supply of zero,
+   * and every stock on the page became "Not issued yet" for as long as the cache held it. Unknown
+   * is not zero: a supply that was not read leaves the stock's issuance out of the question, and
+   * the pool it trades in still says what it says.
+   */
+  it("never calls a stock not issued on a supply it could not read", () => {
+    const unknown = { status: "active" as const, totalSupply: "0", supplyKnown: false };
+    expect(isNotIssued(unknown)).toBe(false);
+    expect(isIssued(unknown)).toBe(false);
+    expect(tradingStatus(unknown, price(2_100_000)).status).toBe("tradable");
+    expect(tradingStatus(unknown, price(0)).status).toBe("no-pool");
+    expect(isNotIssued({ totalSupply: "0" })).toBe(true);
+    expect(isIssued({ totalSupply: "100000000000" })).toBe(true);
   });
 
   it("classifies by liquidity across the whole range", () => {

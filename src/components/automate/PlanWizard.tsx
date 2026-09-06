@@ -13,7 +13,7 @@ import { useAutomation } from "@/hooks/useAutomation";
 import { useAutoInvest } from "@/hooks/useAutoInvest";
 import { useNow } from "@/hooks/useNow";
 import { AUTO_INVEST, CADENCES, cadenceNoun, decodeAutoInvestError } from "@/lib/auto-invest";
-import { legBlockedReason, premiumBeyondFloor, referenceGap, referenceGapNote } from "@/lib/trading-status";
+import { isIssued, legBlockedReason, premiumBeyondFloor, referenceGap, referenceGapNote } from "@/lib/trading-status";
 import { validateAllocations } from "@/services/portfolio-service";
 import { formatUsd, bpsToPct } from "@/lib/format";
 import { MIN_TRADE_USD, BASE_EXPLORER_URL } from "@/config/chain";
@@ -119,7 +119,7 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
     }
   }
 
-  const live = (assets?.assets ?? []).filter((a) => a.status === "active" && BigInt(a.totalSupply ?? "0") > 0n);
+  const live = (assets?.assets ?? []).filter((a) => a.status === "active" && isIssued(a));
   const assetOptions = live.map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}` }));
   const templateOptions = templates.map((t) => ({ value: t.id, label: t.name }));
   const template = templates.find((t) => t.id === templateId);

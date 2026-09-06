@@ -9,6 +9,7 @@ import { AddressLabel } from "@/components/common/display";
 import { formatUsd, formatTokenAmount } from "@/lib/format";
 import { Collapsible } from "@/components/ui/Collapsible";
 import { TimeAgo } from "@/components/common/TimeAgo";
+import { isNotIssued } from "@/lib/trading-status";
 
 /** Deterministic (SSR-safe) timestamp: locale formatting would differ between server and browser. */
 const utcStamp = (unixSeconds: number) => `${new Date(unixSeconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -26,7 +27,7 @@ const COINGECKO_SLUGS: Record<string, string> = {
 export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: PriceView | null }) {
   const oracle = asset.oracle;
   const multiplier = Number(formatUnits(BigInt(asset.multiplier), 18));
-  const notIssued = BigInt(asset.totalSupply ?? "0") === 0n;
+  const notIssued = isNotIssued(asset);
   const pending = asset.pendingMultiplier;
   const freshness = oracle?.freshness ?? "stale";
   return (

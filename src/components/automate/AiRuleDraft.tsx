@@ -12,6 +12,7 @@ import { MIN_TRADE_USD } from "@/config/chain";
 import { AssetLogo, AiQuotaNote, ErrorBanner } from "@/components/common/display";
 import { Button, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
+import { isIssued } from "@/lib/trading-status";
 
 type Resp = { ok: boolean; draft?: AutomationDraft; errors?: string[]; warnings?: string[]; quota?: { remainingForWallet: number } };
 
@@ -29,7 +30,7 @@ type AmountChoice = (typeof AMOUNTS)[number] | "custom";
 export function AiRuleDraft({ onDraft }: { onDraft: (draft: AutomationDraft) => void }) {
   const { address } = useAccount();
   const { data: assets } = useAssets();
-  const live = (assets?.assets ?? []).filter((a) => a.status === "active" && BigInt(a.totalSupply ?? "0") > 0n);
+  const live = (assets?.assets ?? []).filter((a) => a.status === "active" && isIssued(a));
   const [amount, setAmount] = useState<number>(25);
   const [amountChoice, setAmountChoice] = useState<AmountChoice>(25);
   const [cadence, setCadence] = useState<number>(7);

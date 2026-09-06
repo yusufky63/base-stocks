@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/primitives";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { PriceChange } from "@/components/common/display";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { isNotIssued } from "@/lib/trading-status";
 
 interface Props {
   asset: B20AssetDTO;
@@ -52,7 +53,7 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
       {raw === 0n ? (
         <div className="flex flex-col gap-3">
           <p className="text-[14px] text-ink-secondary">{connected ? (lp && lp.count > 0 ? `No ${asset.underlying} in your wallet right now; your ${asset.underlying} sits in a liquidity pool (below).` : `You don’t hold ${asset.underlying} yet.`) : `Connect a wallet to see your ${asset.underlying} position.`}</p>
-          <Button size="md" onClick={onBuy} disabled={asset.status === "paused" || BigInt(asset.totalSupply ?? "0") === 0n}>
+          <Button size="md" onClick={onBuy} disabled={asset.status === "paused" || isNotIssued(asset)}>
             Buy {asset.underlying} <ArrowUpRight size={16} strokeWidth={1.75} />
           </Button>
         </div>

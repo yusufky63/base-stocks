@@ -10,6 +10,7 @@ import { serverEnv } from "@/config/env";
 import type { AssetBalance, B20Asset, CuratedAssetEntry, OracleState, PendingMultiplier } from "@/domain/asset";
 import { cached, TTL, invalidate } from "@/lib/cache";
 import { readFeeds, isStale } from "@/providers/market-data/chainlink/reader";
+import { recallGood, rememberGood } from "@/lib/last-good";
 import { classifyFreshness, isUsMarketOpen } from "@/lib/market-hours";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
@@ -32,7 +33,8 @@ interface LiveState {
   transferPaused: boolean;
   oracleRegistryPaused: boolean | null;
   oracleRegistryMultiplier: bigint | null;
-  totalSupply: bigint;
+  /** Null when the node did not answer and nothing earlier is known. */
+  totalSupply: bigint | null;
   pendingMultiplier?: PendingMultiplier;
 }
 
@@ -94,8 +96,55 @@ async function loadStaticMeta(entries: readonly CuratedAssetEntry[]): Promise<Ma
   return out;
 }
 
-/** Live state: multiplier, pause flags, oracle registry. Short cache. */
+/**
+ * Live state: multiplier, pause flags, oracle registry, supply. Short cache, and never a guess:
+ * a call the node failed to answer takes the last value it did answer with, and a batch the node
+ * refused altogether is served from the last batch it accepted. A supply that was never read is
+ * null — "unknown" — and the pages treat it as such rather than as zero.
+ */
+const LIVE_KEY = "b20:live";
+const FEEDS_KEY = "b20:feeds";
+
 async function loadLiveState(entries: readonly CuratedAssetEntry[]): Promise<Map<string, LiveState>> {
+  const good = await recallGood<Map<string, LiveState>>(LIVE_KEY);
+  let out: Map<string, LiveState>;
+  try {
+    out = await readLiveState(entries, good?.value ?? null);
+  } catch (err) {
+    if (good) {
+      metrics.count("b20.live.lastgood", true);
+      return good.value;
+    }
+    throw err;
+  }
+  // Remember only a batch that actually answered; an all-failed batch teaches nothing.
+  if ([...out.values()].some((l) => l.totalSupply !== null)) rememberGood(LIVE_KEY, out);
+  return out;
+}
+
+/** Chainlink feed readings, with the last good reading standing in for any feed that did not answer. */
+async function loadFeeds(feeds: Address[]): Promise<Awaited<ReturnType<typeof readFeeds>>> {
+  const good = await recallGood<Awaited<ReturnType<typeof readFeeds>>>(FEEDS_KEY);
+  let fresh: Awaited<ReturnType<typeof readFeeds>>;
+  try {
+    fresh = await readFeeds(feeds);
+  } catch (err) {
+    if (good) {
+      metrics.count("b20.feeds.lastgood", true);
+      return good.value;
+    }
+    throw err;
+  }
+  const merged = new Map(fresh);
+  for (const f of feeds) {
+    const k = f.toLowerCase();
+    if (!merged.get(k) && good?.value.get(k)) merged.set(k, good.value.get(k)!);
+  }
+  if ([...fresh.values()].some(Boolean)) rememberGood(FEEDS_KEY, merged);
+  return merged;
+}
+
+async function readLiveState(entries: readonly CuratedAssetEntry[], good: Map<string, LiveState> | null): Promise<Map<string, LiveState>> {
   const client = getServerPublicClient();
   const contracts = entries.flatMap((e) => [
     { address: e.address, abi: b20AssetAbi, functionName: "multiplier" } as const,
@@ -118,12 +167,14 @@ async function loadLiveState(entries: readonly CuratedAssetEntry[]): Promise<Map
     const ea = res[i * PER + 5];
     const oracle = o?.status === "success" ? (o.result as readonly [bigint, boolean]) : null;
     const pendingMultiplier = nm?.status === "success" && ea?.status === "success" && (nm.result as bigint) > 0n && (ea.result as bigint) > 0n ? { multiplier: nm.result as bigint, effectiveAt: ea.result as bigint } : undefined;
-    out.set(canonicalId(e.address), {
-      multiplier: m?.status === "success" ? (m.result as bigint) : WAD,
-      transferPaused: p?.status === "success" ? (p.result as boolean) : false,
-      oracleRegistryPaused: oracle ? oracle[1] : null,
-      oracleRegistryMultiplier: oracle ? oracle[0] : null,
-      totalSupply: s?.status === "success" ? (s.result as bigint) : 0n,
+    const id = canonicalId(e.address);
+    const prev = good?.get(id) ?? null;
+    out.set(id, {
+      multiplier: m?.status === "success" ? (m.result as bigint) : (prev?.multiplier ?? WAD),
+      transferPaused: p?.status === "success" ? (p.result as boolean) : (prev?.transferPaused ?? false),
+      oracleRegistryPaused: oracle ? oracle[1] : (prev?.oracleRegistryPaused ?? null),
+      oracleRegistryMultiplier: oracle ? oracle[0] : (prev?.oracleRegistryMultiplier ?? null),
+      totalSupply: s?.status === "success" ? (s.result as bigint) : (prev?.totalSupply ?? null),
       pendingMultiplier,
     });
   });
@@ -160,14 +211,14 @@ async function assembleAssets(entries: readonly CuratedAssetEntry[]): Promise<B2
   const [meta, live, feeds] = await Promise.all([
     cached(`b20:meta:${entries.map((e) => e.address).join(",")}`, TTL.assetMetadata, () => loadStaticMeta(entries)),
     cached(`b20:live:${entries.map((e) => e.address).join(",")}`, TTL.oracle, () => loadLiveState(entries)),
-    cached(`b20:feeds:${entries.map((e) => e.chainlinkFeed).join(",")}`, TTL.oracle, () => readFeeds(entries.map((e) => e.chainlinkFeed))),
+    cached(`b20:feeds:${entries.map((e) => e.chainlinkFeed).join(",")}`, TTL.oracle, () => loadFeeds(entries.map((e) => e.chainlinkFeed))),
   ]);
   const now = Date.now();
   const assets: B20Asset[] = [];
   for (const e of entries) {
     const id = canonicalId(e.address);
     const m = meta.get(id);
-    const l: LiveState = live.get(id) ?? { multiplier: WAD, transferPaused: false, oracleRegistryPaused: null, oracleRegistryMultiplier: null, totalSupply: 0n, pendingMultiplier: undefined };
+    const l: LiveState = live.get(id) ?? { multiplier: WAD, transferPaused: false, oracleRegistryPaused: null, oracleRegistryMultiplier: null, totalSupply: null, pendingMultiplier: undefined };
     const f = feeds.get(e.chainlinkFeed.toLowerCase()) ?? null;
     assets.push({
       address: e.address,
@@ -183,7 +234,8 @@ async function assembleAssets(entries: readonly CuratedAssetEntry[]): Promise<B2
       wadPrecision: m?.wadPrecision ?? WAD,
       pendingMultiplier: l.pendingMultiplier,
       isin: m?.isin,
-      totalSupply: l.totalSupply,
+      totalSupply: l.totalSupply ?? 0n,
+      supplyKnown: l.totalSupply !== null,
       transferSenderPolicyId: m?.transferSenderPolicyId ?? 0n,
       transferReceiverPolicyId: m?.transferReceiverPolicyId ?? 0n,
       transferPaused: l.transferPaused,

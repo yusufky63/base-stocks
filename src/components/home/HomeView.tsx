@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
+import { hasMeaningfulChange, isIssued, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
 import { GiftsCard } from "@/components/pool/PoolList";
 import { useAccount } from "wagmi";
 import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from "lucide-react";
@@ -270,11 +270,13 @@ function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["ass
   });
   const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
   const volume = live.reduce((sum, x) => sum + (x.price?.volume24hUsd ?? 0), 0);
+  // No market data at all (a bad minute upstream, or the very first render) is "unknown", not "none live".
+  const known = items.some((x) => x.price?.liquidityUsd !== null && x.price?.liquidityUsd !== undefined);
   const cells = [
-    { label: "Live markets", value: String(live.length) },
+    { label: "Live markets", value: known ? String(live.length) : "—" },
     { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
     { label: "DEX volume · 24h", value: volume > 0 ? formatUsdCompact(volume) : "—" },
-    { label: "Issued", value: `${items.filter((x) => BigInt(x.asset.totalSupply ?? "0") > 0n).length} / ${total}` },
+    { label: "Issued", value: `${items.filter((x) => isIssued(x.asset)).length} / ${total}` },
   ];
   return (
     <dl className="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-px bg-line border border-line rounded-[8px] overflow-hidden max-w-[640px]">

@@ -6,7 +6,7 @@ import { useNews } from "@/components/news/NewsModule";
 import { useTickerSettings } from "@/hooks/useSettings";
 import { formatUsd } from "@/lib/format";
 import { AssetLogo, PriceChange } from "@/components/common/display";
-import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
+import { hasMeaningfulChange, isNotIssued, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
 
 /**
  * Global marquee rows above the header: prices (on by default) and headlines (opt-in from
@@ -44,7 +44,7 @@ function PricesRow() {
   const prices = sortByTradingStatus((assets?.assets ?? []).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] })), (x) => x);
   if (prices.length === 0) return null;
   const cells = prices.map(({ asset, price }) => (
-    <Link key={asset.canonicalId} href={`/stocks/${asset.address}`} className={`inline-flex items-center gap-2 px-3 h-8 border-r border-line hover:text-primary transition-fast${BigInt(asset.totalSupply ?? "0") === 0n ? " opacity-55" : ""}`} title={BigInt(asset.totalSupply ?? "0") === 0n ? "Not issued on Base yet" : undefined}>
+    <Link key={asset.canonicalId} href={`/stocks/${asset.address}`} className={`inline-flex items-center gap-2 px-3 h-8 border-r border-line hover:text-primary transition-fast${isNotIssued(asset) ? " opacity-55" : ""}`} title={isNotIssued(asset) ? "Not issued on Base yet" : undefined}>
       <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={16} className="rounded-[3px]" />
       <span className="font-medium">{asset.underlying}</span>
       <span className="num">{formatUsd(price?.displayUsd)}</span>

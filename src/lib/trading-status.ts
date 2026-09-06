@@ -31,9 +31,25 @@ function compactUsd(n: number): string {
   return `$${Math.round(n)}`;
 }
 
-export function tradingStatus(asset: Pick<B20AssetDTO, "status" | "totalSupply">, price?: Pick<PriceView, "liquidityUsd" | "volume24hUsd"> | null): TradingStatusView {
+type SupplyFacts = Pick<B20AssetDTO, "totalSupply"> & { supplyKnown?: boolean };
+
+/**
+ * "Not issued" is a claim about the stock — the issuer has minted nothing on Base — and it is
+ * made only from a supply that was actually read as zero. A supply the node could not tell us
+ * this time is unknown, and unknown is never reported as zero.
+ */
+export function isNotIssued(asset: SupplyFacts): boolean {
+  return asset.supplyKnown !== false && BigInt(asset.totalSupply ?? "0") === 0n;
+}
+
+/** Issued for certain: a supply that was read and is above zero. */
+export function isIssued(asset: SupplyFacts): boolean {
+  return asset.supplyKnown !== false && BigInt(asset.totalSupply ?? "0") > 0n;
+}
+
+export function tradingStatus(asset: Pick<B20AssetDTO, "status" | "totalSupply"> & { supplyKnown?: boolean }, price?: Pick<PriceView, "liquidityUsd" | "volume24hUsd"> | null): TradingStatusView {
   if (asset.status === "paused") return { status: "paused", label: "Paused", detail: "Transfers paused by the issuer", tone: "danger", rank: 5 };
-  if (BigInt(asset.totalSupply ?? "0") === 0n) return { status: "not-issued", label: "Not issued yet", detail: "No tokens minted on Base yet", tone: "neutral", rank: 4 };
+  if (isNotIssued(asset)) return { status: "not-issued", label: "Not issued yet", detail: "No tokens minted on Base yet", tone: "neutral", rank: 4 };
   const liq = price?.liquidityUsd ?? 0;
   const vol = price?.volume24hUsd ?? null;
   const volText = vol !== null && vol > 0 ? ` · ${compactUsd(vol)} 24h` : "";

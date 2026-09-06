@@ -54,8 +54,10 @@ export interface B20Asset {
   pendingMultiplier?: PendingMultiplier;
   /** Security identifier from `extraMetadata("isin")`, when set by the issuer. */
   isin?: string;
-  /** Onchain total supply in raw units; 0 means the issuer has not minted this stock yet. */
+  /** Onchain total supply in raw units; 0 means the issuer has not minted this stock yet — when it was read. */
   totalSupply: bigint;
+  /** False when the supply could not be read this time and nothing earlier is known: then 0 means "unknown", not "not issued". */
+  supplyKnown: boolean;
 
   /** Policy ids bound to transfer scopes (sender/receiver). */
   transferSenderPolicyId: bigint;
@@ -102,6 +104,8 @@ export interface B20AssetDTO {
   pendingMultiplier?: { multiplier: string; effectiveAt: number };
   isin?: string;
   totalSupply: string;
+  /** Omitted when true; false means the supply is unknown right now and must not be read as zero. */
+  supplyKnown?: boolean;
   transferPaused: boolean;
   transferSenderPolicyId: string;
   transferReceiverPolicyId: string;
@@ -137,6 +141,7 @@ export function toAssetDTO(a: B20Asset): B20AssetDTO {
     pendingMultiplier: a.pendingMultiplier ? { multiplier: a.pendingMultiplier.multiplier.toString(), effectiveAt: Number(a.pendingMultiplier.effectiveAt) } : undefined,
     isin: a.isin,
     totalSupply: a.totalSupply.toString(),
+    ...(a.supplyKnown ? {} : { supplyKnown: false }),
     transferPaused: a.transferPaused,
     transferSenderPolicyId: a.transferSenderPolicyId.toString(),
     transferReceiverPolicyId: a.transferReceiverPolicyId.toString(),
@@ -175,6 +180,7 @@ export function fromAssetDTO(d: B20AssetDTO): B20Asset {
     pendingMultiplier: d.pendingMultiplier ? { multiplier: BigInt(d.pendingMultiplier.multiplier), effectiveAt: BigInt(d.pendingMultiplier.effectiveAt) } : undefined,
     isin: d.isin,
     totalSupply: BigInt(d.totalSupply ?? "0"),
+    supplyKnown: d.supplyKnown !== false,
     transferPaused: d.transferPaused,
     transferSenderPolicyId: BigInt(d.transferSenderPolicyId),
     transferReceiverPolicyId: BigInt(d.transferReceiverPolicyId),

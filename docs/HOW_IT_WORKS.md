@@ -105,6 +105,10 @@ Price model (`src/services/price-service.ts`): `displayUsd` is the DEX market pr
 
 ---
 
+### 4.1 A bad minute upstream is never shown as a fact
+
+Two readings used to turn a transient failure into a claim about the stock: a `totalSupply` call the node did not answer was stored as `0` (so every stock read "Not issued yet" for as long as the cache held it), and a round where DexScreener and GeckoTerminal both answered nothing was cached as an empty market for its window (so every stock read "No pool" and the counters "0 live"). Both now go through `src/lib/last-good.ts`: the last value a loader ever produced, kept in memory and in the shared store for 30 days, replaced by the next good read and read back on the next bad one. The live-state batch (`b20:live`) takes the previous value per call that failed and the previous batch when the node refuses the whole multicall; the feeds (`b20:feeds`) likewise; the market snapshot (`market:snapshot`) fills each token the providers missed from its last reading for up to 24 h, keeping that reading's own `updatedAt`. An empty provider round is refused (`keyless: no market data from any provider`) rather than cached. A supply that was never read is `supplyKnown: false` on the asset, and `isNotIssued` / `isIssued` in `trading-status.ts` — the only places that decide issuance — treat it as unknown, never as zero. The counters on Home and Markets show "—" while nothing is known rather than "0".
+
 ## 5. Trading
 
 ### 5.1 Providers (`src/providers/trading`)

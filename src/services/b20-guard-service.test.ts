@@ -25,6 +25,7 @@ function asset(over: Partial<B20Asset> = {}): B20Asset {
     multiplier: WAD,
     wadPrecision: WAD,
     totalSupply: 1_000_000_00n,
+    supplyKnown: true,
     transferSenderPolicyId: 5n,
     transferReceiverPolicyId: 5n,
     transferPaused: false,

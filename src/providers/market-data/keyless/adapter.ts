@@ -1,6 +1,7 @@
 import type { Address } from "viem";
 import type { Candle, MarketDataProvider, Timeframe, TokenMarketData, TokenMetadata } from "@/domain/market";
 import { cached, TTL } from "@/lib/cache";
+import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { getDexScreenerMarkets, getDexScreenerLogo } from "../dexscreener/adapter";
 import { getGeckoTerminalMetadata, getGeckoTerminalOhlcv, getGeckoTerminalPrices, getGeckoTerminalPrimaryPool } from "../geckoterminal/adapter";
@@ -39,6 +40,9 @@ export class KeylessMarketDataProvider implements MarketDataProvider {
           metrics.count("keyless.prices.gt", false, err instanceof Error ? err.message : String(err));
         }
       }
+      // Nothing from either provider is an outage, not a market with no pools: refusing here keeps
+      // the previous good value in the cache instead of replacing it with an empty one for a window.
+      if (rows.size === 0) throw new AppError("PROVIDER_UNAVAILABLE", "keyless: no market data from any provider", 503);
       return [...rows.entries()];
     });
     return new Map(rows);

@@ -3,6 +3,7 @@ import type { B20Asset } from "@/domain/asset";
 import type { PriceView, TokenMarketData } from "@/domain/market";
 import { getMarketDataProvider } from "@/providers/market-data";
 import { readFeeds, isStale } from "@/providers/market-data/chainlink/reader";
+import { recallGood, rememberGood } from "@/lib/last-good";
 import { cached, TTL } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { serverEnv } from "@/config/env";
@@ -66,16 +67,35 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
 }
 
 /**
- * Last-known-good market data per token. DexScreener/GeckoTerminal intermittently miss individual
- * tokens (rate limits, partial batches); without this buffer a miss nulls liquidityUsd and a stock
- * flaps between "Live" and "No pool" on the home/markets counters. A miss is served from here for
- * up to 10 minutes, keeping the entry's original updatedAt so freshness display stays honest.
- * Module-level: survives warm serverless invocations, resets on cold start (same as no buffer).
+ * A token the providers missed this round keeps its last good reading for up to a day.
+ *
+ * DexScreener and GeckoTerminal miss tokens intermittently (rate limits, partial batches) and
+ * sometimes both answer nothing at all for a minute. Without this, a miss nulls `liquidityUsd`
+ * and a stock flaps between "Live" and "No pool" on every counter, and a bad minute shows as
+ * "0 live markets". The last good reading lives in the shared last-good store, so it survives a
+ * cold start too; each entry keeps its own `updatedAt`, so freshness stays honest, and after a
+ * day it is dropped rather than shown.
  */
-const lastGoodMarket = new Map<string, TokenMarketData>();
-const LAST_GOOD_MAX_AGE_MS = 10 * 60_000;
+const LAST_GOOD_MAX_AGE_MS = 24 * 3600_000;
+const MARKET_KEY = "market:snapshot";
 
-/** Market data for many assets; tolerant of provider failure (misses fall back to recent last-good values). */
+/** Fresh readings first; a token the fresh batch missed takes its last good reading unless that is older than `maxAgeMs`. Pure. */
+export function mergeMarketData(addresses: readonly Address[], fresh: Map<string, TokenMarketData>, good: Map<string, TokenMarketData> | null, now: number, maxAgeMs = LAST_GOOD_MAX_AGE_MS): Map<string, TokenMarketData> {
+  const out = new Map<string, TokenMarketData>();
+  for (const a of addresses) {
+    const k = a.toLowerCase();
+    const f = fresh.get(k);
+    if (f) {
+      out.set(k, f);
+      continue;
+    }
+    const kept = good?.get(k);
+    if (kept && now - kept.updatedAt <= maxAgeMs) out.set(k, kept);
+  }
+  return out;
+}
+
+/** Market data for many assets; tolerant of provider failure (misses fall back to the last good reading). */
 export async function getMarketDataMap(addresses: Address[]): Promise<Map<string, TokenMarketData>> {
   let fresh = new Map<string, TokenMarketData>();
   try {
@@ -84,17 +104,12 @@ export async function getMarketDataMap(addresses: Address[]): Promise<Map<string
     metrics.count("market.snapshot", false, err instanceof Error ? err.message : String(err));
   }
   const now = Date.now();
-  for (const [k, v] of fresh) lastGoodMarket.set(k.toLowerCase(), v);
-  for (const a of addresses) {
-    const k = a.toLowerCase();
-    if (fresh.has(k)) continue;
-    const kept = lastGoodMarket.get(k);
-    if (kept && now - kept.updatedAt <= LAST_GOOD_MAX_AGE_MS) {
-      fresh.set(k, kept);
-      metrics.count("market.lastgood", true);
-    }
-  }
-  return fresh;
+  const good = await recallGood<Map<string, TokenMarketData>>(MARKET_KEY);
+  const merged = mergeMarketData(addresses, fresh, good?.value ?? null, now);
+  if (merged.size > fresh.size) metrics.count("market.lastgood", true);
+  // Remember every token's latest reading: this round's where it answered, the earlier one where it did not.
+  if (fresh.size > 0) rememberGood(MARKET_KEY, new Map([...(good?.value ?? new Map<string, TokenMarketData>()), ...fresh]), now);
+  return merged;
 }
 
 export async function getPriceViews(assets: B20Asset[]): Promise<Map<string, PriceView>> {

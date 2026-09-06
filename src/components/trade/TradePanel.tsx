@@ -30,6 +30,7 @@ import { RouteCompare, PROVIDER_LABEL, ProviderMark } from "./RouteCompare";
 import { Segmented } from "@/components/ui/Segmented";
 import { SlippageControl } from "./SlippageControl";
 import { TRADE_ERROR_COPY } from "@/lib/errors";
+import { isNotIssued } from "@/lib/trading-status";
 
 const PCT_CHIPS = [25, 50, 75, 100];
 
@@ -224,7 +225,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           </>
         )}
 
-        {BigInt(asset.totalSupply ?? "0") === 0n && (
+        {isNotIssued(asset) && (
           <p className="text-[12px] text-ink-secondary border border-dashed border-warning-fg/50 rounded-[6px] px-3 py-2">
             Not issued onchain yet: Coinbase has not minted {asset.underlying} on Base, so no pool exists and no route can fill an order. The contract is live and unpaused; trading opens automatically once supply appears. Add it to your watchlist meanwhile.
           </p>
@@ -283,7 +284,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         ) : !isConnected ? (
           <ConnectButton full size="lg" />
         ) : (
-          <Button full size="lg" variant={side === "buy" ? "primary" : "ink"} disabled={!canReview || BigInt(asset.totalSupply ?? "0") === 0n} onClick={() => setReview(true)}>
+          <Button full size="lg" variant={side === "buy" ? "primary" : "ink"} disabled={!canReview || isNotIssued(asset)} onClick={() => setReview(true)}>
             {ctaLabel} <ArrowUpRight size={16} strokeWidth={1.75} />
           </Button>
         )}
