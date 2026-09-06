@@ -17,7 +17,6 @@ import { assetColor } from "@/lib/colors";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { Heatmap } from "./Heatmap";
-import { MarketClock } from "@/components/layout/MarketClock";
 import { Segmented } from "@/components/ui/Segmented";
 import { useMarketsView, type MarketsView as MarketsViewMode } from "@/hooks/useSettings";
 
@@ -89,7 +88,6 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         lead={
           <span className="inline-flex items-center gap-2 flex-wrap">
             <span className="live-dot" /> Live · {data ? <>updated <TimeAgo value={data.readAt} placeholder="just now" /></> : "loading"}
-            <MarketClock className="text-ink-muted before:content-['·'] before:mr-2" />
           </span>
         }
         action={

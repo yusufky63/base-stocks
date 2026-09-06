@@ -29,7 +29,6 @@ The narrative and FAQ live in the app at `/how-it-works`. The technical referenc
 - **Public feed**: the latest verified transactions, with no wallet named, on Home and on Activity for visitors without a wallet; the same shared-cached object as the counters and `/stats`.
 - **Heatmap view**: Markets can be read as tiles instead of a list, each stock coloured by its 24h move with the three deepest markets doubled; the choice is remembered.
 - **Benchmark**: the equal-weight index of the listed stocks runs dashed behind the portfolio's value history, one shared-cached series per window.
-- **Market clock**: the Markets page says whether the NYSE is open and when that changes; off hours, prices come from the pools.
 - **Gift a basket**: any template or basket becomes a one-share package, claimable with a link, from the stocks you hold.
 - **Statistics that stay cheap**: finished days are rolled up once and stored; `/stats` reads the recent days and the rollups, so it costs the same at ten thousand records as at a hundred.
 - **An integrator fee, off by default**: set a rate and a recipient and KyberSwap, CoW and 0x routes carry it, shown on the quote and summed on `/stats`.
