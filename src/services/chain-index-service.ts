@@ -54,6 +54,32 @@ async function withTimes(rows: IndexedTransfer[]): Promise<IndexedTransfer[]> {
   return rows.map((r) => ({ ...r, blockTime: times.get(r.blockNumber) }));
 }
 
+/**
+ * A public RPC that caps `eth_getLogs` below our chunk answers the whole sweep with one error,
+ * which used to fail the maintenance run every hour. The range is halved and retried instead,
+ * down to a floor that keeps the common 1k-2k caps working without turning one chunk into
+ * hundreds of calls on the pathological ones (1rpc.io allows 50 blocks). Below the floor the
+ * error stands and the caller decides; anything that is not a range complaint is re-thrown.
+ */
+const MIN_CHUNK = 1_000n;
+
+function isRangeLimit(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err);
+  return /limited to|block range|range is too large|exceed|too many blocks|up to \d+ blocks/i.test(m);
+}
+
+async function getLogsAdaptive<T>(from: bigint, to: bigint, read: (a: bigint, b: bigint) => Promise<T[]>): Promise<T[]> {
+  try {
+    return await read(from, to);
+  } catch (err) {
+    const span = to - from + 1n;
+    if (!isRangeLimit(err) || span <= MIN_CHUNK) throw err;
+    const mid = from + span / 2n - 1n;
+    const [a, b] = [await getLogsAdaptive(from, mid, read), await getLogsAdaptive(mid + 1n, to, read)];
+    return [...a, ...b];
+  }
+}
+
 /** One wallet's transfers over a block range, read from the chain (two calls per chunk, in and out). */
 async function scanWallet(wallet: Address, tokens: Address[], fromBlock: bigint, toBlock: bigint): Promise<IndexedTransfer[]> {
   const client = getServerPublicClient();
@@ -61,8 +87,8 @@ async function scanWallet(wallet: Address, tokens: Address[], fromBlock: bigint,
   for (let start = fromBlock; start <= toBlock; start += CHUNK + 1n) {
     const end = start + CHUNK > toBlock ? toBlock : start + CHUNK;
     const [sent, received] = await Promise.all([
-      client.getLogs({ address: tokens, event: TRANSFER_EVENT, args: { from: wallet }, fromBlock: start, toBlock: end }),
-      client.getLogs({ address: tokens, event: TRANSFER_EVENT, args: { to: wallet }, fromBlock: start, toBlock: end }),
+      getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, args: { from: wallet }, fromBlock: a, toBlock: b })),
+      getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, args: { to: wallet }, fromBlock: a, toBlock: b })),
     ]);
     rows.push(...toRows([...sent, ...received] as RawLog[]));
   }
@@ -141,17 +167,28 @@ export async function sweepTransfers(opts: { maxBlocks?: bigint } = {}): Promise
   const tokens = await stockAddresses();
   const kept: IndexedTransfer[] = [];
   let found = 0;
+  let covered = from - 1n;
   for (let start = from; start <= to; start += CHUNK + 1n) {
     const end = start + CHUNK > to ? to : start + CHUNK;
-    const logs = await client.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: start, toBlock: end });
+    let logs;
+    try {
+      logs = await getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: a, toBlock: b }));
+    } catch (err) {
+      // An RPC too narrow for even the floor: keep what this run did read and let the next sweep
+      // continue from there. The cursor makes partial progress the normal case, not a failure.
+      if (!isRangeLimit(err)) throw err;
+      metrics.count("index.sweep", false, err instanceof Error ? err.message.slice(0, 160) : String(err));
+      break;
+    }
     const rows = toRows(logs as RawLog[]);
     found += rows.length;
     kept.push(...rows.filter((r) => wallets.has(r.from.toLowerCase()) || wallets.has(r.to.toLowerCase())));
+    covered = end;
   }
   const added = kept.length > 0 ? await repos.chainTransfers.insertMany(await withTimes(kept)) : 0;
-  await repos.cursors.set(CURSOR_KEY, Number(to)).catch(() => undefined);
+  if (covered >= from) await repos.cursors.set(CURSOR_KEY, Number(covered)).catch(() => undefined);
   metrics.count("index.sweep", true, `${found} transfers seen, ${added} kept`);
-  return { ...base, found, added, more: to < head };
+  return { ...base, toBlock: covered.toString(), found, added, more: covered < head };
 }
 
 /**
@@ -171,7 +208,7 @@ async function tailTransfers(): Promise<IndexedTransfer[]> {
     const rows: IndexedTransfer[] = [];
     for (let start = from; start <= head; start += CHUNK + 1n) {
       const end = start + CHUNK > head ? head : start + CHUNK;
-      const logs = await client.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: start, toBlock: end });
+      const logs = await getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: a, toBlock: b }));
       rows.push(...toRows(logs as RawLog[]));
     }
     return withTimes(rows);

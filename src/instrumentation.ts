@@ -56,12 +56,21 @@ export async function register() {
 }
 
 /**
+ * Framework notices that arrive here as errors but describe no failure. "Page changed from static
+ * to dynamic" is the loudest: the home page is prerendered and then reads live prices with a
+ * no-store fetch, which is the intended trade — a page that quotes prices must not be served from
+ * a cache. Recording it once a request buried the real errors and kept the monitor alarm on.
+ */
+const NON_ERRORS = [/Page changed from static to dynamic at runtime/i];
+
+/**
  * Server-side errors Next catches while rendering or handling a request (route handlers report
  * their own through `route()`). Recorded like every other error, so they are seen.
  */
 export async function onRequestError(err: unknown, request: { path: string; method: string }, context: { routerKind: string; routeType: string; routePath?: string }): Promise<void> {
-  const { recordError } = await import("@/lib/error-sink");
   const message = err instanceof Error ? err.message : String(err);
+  if (NON_ERRORS.some((re) => re.test(message))) return;
+  const { recordError } = await import("@/lib/error-sink");
   const digest = typeof err === "object" && err !== null && "digest" in err ? String((err as { digest?: unknown }).digest) : undefined;
   await recordError({ source: "server", route: request.path, message, digest, stack: err instanceof Error ? err.stack : undefined, meta: { method: request.method, routerKind: context.routerKind, routeType: context.routeType, routePath: context.routePath } });
 }
