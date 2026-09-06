@@ -18,7 +18,8 @@ export const maxDuration = 60;
 const JOBS = ["discovery", "status", "pools", "verify", "earn", "index", "rollup", "stats", "sweep"] as const;
 type Job = (typeof JOBS)[number];
 
-const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional() });
+/** `blocks` narrows the transfer sweep for one call, so a stalled cursor can be walked forward by hand. */
+const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional(), blocks: z.coerce.number().int().min(100).max(200_000).optional() });
 
 /**
  * Scheduled maintenance, one job per request so none eats another's budget.
@@ -30,7 +31,14 @@ const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional() });
  * share) and `status` (probes). `discovery` and `sweep` (expired cache and rate-limit rows) are
  * daily work. Every call carries `Authorization: Bearer <CRON_SECRET>`; anyone else gets 401.
  */
-const runners: Record<Job, () => Promise<unknown>> = {
+const DEFAULT_SWEEP_BLOCKS = 10_000;
+
+/** Per-request options, passed down rather than held in module state (instances serve in parallel). */
+interface JobOpts {
+  sweepBlocks: number;
+}
+
+const runners: Record<Job, (o: JobOpts) => Promise<unknown>> = {
   discovery: () => syncDiscoveredAssets({ lookbackBlocks: 120_000n }),
   status: async () => {
     const s = await getStatusReport();
@@ -41,9 +49,9 @@ const runners: Record<Job, () => Promise<unknown>> = {
   earn: () => sweepEarn(),
   // A run has to finish inside `maxDuration`, and a degraded RPC turns one chunk into several
   // calls, so the sweep gets a block budget rather than the whole backlog. Base mines ~450 blocks
-  // a minute and this runs every fifteen, so 20k both keeps up and eats a stalled cursor's
-  // backlog over a few runs; `more` in the result says when there is still ground to cover.
-  index: () => sweepTransfers({ maxBlocks: 20_000n }),
+  // a minute and this runs every fifteen, so this keeps up with room to spare and eats a stalled
+  // cursor's backlog over a few runs; `more` in the result says when there is ground left.
+  index: (o) => sweepTransfers({ maxBlocks: BigInt(o.sweepBlocks) }),
   // Finished days are reduced to stored rollups before the statistics are recomputed, so the
   // recomputation reads only the recent days' records.
   rollup: async () => {
@@ -70,10 +78,10 @@ const runners: Record<Job, () => Promise<unknown>> = {
   },
 };
 
-async function runJob(job: Job): Promise<{ job: Job; ms: number; result?: unknown; error?: string }> {
+async function runJob(job: Job, opts: JobOpts): Promise<{ job: Job; ms: number; result?: unknown; error?: string }> {
   const started = Date.now();
   try {
-    const result = await runners[job]();
+    const result = await runners[job](opts);
     return { job, ms: Date.now() - started, result };
   } catch (err) {
     return { job, ms: Date.now() - started, error: err instanceof Error ? err.message : String(err) };
@@ -84,10 +92,11 @@ export const GET = route({}, async (req) => {
   const secret = serverEnv().CRON_SECRET;
   const auth = req.headers.get("authorization") ?? "";
   if (!secret || auth !== `Bearer ${secret}`) throw new AppError("UNAUTHORIZED", "Cron secret required", 401);
-  const { job } = parseQuery(req, querySchema);
+  const { job, blocks } = parseQuery(req, querySchema);
+  const opts: JobOpts = { sweepBlocks: blocks ?? DEFAULT_SWEEP_BLOCKS };
   const started = Date.now();
   const jobs: Job[] = !job || job === "all" ? [...JOBS] : [job];
   const results = [];
-  for (const j of jobs) results.push(await runJob(j));
+  for (const j of jobs) results.push(await runJob(j, opts));
   return json({ ok: results.every((r) => !r.error), ms: Date.now() - started, results });
 });
