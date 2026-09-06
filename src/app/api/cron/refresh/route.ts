@@ -39,7 +39,11 @@ const runners: Record<Job, () => Promise<unknown>> = {
   pools: () => sweepOpenPools(),
   verify: () => verifyPendingRecords(),
   earn: () => sweepEarn(),
-  index: () => sweepTransfers(),
+  // A run has to finish inside `maxDuration`, and a degraded RPC turns one chunk into several
+  // calls, so the sweep gets a block budget rather than the whole backlog. Base mines ~450 blocks
+  // a minute and this runs every fifteen, so 20k both keeps up and eats a stalled cursor's
+  // backlog over a few runs; `more` in the result says when there is still ground to cover.
+  index: () => sweepTransfers({ maxBlocks: 20_000n }),
   // Finished days are reduced to stored rollups before the statistics are recomputed, so the
   // recomputation reads only the recent days' records.
   rollup: async () => {
