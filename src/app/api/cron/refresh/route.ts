@@ -31,7 +31,7 @@ const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional(), blocks:
  * share) and `status` (probes). `discovery` and `sweep` (expired cache and rate-limit rows) are
  * daily work. Every call carries `Authorization: Bearer <CRON_SECRET>`; anyone else gets 401.
  */
-const DEFAULT_SWEEP_BLOCKS = 10_000;
+const DEFAULT_SWEEP_BLOCKS = 5_000;
 
 /** Per-request options, passed down rather than held in module state (instances serve in parallel). */
 interface JobOpts {
@@ -47,10 +47,11 @@ const runners: Record<Job, (o: JobOpts) => Promise<unknown>> = {
   pools: () => sweepOpenPools(),
   verify: () => verifyPendingRecords(),
   earn: () => sweepEarn(),
-  // A run has to finish inside `maxDuration`, and a degraded RPC turns one chunk into several
-  // calls, so the sweep gets a block budget rather than the whole backlog. Base mines ~450 blocks
-  // a minute and this runs every fifteen, so this keeps up with room to spare and eats a stalled
-  // cursor's backlog over a few runs; `more` in the result says when there is ground left.
+  // A run has to finish inside `maxDuration`, so the sweep gets a block budget rather than the
+  // whole backlog. Measured on production: 5k blocks is ~19k transfer logs and ~20 s, while 10k
+  // and 20k timed out. Base's two-second blocks mean ~450 arrive between runs, so this default
+  // keeps up ten times over and still eats a stalled cursor's backlog; `more` says when there is
+  // ground left, and `?blocks=` sizes a catch-up call by hand.
   index: (o) => sweepTransfers({ maxBlocks: BigInt(o.sweepBlocks) }),
   // Finished days are reduced to stored rollups before the statistics are recomputed, so the
   // recomputation reads only the recent days' records.
