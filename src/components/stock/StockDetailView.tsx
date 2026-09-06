@@ -25,6 +25,7 @@ import { TradesModule } from "./TradesModule";
 import { OrdersModule } from "@/components/trade/OrdersModule";
 import { PoolsModule } from "./PoolsModule";
 import { CorporateActionsModule } from "./CorporateActionsModule";
+import { LaunchpadModule } from "./LaunchpadModule";
 import { PlatformActivity } from "./PlatformActivity";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { SendSheet } from "@/components/gift/SendSheet";
@@ -105,7 +106,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <ShareButton iconOnly path={`/stocks/${asset.address}`} text={`${asset.underlying} as a tokenized stock on Base. Trade it self-custodially on BStocks.`} title={`Share ${asset.underlying}`} />
+                <ShareButton iconOnly path={`/stocks/${asset.address}`} text={`${asset.underlying} as a tokenized stock on Base. Trade it self-custodially on BaseStocks.`} title={`Share ${asset.underlying}`} />
                 {user && (
                   <button type="button" aria-label={watched ? "Remove from watchlist" : "Add to watchlist"} aria-pressed={watched} onClick={() => watchlist.toggle(asset.address as Address)} className={cx("h-9 w-9 inline-flex items-center justify-center rounded-[6px] border transition-fast", watched ? "text-primary border-primary bg-primary-soft" : "text-ink-muted border-line hover:border-line-strong hover:text-ink")}>
                     <Star size={16} strokeWidth={1.75} fill={watched ? "currentColor" : "none"} />
@@ -188,6 +189,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 <div className="p-4 border-b border-line">
                   <PlatformActivity assetAddress={asset.address} underlying={asset.underlying} />
                 </div>
+                <LaunchpadModule stockAddress={asset.address} underlying={asset.underlying} />
                 <AssetDetails asset={asset} price={price} />
               </>
             )}

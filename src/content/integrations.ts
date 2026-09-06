@@ -4,6 +4,8 @@
  * keys (see /api/config and /status). Marks come from DefiLlama's icon CDN where one exists;
  * `mark: null` falls back to a lettered badge.
  */
+import { LAUNCHPAD_URL } from "./ecosystem";
+
 export interface Integration {
   name: string;
   /** DefiLlama protocol slug for the icon CDN, or null for a lettered badge. */
@@ -64,6 +66,7 @@ export const INTEGRATIONS: IntegrationGroup[] = [
     blurb: "Base-native pieces that make the app feel simple: passkey accounts, names, attribution, fast confirmations.",
     items: [
       { name: "Coinbase Tokenized Stocks", mark: null, color: "#0052ff", url: "https://www.base.org/stocks", role: "B20 assets, registry, oracles" },
+      { name: "StockPair", mark: null, color: "#0370fd", url: LAUNCHPAD_URL, role: "Stock-paired token launchpad · part of BaseStocks" },
       { name: "Base Account", mark: null, color: "#0000ff", url: "https://docs.base.org/sdks/base-account/overview", role: "Passkey wallet, atomic batches, sponsored gas" },
       { name: "Basenames", mark: null, color: "#0000ff", url: "https://www.base.org/names", role: "Send to alice.base.eth" },
       { name: "Builder Codes", mark: null, color: "#0000ff", url: "https://docs.base.org/specifications/builder-codes/for-app-developers", role: "ERC-8021 attribution on every transaction" },

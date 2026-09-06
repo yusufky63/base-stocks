@@ -7,6 +7,12 @@
       "runtimeArgs": ["dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "stockpair-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Projeler/token-launcher/apps/web", "dev", "-p", "3210"],
+      "port": 3210
     }
   ]
 }
