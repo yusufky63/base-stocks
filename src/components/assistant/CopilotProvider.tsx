@@ -55,7 +55,6 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
   const hydrated = useRef(false);
   /** Read by `send` so the history it posts never depends on a stale closure or an updater. */
   const messagesRef = useRef<CopilotMessage[]>([]);
-  messagesRef.current = messages;
 
   useEffect(() => {
     if (hydrated.current) return;
@@ -64,6 +63,7 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    messagesRef.current = messages;
     if (!hydrated.current) return;
     try {
       sessionStorage.setItem(STORE_KEY, JSON.stringify(messages.slice(-MAX_STORED)));

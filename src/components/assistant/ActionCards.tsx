@@ -178,6 +178,7 @@ function BasketDraftCard({ action }: { action: Extract<AssistantAction, { kind: 
 }
 
 function AutoInvestDraftCard({ action }: { action: Extract<AssistantAction, { kind: "autoinvest" }> }) {
+  const router = useRouter();
   const { draft } = action;
   const allocations = draft.type === "recurring-buy" && draft.assetAddress ? [{ assetAddress: draft.assetAddress as `0x${string}`, weightBps: 10_000 }] : (draft.allocations ?? []);
   const href = `${automateHref(allocations, draft.basketName ?? draft.symbol)}${allocations.length ? "&" : "?"}usd=${draft.amountUsd}&cadence=${draft.cadenceDays}`;
@@ -186,7 +187,7 @@ function AutoInvestDraftCard({ action }: { action: Extract<AssistantAction, { ki
       <div className="text-[14px] font-medium">{draft.type === "recurring-buy" ? `${formatUsd(draft.amountUsd)} of ${draft.symbol ?? "?"}` : `${formatUsd(draft.amountUsd)} into ${draft.basketName ?? "a basket"}`}</div>
       <KeyValue k="Cadence" v={`every ${draft.cadenceDays} day${draft.cadenceDays === 1 ? "" : "s"}`} />
       {draft.notes && <p className="text-[12px] text-ink-secondary border-l-2 border-primary pl-2">{draft.notes}</p>}
-      <Button size="sm" onClick={() => (window.location.href = href)}>
+      <Button size="sm" onClick={() => router.push(href)}>
         Open in AutoInvest
       </Button>
       <SignNote />

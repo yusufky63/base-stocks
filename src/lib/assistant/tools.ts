@@ -13,10 +13,8 @@ import { getStatusReport } from "@/services/status-service";
 import { listOrders } from "@/providers/trading/cow/adapter";
 import { getRepos } from "@/db/repositories";
 import { marketContextText } from "@/services/digest-service";
-import { getPriceViews } from "@/services/price-service";
 import { tradeRouter } from "@/services/trade-router";
 import { buildUniverseContext, cleanText, finalizeBasketDraft, resolveSymbol, symbolMap } from "@/services/basket-intent-service";
-import { hasMeaningfulChange, tradingStatus } from "@/lib/trading-status";
 import { timeAgo } from "@/lib/format";
 import type { B20Asset } from "@/domain/asset";
 import type { AutomationDraft } from "@/lib/client-api";
@@ -212,7 +210,7 @@ const getPools: AssistantTool<Record<string, never>> = {
   name: "get_pools",
   description: "Public gift pools anyone can claim a share from: title, what one share holds, how many shares are left.",
   schema: z.object({}),
-  async run(ctx) {
+  async run() {
     const pools = await listPublicPools(12).catch(() => []);
     const open = pools.filter((p) => p.pool.status === "live");
     if (open.length === 0) return forModel("No open gift pools right now.");
