@@ -67,7 +67,7 @@ async function fetchText(url: string, timeoutMs: number, accept = "application/r
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, headers: { "user-agent": "Mozilla/5.0 (compatible; BStocks/1.0)", accept }, cache: "no-store" });
+    const res = await fetch(url, { signal: controller.signal, headers: { "user-agent": "Mozilla/5.0 (compatible; BaseStocks/1.0)", accept }, cache: "no-store" });
     if (!res.ok) throw new Error(`http ${res.status}`);
     return await res.text();
   } finally {
@@ -248,106 +248,3 @@ export async function getEcosystemNews(limit = 20, tickers: string[] = []): Prom
   return all.slice(0, limit).map((it) => ({ ...it, spotlight: true, tickers: tickersMentioned(it.title, tickers) }));
 }
 
-/* ------------------------------ Posts from X ------------------------------ */
-
-/** The ecosystem's own voice: the chain, the exchange, its listings desk and its markets desk. */
-export const X_ACCOUNTS = ["base", "coinbase", "CoinbaseAssets", "CoinbaseMarkets"] as const;
-
-interface XTweet {
-  id_str?: string;
-  created_at?: string;
-  full_text?: string;
-  text?: string;
-  permalink?: string;
-  in_reply_to_screen_name?: string | null;
-  retweeted_status?: unknown;
-  user?: { screen_name?: string };
-  entities?: { urls?: Array<{ url: string; expanded_url?: string }>; media?: Array<{ url: string }> };
-}
-
-const X_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-
-/** "Thu Sep 03 11:53:36 +0000 2026": X's legacy date, which Date.parse does not promise to read. */
-export function parseXDate(s: string): number {
-  const m = /^\w{3} (\w{3}) (\d{1,2}) (\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2}) (\d{4})$/.exec(s.trim());
-  if (!m) {
-    const t = Date.parse(s);
-    return Number.isFinite(t) ? t : 0;
-  }
-  const month = X_MONTHS.indexOf(m[1]!.toLowerCase());
-  if (month < 0) return 0;
-  const offsetMs = (m[6] === "-" ? -1 : 1) * (Number(m[7]) * 60 + Number(m[8])) * 60_000;
-  return Date.UTC(Number(m[9]), month, Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])) - offsetMs;
-}
-
-/**
- * The embed page of a profile carries its timeline as Next.js page data; the posts come out of that.
- * Replies to other people are conversation, not announcements, and are left out; a thread continued
- * under the account's own post stays. Short links are expanded, media links dropped.
- */
-export function parseXTimeline(html: string, handle: string): NewsItem[] {
-  const m = /<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
-  if (!m) return [];
-  let data: unknown;
-  try {
-    data = JSON.parse(m[1]!);
-  } catch {
-    return [];
-  }
-  const entries = (data as { props?: { pageProps?: { timeline?: { entries?: Array<{ content?: { tweet?: XTweet } }> } } } }).props?.pageProps?.timeline?.entries ?? [];
-  const out: NewsItem[] = [];
-  for (const e of entries) {
-    const t = e.content?.tweet;
-    if (!t?.id_str) continue;
-    const author = t.user?.screen_name ?? handle;
-    if (t.in_reply_to_screen_name && t.in_reply_to_screen_name.toLowerCase() !== author.toLowerCase()) continue;
-    let text = t.full_text ?? t.text ?? "";
-    for (const u of t.entities?.urls ?? []) if (u.expanded_url) text = text.split(u.url).join(u.expanded_url);
-    for (const md of t.entities?.media ?? []) text = text.split(md.url).join(" ");
-    text = text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim().slice(0, 280);
-    if (!text) continue;
-    out.push({
-      id: `x:${t.id_str}`,
-      title: text,
-      url: `https://x.com${t.permalink ?? `/${author}/status/${t.id_str}`}`,
-      source: `@${author}`,
-      publishedAt: parseXDate(t.created_at ?? ""),
-      ticker: "X",
-      via: "x",
-      spotlight: true,
-    });
-  }
-  return out;
-}
-
-async function xTimeline(handle: string): Promise<NewsItem[]> {
-  const html = await breakers.x.run(() => fetchText(`https://syndication.twitter.com/srv/timeline-profile/screen-name/${encodeURIComponent(handle)}`, 8_000, "text/html"));
-  return parseXTimeline(html, handle);
-}
-
-/**
- * Recent posts from the ecosystem's own accounts, newest first, tagged with the listed tickers they
- * name. The embed feed is public and keyless (and unofficial: it can change without notice, which
- * the breaker and the stale cache absorb). It sometimes hands back a year-old timeline for an
- * account, so anything older than thirty days is left out rather than shown as news.
- */
-export async function getXPosts(limit = 20, tickers: string[] = []): Promise<NewsItem[]> {
-  const all = await cached("news:x", { ttlMs: 15 * 60_000, staleMs: 6 * 60 * 60_000, shared: true }, async () => {
-    const results = await Promise.allSettled(X_ACCOUNTS.map((h) => xTimeline(h)));
-    const merged: NewsItem[] = [];
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled") merged.push(...r.value);
-      else metrics.count("news.x", false, `${X_ACCOUNTS[i]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
-    });
-    // Every account failing (X's 30-requests-a-window limit, most likely) is not "no posts": leave the
-    // cache empty so the next request tries again, and serve whatever stale copy there is meanwhile.
-    if (merged.length === 0 && results.some((r) => r.status === "rejected")) throw new Error("x feed unavailable");
-    const floor = Date.now() - 30 * 24 * 60 * 60_000;
-    const seen = new Set<string>();
-    return merged
-      .filter((x) => x.publishedAt >= floor && !seen.has(x.id) && seen.add(x.id))
-      .sort((a, b) => b.publishedAt - a.publishedAt)
-      .slice(0, 80);
-  }).catch(() => [] as NewsItem[]);
-  return all.slice(0, limit).map((it) => ({ ...it, tickers: tickersMentioned(it.title, tickers) }));
-}

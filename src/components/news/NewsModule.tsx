@@ -22,7 +22,7 @@ export interface NewsItemDTO {
   spotlight?: boolean;
 }
 
-export type NewsFeedFilter = "stocks" | "markets" | "ecosystem" | "x" | { ticker: string };
+export type NewsFeedFilter = "stocks" | "markets" | "ecosystem" | { ticker: string };
 
 export function newsQueryKey(filter: NewsFeedFilter, limit: number) {
   return ["news", typeof filter === "string" ? filter : `t:${filter.ticker}`, limit] as const;

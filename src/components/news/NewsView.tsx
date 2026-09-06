@@ -26,15 +26,14 @@ export function NewsView() {
   const [seenScope, setSeenScope] = useState(scope);
   if (scope !== seenScope) {
     setSeenScope(scope);
-    if (scope === "ecosystem" || scope === "x") setFilter(scope);
+    if (scope === "ecosystem") setFilter(scope);
   }
   const feed = useNewsFeed(filter, typeof filter === "string" ? 30 : 20);
   const ecosystem = useNewsFeed("ecosystem", 5);
-  const xFeed = useNewsFeed("x", 6);
   const ticker = useTickerSettings();
   const tickers = (assets?.assets ?? []).map((a) => a.underlying);
   const activeTicker = typeof filter === "string" ? null : filter.ticker;
-  const title = filter === "stocks" ? "Latest across stocks" : filter === "markets" ? "Markets" : filter === "ecosystem" ? "Tokenized stocks on Base · Coinbase listings" : filter === "x" ? "Posts from X · @base, @coinbase, @CoinbaseAssets, @CoinbaseMarkets" : `${activeTicker} headlines`;
+  const title = filter === "stocks" ? "Latest across stocks" : filter === "markets" ? "Markets" : filter === "ecosystem" ? "Tokenized stocks on Base · Coinbase listings" : `${activeTicker} headlines`;
 
   return (
     <div className="flex flex-col gap-6">
@@ -45,9 +44,6 @@ export function NewsView() {
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
         <Chip active={filter === "ecosystem"} onClick={() => setFilter("ecosystem")} className={filter === "ecosystem" ? "" : "border-primary/40 text-primary"}>
           Base &amp; Coinbase
-        </Chip>
-        <Chip active={filter === "x"} onClick={() => setFilter("x")} className={filter === "x" ? "" : "border-primary/40 text-primary"}>
-          X posts
         </Chip>
         <Chip active={filter === "stocks"} onClick={() => setFilter("stocks")}>
           All stocks
@@ -99,33 +95,10 @@ export function NewsView() {
               <NewsList items={feed.data?.items ?? []} showTicker={filter !== "markets" && activeTicker === null} />
             )}
             {filter === "ecosystem" && <p className="px-4 py-2.5 text-[11px] text-ink-muted border-t border-line">Google News searches for tokenized stocks on Base and the Coinbase listings. Tickers in blue are the listed stocks a headline names.</p>}
-            {filter === "x" && <p className="px-4 py-2.5 text-[11px] text-ink-muted border-t border-line">The accounts&apos; own posts, read from X&apos;s public embed feed; replies to others are left out. Each opens on x.com. Tickers in blue are the listed stocks a post names.</p>}
           </Module>
         </div>
 
         <div className="flex flex-col gap-6">
-          {filter !== "x" && (
-            <Module>
-              <ModuleHeader
-                title="From X"
-                action={
-                  <button type="button" onClick={() => setFilter("x")} className="text-[13px] text-primary font-medium">
-                    All posts →
-                  </button>
-                }
-              />
-              {xFeed.isLoading && !xFeed.data ? (
-                <div className="p-4 flex flex-col gap-2">
-                  <Skeleton className="h-9" />
-                  <Skeleton className="h-9" />
-                </div>
-              ) : xFeed.data && xFeed.data.items.length > 0 ? (
-                <NewsList items={xFeed.data.items.slice(0, 5)} showTicker compact />
-              ) : (
-                <p className="px-4 py-3 text-[13px] text-ink-secondary">No recent posts could be read from X right now.</p>
-              )}
-            </Module>
-          )}
           <Module>
             <ModuleHeader title="In the ticker" />
             <div className="p-4 flex flex-col gap-3">

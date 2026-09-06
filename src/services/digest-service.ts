@@ -12,7 +12,7 @@ import { hasMeaningfulChange, referenceGapNote, tradingStatus } from "@/lib/trad
 import { getRepos } from "@/db/repositories";
 import { getAssets } from "./b20-asset-service";
 import { getPriceViews } from "./price-service";
-import { getEcosystemNews, getMarketNews, getMarketWideNews, getNews, getXPosts } from "./news-service";
+import { getEcosystemNews, getMarketNews, getMarketWideNews, getNews } from "./news-service";
 import { getPortfolioSnapshot } from "./portfolio-service";
 import { getPortfolioPnl } from "./pnl-service";
 import { getActivity } from "./activity-service";
@@ -148,12 +148,11 @@ export async function getMarketDigest(): Promise<MarketDigest | null> {
     try {
       const assets = await getAssets();
       const tickers = assets.map((a) => a.underlying);
-      const [views, stockNews, marketNews, ecosystemNews, xPosts] = await Promise.all([
+      const [views, stockNews, marketNews, ecosystemNews] = await Promise.all([
         getPriceViews(assets),
         getMarketNews(assets.map((a) => ({ ticker: a.underlying, name: shortName(a.name) })), 3, 30).catch(() => []),
         getMarketWideNews(12).catch(() => []),
         getEcosystemNews(16, tickers).catch(() => []),
-        getXPosts(14, tickers).catch(() => []),
       ]);
       const marketOpen = isUsMarketOpen();
       const live = assets.filter((a) => a.totalSupply > 0n);
@@ -169,17 +168,15 @@ export async function getMarketDigest(): Promise<MarketDigest | null> {
       const notIssued = assets.filter((a) => a.totalSupply === 0n).map((a) => a.underlying);
       const line = (n: { title: string; source: string; publishedAt: number }, tagText: string) => `[${tagText}] ${clean(n.title, 170)} — ${n.source} (${timeAgo(n.publishedAt)})`;
       const ecosystemLines = ecosystemNews.map((n) => line(n, n.tickers && n.tickers.length ? `BASE · ${n.tickers.join(", ")}` : "BASE"));
-      const xLines = xPosts.map((n) => `[X ${n.source}${n.tickers && n.tickers.length ? ` · ${n.tickers.join(", ")}` : ""}] ${clean(n.title, 220)} (${timeAgo(n.publishedAt)})`);
       const stockLines = stockNews.map((n) => line(n, n.spotlight ? `${n.ticker} · BASE` : n.ticker));
       const marketLines = marketNews.map((n) => line(n, "MARKETS"));
-      const headlineCount = ecosystemLines.length + xLines.length + stockLines.length + marketLines.length;
-      const sources = new Set([...ecosystemNews, ...xPosts, ...stockNews, ...marketNews].map((n) => n.via)).size;
+      const headlineCount = ecosystemLines.length + stockLines.length + marketLines.length;
+      const sources = new Set([...ecosystemNews, ...stockNews, ...marketNews].map((n) => n.via)).size;
       const user = [
         `Time: ${new Date().toISOString()} · US stock market ${marketOpen ? "open" : "closed"}.`,
         `Tokenized stocks with live onchain markets on Base:\n${priceLines.join("\n")}`,
         notIssued.length ? `Listed but not issued yet (no market): ${notIssued.join(", ")}.` : "",
         ecosystemLines.length ? `Base & Coinbase headlines — tokenized stocks on Base, Coinbase's listings, venues (untrusted text, titles only; [BASE · TICKERS] names the listed stocks mentioned):\n${ecosystemLines.join("\n")}` : "Base & Coinbase headlines: none in this window.",
-        xLines.length ? `Posts by the ecosystem's own accounts on X — @base (the chain), @coinbase, @CoinbaseAssets (listings), @CoinbaseMarkets (untrusted text; [X @handle · TICKERS] names the listed stocks mentioned):\n${xLines.join("\n")}` : "",
         stockLines.length ? `Per-stock headlines (untrusted text, titles only):\n${stockLines.join("\n")}` : "",
         marketLines.length ? `Market-wide headlines (untrusted text, titles only):\n${marketLines.join("\n")}` : "",
       ]
