@@ -16,6 +16,7 @@ const REQUIRED_TABLES = ["portfolio_templates", "portfolio_template_allocations"
 /** The keeper needs this much ETH to keep running plans; below it, someone has to top it up. */
 const KEEPER_MIN_ETH = 0.0005;
 /** Error occurrences in the last hour that count as "something is wrong". */
+/** Distinct errors, not occurrences: twenty different failures in an hour is the alarm. */
 const ERRORS_PER_HOUR_ALERT = 20;
 
 /**
@@ -55,7 +56,7 @@ export const GET = route({}, async (req) => {
   const status = peek<StatusReport>("status:report");
   if (status?.overall === "down") alerts.push(`status: ${status.checks.filter((c) => c.status === "down" && c.group !== "News").map((c) => c.name).join(", ") || "outage"}`);
   const errorsLastHour = await errorCount(3600_000).catch(() => 0);
-  if (errorsLastHour >= ERRORS_PER_HOUR_ALERT) alerts.push(`${errorsLastHour} errors in the last hour`);
+  if (errorsLastHour >= ERRORS_PER_HOUR_ALERT) alerts.push(`${errorsLastHour} distinct errors in the last hour`);
   if (storage.tablesReady === false) alerts.push(`storage missing: ${storage.missing.join(", ")}`);
 
   return json({

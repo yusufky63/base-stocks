@@ -121,8 +121,15 @@ export async function recentErrors(limit = 20, sinceMs = 24 * 3600_000): Promise
     .slice(0, limit);
 }
 
-/** How many error occurrences landed in the last `sinceMs` (sum of counts of the rows touched). */
+/**
+ * How many distinct errors were seen in the last `sinceMs`.
+ *
+ * A row keeps a lifetime `count`, so summing those counted every occurrence a fingerprint had
+ * ever had as if it had happened in the window: one old, noisy error touched once kept the
+ * monitor alarm on indefinitely. Distinct errors is what the row shape can honestly answer, and
+ * it is the more useful alarm anyway — twenty different things going wrong is a problem, one
+ * thing going wrong twenty times is usually one problem.
+ */
 export async function errorCount(sinceMs = 3600_000): Promise<number> {
-  const events = await recentErrors(100, sinceMs);
-  return events.reduce((s, e) => s + e.count, 0);
+  return (await recentErrors(100, sinceMs)).length;
 }
