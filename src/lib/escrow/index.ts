@@ -3,7 +3,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { BASE_CHAIN_ID } from "@/config/chain";
 
 /**
- * BStocks GiftEscrow on Base mainnet (contracts/src/GiftEscrow.sol, deployed 2026-09-03,
+ * BaseStocks GiftEscrow on Base mainnet (contracts/src/GiftEscrow.sol, deployed 2026-09-03,
  * tx 0x0b54a2d9937fb29b71490641442d1d1732abaad4d8aec90c0b5a58940fa903b0). Ownerless: it can
  * only pay out to a claim-signed recipient or back to the sender.
  *
@@ -27,7 +27,7 @@ export const giftEscrowAbi = [
   { type: "event", name: "GiftReclaimed", inputs: [{ name: "id", type: "bytes32", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "token", type: "address", indexed: true }, { name: "amount", type: "uint256" }] },
 ] as const;
 
-const CLAIM_DOMAIN = { name: "BStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS } as const;
+const CLAIM_DOMAIN = { name: "BaseStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS } as const;
 const CLAIM_TYPES = { Claim: [{ name: "giftId", type: "bytes32" }, { name: "recipient", type: "address" }] } as const;
 
 /** Onchain gift id for a claim key: keccak256(abi.encode(claimKey)) — matches GiftEscrow.giftId. */

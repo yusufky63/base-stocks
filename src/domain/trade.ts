@@ -142,7 +142,7 @@ export interface TradeQuoteSummary {
   priceImpactBasis: "reference" | "market" | null;
   estimatedNetworkFeeWei: string | null;
   estimatedNetworkFeeUsd: number | null;
-  /** BStocks' own fee on this route, already inside the amounts above; null when this route charges none. */
+  /** BaseStocks' own fee on this route, already inside the amounts above; null when this route charges none. */
   integratorFee: { bps: number; usd: number | null } | null;
   liquidityAvailable: boolean;
   allowanceRequired: boolean;

@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts, ogHeadlineSize } from "@/lib/og";
 import { getGiftReceipt, giftAmountLabel, giftPartyLabel } from "@/services/gift-service";
 
-export const alt = "A gift on BStocks";
+export const alt = "A gift on BaseStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 

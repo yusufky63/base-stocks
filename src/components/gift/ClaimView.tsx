@@ -217,7 +217,7 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
                   compact
                   className="pt-1"
                   path={`/stocks/${r.asset.address}`}
-                  text={`Someone gifted me ${amount} on BStocks — a tokenized stock on Base.`}
+                  text={`Someone gifted me ${amount} on BaseStocks — a tokenized stock on Base.`}
                 />
               )}
             </>
@@ -277,7 +277,7 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
       <p className="text-[11px] text-ink-muted text-center">
         Coinbase Tokenized Stocks are for eligible persons outside the United States. Not investment advice.{" "}
         <Link href="/how-it-works" className="text-primary">
-          How BStocks works →
+          How BaseStocks works →
         </Link>
       </p>
     </div>

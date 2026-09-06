@@ -21,7 +21,7 @@ export interface EarnOpportunity {
   url?: string;
   /** Plain-language risk notes shown on confirmation. */
   risks: string[];
-  /** True when BStocks can build deposit/withdraw calls itself (otherwise the user continues at the venue). */
+  /** True when BaseStocks can build deposit/withdraw calls itself (otherwise the user continues at the venue). */
   inApp: boolean;
   metadata: Record<string, unknown>;
 }

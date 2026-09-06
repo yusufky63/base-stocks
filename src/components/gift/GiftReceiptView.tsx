@@ -24,10 +24,10 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
   const recipientName = giftPartyLabel(receipt.recipient);
   const shareText =
     role === "recipient"
-      ? `I received ${amount} as a gift from ${senderName} on BStocks — tokenized stocks on Base.`
+      ? `I received ${amount} as a gift from ${senderName} on BaseStocks — tokenized stocks on Base.`
       : role === "sender"
-        ? `I just gifted ${amount} (a tokenized stock on Base) to ${recipientName} with BStocks.`
-        : `${senderName} gifted ${amount} to ${recipientName} on BStocks — tokenized stocks on Base.`;
+        ? `I just gifted ${amount} (a tokenized stock on Base) to ${recipientName} with BaseStocks.`
+        : `${senderName} gifted ${amount} to ${recipientName} on BaseStocks — tokenized stocks on Base.`;
   const when = new Date(gift.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const status = gift.status === "claimed" ? "claimed" : gift.status === "reclaimed" ? "cancelled by sender" : claimLink ? "awaiting claim" : gift.status === "confirmed" ? "confirmed onchain" : gift.status === "failed" ? "failed" : "submitted";
 
@@ -77,7 +77,7 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
         )}
         <div className="border-t border-line px-4 md:px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] font-mono text-ink-muted">
           <span className="inline-flex items-center gap-1.5">
-            <Gift size={12} strokeWidth={2} className="text-primary" /> {gift.kind === "buy-for-recipient" ? "bought and delivered directly" : claimLink ? "held by the BStocks gift escrow" : "sent from the sender's wallet"}
+            <Gift size={12} strokeWidth={2} className="text-primary" /> {gift.kind === "buy-for-recipient" ? "bought and delivered directly" : claimLink ? "held by the BaseStocks gift escrow" : "sent from the sender's wallet"}
           </span>
           <Badge tone={gift.status === "confirmed" || gift.status === "claimed" ? "positive" : gift.status === "failed" ? "danger" : gift.status === "reclaimed" ? "neutral" : "warning"}>{status}</Badge>
           {gift.txHash && <TxLink hash={gift.txHash}>view transaction</TxLink>}
@@ -108,7 +108,7 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
       </div>
 
       <p className="text-[13px] text-ink-secondary">
-        The tokens sit in the recipient&apos;s own wallet, not with BStocks. Anyone can verify the transfer on Base; the message above is stored offchain by BStocks and shown only on this page.
+        The tokens sit in the recipient&apos;s own wallet, not with BaseStocks. Anyone can verify the transfer on Base; the message above is stored offchain by BaseStocks and shown only on this page.
       </p>
     </div>
   );
@@ -128,7 +128,7 @@ function Party({ p, label }: { p: GiftParty; label: string }) {
             {name}
           </Link>
           {member && (
-            <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title="BStocks member">
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title="BaseStocks member">
               <BadgeCheck size={12} strokeWidth={2} /> member
             </span>
           )}

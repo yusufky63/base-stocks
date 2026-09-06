@@ -36,7 +36,7 @@ export function useAuth() {
         uri: window.location.origin,
         nonce,
         version: "1",
-        statement: "Sign in to BStocks. This signature proves you own this wallet. It costs nothing and does not approve any transaction.",
+        statement: "Sign in to BaseStocks. This signature proves you own this wallet. It costs nothing and does not approve any transaction.",
       });
       const signature = await signMessageAsync({ message });
       return apiPost<{ address: `0x${string}` }>("/api/auth/verify", { message, signature });

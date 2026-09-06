@@ -26,7 +26,7 @@ describe("gift escrow claim links", () => {
     const sig = await signClaim(secret.privateKey, secret.escrowId, recipient);
     const ok = await verifyTypedData({
       address: secret.claimKey,
-      domain: { name: "BStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS },
+      domain: { name: "BaseStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS },
       types: { Claim: [{ name: "giftId", type: "bytes32" }, { name: "recipient", type: "address" }] },
       primaryType: "Claim",
       message: { giftId: secret.escrowId, recipient },
@@ -35,7 +35,7 @@ describe("gift escrow claim links", () => {
     expect(ok).toBe(true);
     const wrong = await verifyTypedData({
       address: secret.claimKey,
-      domain: { name: "BStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS },
+      domain: { name: "BaseStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS },
       types: { Claim: [{ name: "giftId", type: "bytes32" }, { name: "recipient", type: "address" }] },
       primaryType: "Claim",
       message: { giftId: secret.escrowId, recipient: "0x000000000000000000000000000000000000dEaD" },

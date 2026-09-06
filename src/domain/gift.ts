@@ -38,6 +38,6 @@ export interface ResolvedRecipient {
   /** Forward-resolved from the input, or reverse-resolved (and forward-verified) from a raw address. */
   basename?: string;
   avatar?: string | null;
-  /** Present when the recipient has signed in to BStocks. */
+  /** Present when the recipient has signed in to BaseStocks. */
   profile?: { handle?: string; displayName?: string; isPublic: boolean; memberSince: number } | null;
 }

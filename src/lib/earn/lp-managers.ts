@@ -1,7 +1,7 @@
 import type { Address } from "viem";
 
 /**
- * Concentrated-liquidity position managers on Base that BStocks tracks and manages.
+ * Concentrated-liquidity position managers on Base that BaseStocks tracks and manages.
  * Client-safe (addresses only); the read side lives in services/lp-positions-service.
  * Verified on Base mainnet 2026-09-02.
  */

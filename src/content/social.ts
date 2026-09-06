@@ -1,4 +1,4 @@
-/** BStocks on X. One constant so the footer, the share sheet and the pool quests never drift apart. */
+/** BaseStocks on X. One constant so the footer, the share sheet and the pool quests never drift apart. */
 export const BSTOCKS_X_HANDLE = "BaseOnStocks";
 export const BSTOCKS_X_URL = `https://x.com/${BSTOCKS_X_HANDLE}`;
 

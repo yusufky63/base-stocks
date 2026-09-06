@@ -12,8 +12,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const r = await getGiftReceipt(id).catch(() => null);
   if (!r) return { title: "Gift" };
   const title = `${giftAmountLabel(r)} gift`;
-  const description = `${giftPartyLabel(r.sender)} sent ${giftAmountLabel(r)}, a Coinbase Tokenized Stock on Base, to ${giftPartyLabel(r.recipient)} with BStocks.`;
-  return { title, description, openGraph: { title: `${title} · BStocks`, description } };
+  const description = `${giftPartyLabel(r.sender)} sent ${giftAmountLabel(r)}, a Coinbase Tokenized Stock on Base, to ${giftPartyLabel(r.recipient)} with BaseStocks.`;
+  return { title, description, openGraph: { title: `${title} · BaseStocks`, description } };
 }
 
 /** Public gift receipt: what was sent, by whom, to whom, with the onchain proof. Shared from X or the Base app. */

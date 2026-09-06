@@ -49,7 +49,7 @@ export interface ActivityItem {
   decimals?: number;
   counterparty?: Address;
   counterpartyBasename?: string;
-  /** BStocks handle of the counterparty when they have a profile here. */
+  /** BaseStocks handle of the counterparty when they have a profile here. */
   counterpartyHandle?: string;
   provider?: string;
   /** "app" records are never proof until matched with chain state. */

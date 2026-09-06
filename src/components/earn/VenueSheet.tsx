@@ -141,7 +141,7 @@ function VenueDetail({ o, symbol, connected, onDeposit, onMint, showStockLink }:
               : o.type === "borrow"
                 ? `Supplying ${symbol} as collateral and borrowing happen in ${venue}'s interface; loan health is your responsibility and liquidation is possible.`
                 : `You will complete the deposit in ${venue}'s own interface with your wallet.`}{" "}
-            BStocks never custodies funds.
+            BaseStocks never custodies funds.
           </p>
         </>
       )}

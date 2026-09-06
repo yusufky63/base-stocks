@@ -42,7 +42,7 @@ export function GET() {
       ...(allowed.length > 0 ? { baseBuilder: { allowedAddresses: allowed } } : {}),
       miniapp: {
         version: "1",
-        name: "BStocks",
+        name: "BaseStocks",
         homeUrl: `${APP_URL}/`,
         iconUrl: `${APP_URL}/brand/icon-1024.png`,
         splashImageUrl: `${APP_URL}/brand/splash-200.png`,
@@ -54,7 +54,7 @@ export function GET() {
         tags: ["stocks", "base", "defi", "portfolio", "usdc"],
         heroImageUrl: `${APP_URL}/opengraph-image`,
         tagline: "Tokenized stocks, your wallet",
-        ogTitle: "BStocks · Stocks on Base",
+        ogTitle: "BaseStocks · Stocks on Base",
         ogDescription: "Trade tokenized stocks, build baskets and earn on Base, self-custodially.",
         ogImageUrl: `${APP_URL}/opengraph-image`,
         // Every action this app takes settles on Base; a host that cannot reach it should say so

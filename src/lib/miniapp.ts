@@ -1,7 +1,7 @@
 import { publicEnv } from "@/config/env";
 
 /**
- * The `fc:miniapp` embed tag: what turns a shared BStocks link into a launchable card inside the
+ * The `fc:miniapp` embed tag: what turns a shared BaseStocks link into a launchable card inside the
  * Base app and other Farcaster clients, instead of a plain grey link preview.
  *
  * It is deliberately per-page. A gift pool link that opens the *pool* is the whole point of
@@ -27,10 +27,10 @@ function embedJson(type: "launch_miniapp" | "launch_frame", { url, imageUrl, but
     version: "1",
     imageUrl: imageUrl ?? `${APP_URL}/opengraph-image`,
     button: {
-      title: (buttonTitle ?? "Open BStocks").slice(0, MAX_BUTTON_TITLE),
+      title: (buttonTitle ?? "Open BaseStocks").slice(0, MAX_BUTTON_TITLE),
       action: {
         type,
-        name: "BStocks",
+        name: "BaseStocks",
         url: url ?? `${APP_URL}/`,
         splashImageUrl: `${APP_URL}/brand/splash-200.png`,
         splashBackgroundColor: "#0370fd",

@@ -27,7 +27,7 @@ export function AutoInvestExplainer() {
   const roles = [
     { who: "You", does: "Set the stocks, the amount, the cadence and the allowance. Pause, resume, cancel, edit. Can run a due plan yourself." },
     { who: "The contract", does: "Holds the rules and enforces them on every run: amount, cadence, expiry, routes, minimum output. Never holds your stock." },
-    { who: "The keeper", does: "A BStocks server account that pays the gas and picks the moment and the route. It cannot change a plan, take more than it allows, or send stock anywhere but to you." },
+    { who: "The keeper", does: "A BaseStocks server account that pays the gas and picks the moment and the route. It cannot change a plan, take more than it allows, or send stock anywhere but to you." },
   ];
 
   return (

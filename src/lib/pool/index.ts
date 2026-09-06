@@ -3,7 +3,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { BASE_CHAIN_ID } from "@/config/chain";
 
 /**
- * BStocks GiftPool (contracts/src/GiftPool.sol), deployed to Base mainnet 2026-09-04 at
+ * BaseStocks GiftPool (contracts/src/GiftPool.sol), deployed to Base mainnet 2026-09-04 at
  * `0xBD23ABB61D80B88DacB1Dc56DC2641e4Bfb76E10`, tx
  * 0x5e26536977c1ec333b05e9ad2547d0455897bbf2d55b61de0a33372015e86a6c, source verified on
  * Basescan. Ownerless: it can only pay a claimant their exact share or return the unclaimed
@@ -203,7 +203,7 @@ export function onchainIdFor(creator: Address, appId: string): Hex {
 /* ------------------------------ claim tickets ------------------------------ */
 
 export const poolTicketDomain = (verifyingContract: Address) =>
-  ({ name: "BStocks GiftPool", version: "1", chainId: BASE_CHAIN_ID, verifyingContract }) as const;
+  ({ name: "BaseStocks GiftPool", version: "1", chainId: BASE_CHAIN_ID, verifyingContract }) as const;
 
 export const POOL_TICKET_TYPES = {
   Ticket: [

@@ -9,7 +9,7 @@ import { formatTokenAmount } from "@/lib/format";
 export interface GiftParty {
   address: Address;
   basename: string | null;
-  /** BStocks handle / display name, only when the profile is public. */
+  /** BaseStocks handle / display name, only when the profile is public. */
   handle: string | null;
   displayName: string | null;
   avatar: string | null;

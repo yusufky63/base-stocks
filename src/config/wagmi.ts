@@ -13,7 +13,7 @@ import { BASE_CHAIN_ID, PUBLIC_BASE_RPC_URLS } from "@/config/chain";
  * When no Reown project id is configured we fall back to a plain Wagmi config with the same
  * connectors so Base Account + injected wallets keep working.
  */
-export const APP_NAME = "BStocks";
+export const APP_NAME = "BaseStocks";
 export const projectId = publicEnv.reownProjectId;
 export const hasReown = projectId.length > 0;
 export const networks = [appkitBase] as [AppKitNetwork, ...AppKitNetwork[]];

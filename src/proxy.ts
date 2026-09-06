@@ -20,7 +20,7 @@ const RESTRICTED_API = [/^\/api\/trade\//, /^\/api\/earn\/prepare/, /^\/api\/por
 
 /**
  * Closed for writes only. Reading a gift receipt or the pool directory is browsing and stays open
- * everywhere; creating one, or asking BStocks to sign a ticket that authorises someone to receive a
+ * everywhere; creating one, or asking BaseStocks to sign a ticket that authorises someone to receive a
  * share of one, is distribution of a tokenized security and is not.
  *
  * The claim transaction itself goes straight to the contract and no server can stop it — the

@@ -13,7 +13,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!r || r.gift.kind !== "claim-link") return { title: "Gift", robots: { index: false } };
   const title = `A gift for you · ${giftAmountLabel(r)}`;
   const description = `${giftPartyLabel(r.sender)} sent ${giftAmountLabel(r)}, a Coinbase Tokenized Stock on Base. No wallet needed — open the link to claim it with a passkey.`;
-  return { title, description, robots: { index: false }, openGraph: { title: `${title} · BStocks`, description } };
+  return { title, description, robots: { index: false }, openGraph: { title: `${title} · BaseStocks`, description } };
 }
 
 /** Claim page for link gifts. The claim key travels only in the URL fragment, which never reaches this server. */

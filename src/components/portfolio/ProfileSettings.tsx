@@ -57,7 +57,7 @@ export function ProfileSettings({ address }: { address: Address }) {
               <Link href={publicPath} className="text-[13px] text-primary font-medium">
                 View page →
               </Link>
-              <ShareButton path={publicPath} text={`${title} on BStocks`} title="Share your page" />
+              <ShareButton path={publicPath} text={`${title} on BaseStocks`} title="Share your page" />
             </span>
           }
         />

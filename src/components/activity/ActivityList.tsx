@@ -200,7 +200,7 @@ export function ActivityList({ items, compact = false, emptyHint }: { items: Act
         const tokenAmount = it.rawAmount && it.decimals !== undefined ? formatTokenAmount(it.rawAmount, it.decimals) : null;
         const { title, aside } = headline(it);
         const legs = compact ? null : legsLine(it);
-        const shareText = it.type === "receive" ? `I received ${amount} as a gift from ${who} on BStocks — tokenized stocks on Base.` : `I just sent ${amount} (a tokenized stock on Base) to ${who} with BStocks.`;
+        const shareText = it.type === "receive" ? `I received ${amount} as a gift from ${who} on BaseStocks — tokenized stocks on Base.` : `I just sent ${amount} (a tokenized stock on Base) to ${who} with BaseStocks.`;
         return (
           <li key={it.id} className={cx("px-4 flex items-center gap-3", compact ? "py-2.5" : "py-3")}>
             <ActivityIcon type={it.type} gift={isGift} failed={failed} compact={compact} />

@@ -197,7 +197,7 @@ export function EarnDepositSheet({ open, onClose, opportunity, action, available
             </div>
             <label className="flex items-start gap-2 text-[12px] text-ink-secondary cursor-pointer">
               <input type="checkbox" checked={morphoAck} onChange={(e) => acknowledgeMorpho(e.target.checked)} className="mt-0.5 accent-[var(--primary)]" />
-              <span>Accessing the Morpho Protocol through this app is governed by BStocks’ terms and Morpho’s Disclaimer. Morpho is an immutable, permissionless, non-custodial protocol; BStocks is only the interface.</span>
+              <span>Accessing the Morpho Protocol through this app is governed by BaseStocks’ terms and Morpho’s Disclaimer. Morpho is an immutable, permissionless, non-custodial protocol; BaseStocks is only the interface.</span>
             </label>
           </div>
         )}
@@ -214,7 +214,7 @@ export function EarnDepositSheet({ open, onClose, opportunity, action, available
           </InfoBanner>
         )}
         {error && <ErrorBanner message={error.message} detail={error.detail} />}
-        <p className="text-[12px] text-ink-muted">Estimated returns are variable and never guaranteed. BStocks never custodies funds; the position lives in your wallet at {PROVIDER_LABEL[opportunity.provider]}.</p>
+        <p className="text-[12px] text-ink-muted">Estimated returns are variable and never guaranteed. BaseStocks never custodies funds; the position lives in your wallet at {PROVIDER_LABEL[opportunity.provider]}.</p>
       </div>
     </Sheet>
   );

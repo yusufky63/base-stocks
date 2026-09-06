@@ -43,7 +43,7 @@ export function StatsView() {
       <PageTitle
         index="Stats"
         title="Platform statistics"
-        lead="What has been done through BStocks, counted from the app's own records and checked against Base. A transaction counts only once its receipt says it succeeded; nothing here is estimated."
+        lead="What has been done through BaseStocks, counted from the app's own records and checked against Base. A transaction counts only once its receipt says it succeeded; nothing here is estimated."
         action={<Segmented<StatsWindowKey> size="sm" className="w-[240px] shrink-0" ariaLabel="Window" value={win} onChange={setWin} options={WINDOWS} />}
       />
 
@@ -275,7 +275,7 @@ function Trading({ data }: { data: PlatformStats }) {
         {byProvider.map((p) => (
           <KeyValue key={p.provider} k={providerLabel(p.provider)} v={`${plural(p.count, "trade")} · ${formatUsd(p.usd)}`} />
         ))}
-        <KeyValue k="BStocks fee earned" v={integratorFeeUsd > 0 ? `${formatUsd(integratorFeeUsd)} · from each trade's own rate` : "none charged so far"} />
+        <KeyValue k="BaseStocks fee earned" v={integratorFeeUsd > 0 ? `${formatUsd(integratorFeeUsd)} · from each trade's own rate` : "none charged so far"} />
       </div>
       <p className="px-4 py-2.5 border-t border-line text-[12px] text-ink-muted">
         A trade is one stock in one transaction; a basket of four is four trades, one auto-invest run of three stocks is three. Volume is the USD the app recorded when the quote was taken.

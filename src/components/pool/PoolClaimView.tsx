@@ -44,7 +44,7 @@ const subscribeNoop = () => () => {};
  *
  * Three claim paths share one transaction: an open pool needs nothing but the wallet, a link pool
  * signs a ticket in the browser with the key from the URL fragment (which never reaches a server),
- * and a quest pool asks BStocks for a ticket after verifying the tasks.
+ * and a quest pool asks BaseStocks for a ticket after verifying the tasks.
  */
 export function PoolClaimView({ initialView }: { initialView: PoolView }) {
   const id = initialView.pool.id;
@@ -296,7 +296,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
                 compact
                 className="pt-1"
                 path={pool.gateMode === "link" && view.legs[0] ? `/stocks/${view.legs[0].token}` : `/pools/${pool.id}`}
-                text={`I claimed ${shareLabel || "a share"} from a gift pool on BStocks — tokenized stocks on Base.`}
+                text={`I claimed ${shareLabel || "a share"} from a gift pool on BaseStocks — tokenized stocks on Base.`}
               />
             </>
           ) : cancelled ? (
@@ -355,7 +355,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
       <p className="text-[11px] text-ink-muted text-center">
         Coinbase Tokenized Stocks are for eligible persons outside the United States. Not investment advice.{" "}
         <Link href="/how-it-works" className="text-primary">
-          How BStocks works →
+          How BaseStocks works →
         </Link>
       </p>
     </div>

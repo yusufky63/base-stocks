@@ -3,7 +3,7 @@ import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts } from "@/lib/o
 import { findCuratedAsset } from "@/lib/b20/registry";
 import { loadAssetResponse } from "@/lib/server-data";
 
-export const alt = "BStocks";
+export const alt = "BaseStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 

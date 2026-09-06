@@ -23,7 +23,7 @@ export const COW_API = "https://api.cow.fi/base/api/v1";
 export const COW_EXPLORER = "https://explorer.cow.fi/base/orders";
 export const GPV2_SETTLEMENT: Address = "0x9008D19f58AAbD9eD0D60971565AA8510560ab41";
 export const GPV2_VAULT_RELAYER: Address = "0xC92E8bdf79f0507f65a392b0ab4667716BFE0110";
-const APP_CODE = "BStocks";
+const APP_CODE = "BaseStocks";
 /** Market orders: how long a signed order may wait for a solver. */
 const MARKET_VALID_FOR_S = 30 * 60;
 /** The order book's ceiling for quotes; longer limit orders come back with ExcessiveValidTo. */

@@ -13,7 +13,7 @@ describe("the mini app manifest", () => {
   it("always describes the app, signed or not", async () => {
     const m = (await read()).miniapp;
     expect(m.version).toBe("1");
-    expect(m.name).toBe("BStocks");
+    expect(m.name).toBe("BaseStocks");
     expect(m.homeUrl).toMatch(/^https?:\/\//);
     expect(m.iconUrl).toMatch(/^https?:\/\/.+\.png$/);
     expect(m.requiredChains).toEqual(["eip155:8453"]);

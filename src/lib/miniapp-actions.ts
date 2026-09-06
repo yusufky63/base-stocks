@@ -51,7 +51,7 @@ export async function composeCast(text: string, url: string): Promise<boolean> {
   }
 }
 
-/** Ask the host to save BStocks to the user's apps. Rejection is an ordinary answer, not an error. */
+/** Ask the host to save BaseStocks to the user's apps. Rejection is an ordinary answer, not an error. */
 export async function addMiniApp(): Promise<boolean> {
   try {
     const sdk = await miniAppSdk();

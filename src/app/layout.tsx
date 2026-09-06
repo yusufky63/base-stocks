@@ -13,21 +13,22 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://basestocks.finance"
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
-  title: { default: "BStocks — Stocks, built for onchain", template: "%s · BStocks" },
+  title: { default: "BaseStocks — Stocks, built for onchain", template: "%s · BaseStocks" },
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
-  applicationName: "BStocks",
-  appleWebApp: { capable: true, title: "BStocks", statusBarStyle: "default" },
+  applicationName: "BaseStocks",
+  appleWebApp: { capable: true, title: "BaseStocks", statusBarStyle: "default" },
   openGraph: {
     type: "website",
-    siteName: "BStocks",
+    siteName: "BaseStocks",
     url: "/",
     locale: "en_US",
-    title: "BStocks — Stocks, built for onchain",
+    title: "BaseStocks — Stocks, built for onchain",
     description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   },
   twitter: { card: "summary_large_image", site: "@BaseOnStocks", creator: "@BaseOnStocks" },
   robots: { index: true, follow: true },
-  icons: { icon: [{ url: "/favicon.ico", sizes: "16x16 32x32 48x48 64x64" }, { url: "/brand/logo-mark-transparent-128.png", type: "image/png", sizes: "128x128" }], apple: "/brand/icon-1024.png" },
+  // Icons come from the app/ file conventions (favicon.ico, icon.svg, apple-icon.tsx), which
+  // override anything listed here: the blue tile with the white ascending blocks.
   other: appMeta(),
 };
 
@@ -45,8 +46,8 @@ export const viewport: Viewport = {
 const jsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@graph": [
-    { "@type": "WebSite", name: "BStocks", url: APP_URL, description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put supported assets to work on Base." },
-    { "@type": "Organization", name: "BStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png`, sameAs: ["https://x.com/BaseOnStocks"] },
+    { "@type": "WebSite", name: "BaseStocks", url: APP_URL, description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put supported assets to work on Base." },
+    { "@type": "Organization", name: "BaseStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png`, sameAs: ["https://x.com/BaseOnStocks"] },
   ],
 });
 

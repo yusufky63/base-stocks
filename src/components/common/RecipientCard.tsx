@@ -10,7 +10,7 @@ import { cx } from "@/components/ui/primitives";
 
 /**
  * Who a send or gift goes to, resolved server-side: Basename (also reverse-resolved from a raw
- * address), Basename avatar, and the BStocks profile when the recipient has signed in here.
+ * address), Basename avatar, and the BaseStocks profile when the recipient has signed in here.
  */
 export function RecipientCard({ r, className, compact = false }: { r: ResolvedRecipient; className?: string; compact?: boolean }) {
   const name = r.basename ?? r.profile?.displayName ?? null;
@@ -24,12 +24,12 @@ export function RecipientCard({ r, className, compact = false }: { r: ResolvedRe
         <span className="flex items-center gap-1.5 min-w-0">
           <span className={cx("truncate", name ? "text-[14px] text-ink" : "font-mono text-[13px] text-ink")}>{name ?? shortenAddress(r.address, 6)}</span>
           {member && (
-            <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title={r.profile?.memberSince ? `BStocks member since ${new Date(r.profile.memberSince).toISOString().slice(0, 10)}` : "BStocks member"}>
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title={r.profile?.memberSince ? `BaseStocks member since ${new Date(r.profile.memberSince).toISOString().slice(0, 10)}` : "BaseStocks member"}>
               <BadgeCheck size={12} strokeWidth={2} /> member
             </span>
           )}
         </span>
-        <span className="block font-mono text-[11px] text-ink-secondary truncate">{name ? secondary : "no Basename · new to BStocks"}</span>
+        <span className="block font-mono text-[11px] text-ink-secondary truncate">{name ? secondary : "no Basename · new to BaseStocks"}</span>
       </span>
       {profileHref ? (
         <Link href={profileHref} className="shrink-0 text-[12px] font-medium text-primary hover:underline">

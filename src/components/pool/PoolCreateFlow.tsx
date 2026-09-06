@@ -513,7 +513,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
             ? "Whoever holds the share link can take one share. The key lives in the link only — never on a server."
             : gateMode === "open"
               ? "Anyone can claim a share directly, one per wallet. Best for a public giveaway you want people to find."
-              : "Claimers must finish a task first. BStocks verifies it and signs a one-off ticket; the pool cannot be claimed without one."}
+              : "Claimers must finish a task first. BaseStocks verifies it and signs a one-off ticket; the pool cannot be claimed without one."}
         </p>
       </div>
 
@@ -613,7 +613,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
       )}
       <p className="text-[12px] text-ink-muted">
         <Link2 size={12} strokeWidth={1.75} className="inline mr-1" />
-        The stocks move into the BStocks gift pool, an ownerless contract that can only pay a claimant their exact share or return the remainder to you. On Base Account this is a single confirmation.
+        The stocks move into the BaseStocks gift pool, an ownerless contract that can only pay a claimant their exact share or return the remainder to you. On Base Account this is a single confirmation.
       </p>
     </div>
   );

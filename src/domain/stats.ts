@@ -1,7 +1,7 @@
 import type { Address, Hash } from "viem";
 
 /**
- * Platform statistics: what has been done through BStocks, counted from the app's own records and
+ * Platform statistics: what has been done through BaseStocks, counted from the app's own records and
  * verified against Base. Every figure that involves a transaction counts only transactions whose
  * receipt on Base says `success`; the verification block says how many records did not make it.
  */

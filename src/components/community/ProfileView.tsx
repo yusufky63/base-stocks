@@ -47,7 +47,7 @@ export function ProfileView({ refParam }: { refParam: string }) {
         }
         action={
           <div className="flex gap-2 flex-wrap">
-            <ShareButton path={`/u/${data.address}`} text={`${title} on BStocks`} title="Share profile" />
+            <ShareButton path={`/u/${data.address}`} text={`${title} on BaseStocks`} title="Share profile" />
           </div>
         }
       />

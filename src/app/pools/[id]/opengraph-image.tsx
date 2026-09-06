@@ -3,7 +3,7 @@ import { OG, OgCard, OgChip, OgCoins, OgCta, OgLegs, hasCoinArt, ogFonts, ogHead
 import { getPoolView } from "@/services/pool-service";
 import { formatTokenAmount } from "@/lib/format";
 
-export const alt = "A gift pool on BStocks";
+export const alt = "A gift pool on BaseStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 

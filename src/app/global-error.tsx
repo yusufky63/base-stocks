@@ -20,7 +20,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
     <html lang="en">
       <body style={{ margin: 0, fontFamily: "system-ui, sans-serif", background: "#0a0b0d", color: "#fff", minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
         <div style={{ maxWidth: 480, border: "1px solid #2b2e36", borderRadius: 8, padding: 24, background: "#111318" }}>
-          <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8a90a0", marginBottom: 8 }}>BStocks</div>
+          <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8a90a0", marginBottom: 8 }}>BaseStocks</div>
           <h1 style={{ fontSize: 22, margin: "0 0 8px", letterSpacing: "-0.02em" }}>The app could not load</h1>
           <p style={{ margin: "0 0 16px", color: "#b1b7c3", fontSize: 14, lineHeight: 1.5 }}>Nothing was sent from your wallet. Reload the page; if it keeps failing, the error has been reported{error.digest ? ` (ref ${error.digest})` : ""}.</p>
           <button type="button" onClick={() => reset()} style={{ background: "#0370fd", color: "#fff", border: 0, borderRadius: 6, padding: "10px 16px", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
