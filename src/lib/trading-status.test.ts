@@ -159,8 +159,8 @@ describe("the gap between the pool and the reference", () => {
   const view = (deviationPct: number | null, extra: { referenceStale?: boolean; referencePaused?: boolean; referenceUsd?: number | null } = {}) => ({ deviationPct, referenceUsd: 500, referenceStale: false, referencePaused: false, ...extra });
 
   it("names a premium or a discount once it is worth naming", () => {
-    expect(referenceGapNote(view(40.4))).toBe("pool price 40% above its Chainlink reference ($500.00)");
-    expect(referenceGapNote(view(-12))).toBe("pool price 12% below its Chainlink reference ($500.00)");
+    expect(referenceGapNote(view(40.4))).toBe("pool price 40% above the stock's own price");
+    expect(referenceGapNote(view(-12))).toBe("pool price 12% below the stock's own price");
     expect(referenceGapNote(view(3))).toBeNull();
     expect(referenceGap(view(3))).toEqual({ pct: 3, referenceUsd: 500 });
   });
