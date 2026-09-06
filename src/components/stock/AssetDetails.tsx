@@ -6,14 +6,13 @@ import type { B20AssetDTO } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
 import { KeyValue, Badge } from "@/components/ui/primitives";
 import { AddressLabel } from "@/components/common/display";
-import { formatUsd, formatPct, formatTokenAmount } from "@/lib/format";
+import { formatUsd, formatTokenAmount } from "@/lib/format";
 import { Collapsible } from "@/components/ui/Collapsible";
 import { TimeAgo } from "@/components/common/TimeAgo";
 
 /** Deterministic (SSR-safe) timestamp: locale formatting would differ between server and browser. */
 const utcStamp = (unixSeconds: number) => `${new Date(unixSeconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
-const FRESHNESS_LABEL = { live: "live", "last-close": "last close · market closed", stale: "stale", frozen: "frozen · corporate action" } as const;
 
 /** CoinGecko lists only the liquid tokenized stocks; slugs follow {company}-coinbase-tokenized-stock (verified 2026-09-03). */
 const COINGECKO_SLUGS: Record<string, string> = {
@@ -37,8 +36,6 @@ export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: Pric
         <Badge tone="primary">B20 · Coinbase Tokenized Stock</Badge>
         {notIssued && <Badge tone="warning">Not issued onchain yet</Badge>}
         {freshness === "frozen" && <Badge tone="danger">Corporate action · feed frozen</Badge>}
-        {freshness === "stale" && <Badge tone="warning">Reference stale</Badge>}
-        {freshness === "last-close" && <Badge>Reference · last close</Badge>}
         {multiplier !== 1 && <Badge tone="warning">Multiplier {multiplier.toFixed(4)}×</Badge>}
         {pending && <Badge tone="warning">Multiplier change scheduled</Badge>}
       </div>
@@ -69,7 +66,7 @@ export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: Pric
       <KeyValue k="Transfers" v={asset.transferPaused ? "Paused by issuer" : "Active"} />
       <KeyValue k="Transfer policy ids" v={`sender ${asset.transferSenderPolicyId} · receiver ${asset.transferReceiverPolicyId}`} />
 
-      <Collapsible title="Price sources" defaultOpen>
+      <Collapsible title="Price source" defaultOpen>
         <KeyValue
           k="Market (DEX)"
           v={
@@ -84,22 +81,8 @@ export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: Pric
             )
           }
         />
-        <KeyValue
-          k="Reference (Chainlink)"
-          v={
-            oracle ? (
-              <>
-                {formatUsd(oracle.priceUsd, { precise: true })} · <TimeAgo value={oracle.updatedAt} /> · {FRESHNESS_LABEL[freshness]}
-              </>
-            ) : (
-              "Unavailable"
-            )
-          }
-        />
-        <KeyValue k="Market vs reference" v={price?.deviationPct !== null && price?.deviationPct !== undefined ? formatPct(price.deviationPct, { sign: true }) : "—"} />
-        {oracle && <KeyValue k="Feed" v={<AddressLabel address={oracle.feed} explorer />} />}
-        {oracle && <KeyValue k="Stale after" v={`${(oracle.staleAfterSeconds / 3600).toFixed(0)} h (feed heartbeat is 24 h; it also updates on a 0.5% move during US market hours)`} />}
-        <p className="text-[12px] text-ink-muted pt-2">The reference feed reports a total-return price per token (multiplier already applied), updates during US market hours and holds its last close off-hours. It freezes during corporate actions and is never used as an executable price.</p>
+        {oracle && <KeyValue k="Issuer price feed" v={<AddressLabel address={oracle.feed} explorer />} />}
+        <p className="text-[12px] text-ink-muted pt-2">You trade at the pool price. The issuer&apos;s own price feed is not shown here; it appears in the Markets table&apos;s Reference column and is used only to warn when a pool strays far from the stock.</p>
       </Collapsible>
     </div>
   );

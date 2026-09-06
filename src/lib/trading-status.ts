@@ -166,8 +166,7 @@ export function referenceGap(price: ReferencePrice): { pct: number; referenceUsd
 export function referenceGapNote(price: ReferencePrice, minPct = REFERENCE_GAP_NOTE_PCT): string | null {
   const gap = referenceGap(price);
   if (!gap || Math.abs(gap.pct) < minPct) return null;
-  const ref = `$${gap.referenceUsd.toFixed(2)}`;
-  return gap.pct > 0 ? `pool price ${gap.pct.toFixed(0)}% above its Chainlink reference (${ref})` : `pool price ${Math.abs(gap.pct).toFixed(0)}% below its Chainlink reference (${ref})`;
+  return gap.pct > 0 ? `pool price ${gap.pct.toFixed(0)}% above the stock's own price` : `pool price ${Math.abs(gap.pct).toFixed(0)}% below the stock's own price`;
 }
 
 /**

@@ -325,7 +325,7 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
           </div>
 
           {poolDeviationPct !== null && Math.abs(poolDeviationPct) >= 15 && (
-            <InfoBanner tone="warning">{`This pool prices ${symbol} ${poolDeviationPct > 0 ? `${poolDeviationPct.toFixed(0)}% above` : `${Math.abs(poolDeviationPct).toFixed(0)}% below`} the Chainlink reference (${formatUsd(refPerShare ?? 0)}/share). Your range brackets the pool price — if it snaps back toward the reference, the position goes out of range and one-sided.`}</InfoBanner>
+            <InfoBanner tone="warning">{`This pool prices ${symbol} ${poolDeviationPct > 0 ? `${poolDeviationPct.toFixed(0)}% above` : `${Math.abs(poolDeviationPct).toFixed(0)}% below`} the stock's own price. Your range brackets the pool price — if it snaps back toward the reference, the position goes out of range and one-sided.`}</InfoBanner>
           )}
           {thinPool && <InfoBanner tone="warning">{`Nearly empty pool (≈ ${formatUsd(opportunity.liquidityUsd ?? 0)} of liquidity): its current price can be arbitrary and a single trade can move it far. Best suited to seeding, not yield.`}</InfoBanner>}
 

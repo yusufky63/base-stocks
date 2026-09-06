@@ -229,7 +229,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
 
 const HOW_IT_WORKS = [
   { icon: Search, title: "Find", body: "13 Coinbase Tokenized Stocks on Base, identified by contract address, read live from the chain." },
-  { icon: BookOpen, title: "Understand", body: "Market, reference and executable prices stay separate. Shares are multiplier-aware." },
+  { icon: BookOpen, title: "Understand", body: "One price: the pool's, the one you trade at. The stock's own price is kept only as a check. Shares are multiplier-aware." },
   { icon: ShoppingCart, title: "Buy & sell", body: "Firm quote, price impact and fee up front. Scoped approvals, simulation, one confirmation." },
   { icon: Wallet, title: "Hold", body: "Assets stay in your wallet. Issuer policies and pauses are explained, never hidden." },
   { icon: Layers, title: "Build", body: "Baskets with sliders or templates; each leg confirmed by you, partial fills shown honestly." },

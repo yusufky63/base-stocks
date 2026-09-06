@@ -235,7 +235,7 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
                 ) : l.gap ? (
                   <span className={cx("ml-auto text-[11px] truncate", l.beyondFloor ? "text-warning-fg" : "text-ink-muted")} title={l.gap}>
                     {(l.gapPct ?? 0) > 0 ? "+" : ""}
-                    {(l.gapPct ?? 0).toFixed(0)}% vs reference{l.beyondFloor ? " · skipped" : ""}
+                    {(l.gapPct ?? 0).toFixed(0)}% vs stock price{l.beyondFloor ? " · skipped" : ""}
                   </span>
                 ) : null}
               </li>
@@ -256,7 +256,7 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
         )}
         {premiumLegs.length > 0 && (
           <InfoBanner tone="warning">
-            {premiumLegs.map((l) => `${l.info?.underlying ?? l.key.slice(0, 6)} (+${(l.gapPct ?? 0).toFixed(0)}%)`).join(", ")} {premiumLegs.length === 1 ? "trades" : "trade"} above the Chainlink reference by more than the {slippage / 100}% limit in step 3. An automatic run fills no worse than reference minus that limit, so {premiumLegs.length === 1 ? "this leg is" : "these legs are"} skipped until the gap narrows; the share stays in your wallet each time.
+            {premiumLegs.map((l) => `${l.info?.underlying ?? l.key.slice(0, 6)} (+${(l.gapPct ?? 0).toFixed(0)}%)`).join(", ")} {premiumLegs.length === 1 ? "trades" : "trade"} above the stock&apos;s own price by more than the {slippage / 100}% limit in step 3. An automatic run fills no worse than the stock price minus that limit, so {premiumLegs.length === 1 ? "this leg is" : "these legs are"} skipped until the gap narrows; the share stays in your wallet each time.
           </InfoBanner>
         )}
       </section>
@@ -320,7 +320,7 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
               <Segmented size="sm" ariaLabel="Duration" value={duration} onChange={setDuration} options={DURATIONS.map((d) => ({ value: d.days, label: d.label }))} />
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-[12px] text-ink-secondary">Fill no worse than the Chainlink reference minus</span>
+              <span className="text-[12px] text-ink-secondary">Fill no worse than the stock&apos;s own price minus</span>
               <Segmented size="sm" ariaLabel="Slippage tolerance" value={slippage} onChange={setSlippage} options={SLIPPAGES.map((s) => ({ value: s.bps, label: s.label }))} />
             </div>
             <div className="flex flex-col gap-1.5 md:col-span-2">

@@ -30,7 +30,7 @@ export function MarketClock({ className }: { className?: string }) {
   return (
     <span
       className={cx("inline-flex items-center gap-2 px-3 h-8 border-r border-line shrink-0 whitespace-nowrap", b.open ? "text-ink" : "text-ink-secondary", className)}
-      title={b.open ? `NYSE regular session is open; it closes at ${when} ET. DEX prices and the Chainlink reference both move.` : `NYSE is closed until ${when} ET. Tokenized stocks still trade on Base from the pools; the reference feed holds the last close.`}
+      title={b.open ? `NYSE regular session is open; it closes at ${when} ET. Pool prices and the stock's own price both move.` : `NYSE is closed until ${when} ET. Tokenized stocks still trade on Base from the pools; the stock's own price holds its last close.`}
     >
       <span className={cx("h-1.5 w-1.5 rounded-full", b.open ? "bg-positive-fg" : "bg-ink-muted")} aria-hidden />
       <span className="font-medium">{b.open ? "NYSE open" : "NYSE closed"}</span>

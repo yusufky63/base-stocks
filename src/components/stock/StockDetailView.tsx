@@ -25,7 +25,6 @@ import { TradesModule } from "./TradesModule";
 import { OrdersModule } from "@/components/trade/OrdersModule";
 import { PoolsModule } from "./PoolsModule";
 import { CorporateActionsModule } from "./CorporateActionsModule";
-import { PremiumMeter } from "./PremiumMeter";
 import { PlatformActivity } from "./PlatformActivity";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { SendSheet } from "@/components/gift/SendSheet";
@@ -132,11 +131,6 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 )}
               </span>
             </div>
-            {price?.displaySource === "market" && (
-              <div className="px-4 md:px-5 pb-4 max-w-[420px]">
-                <PremiumMeter deviationPct={price.deviationPct} marketUsd={price.marketUsd} referenceUsd={price.referenceUsd} stale={price.referenceStale} paused={price.referencePaused} />
-              </div>
-            )}
             <div className="border-t border-line">
               <ChartModule address={asset.address} marketUpdatedAt={price?.marketUpdatedAt} referenceUpdatedAt={price?.referenceUpdatedAt} marketUntrusted={price?.marketUsd !== null && price?.marketUsd !== undefined && price?.displaySource === "reference"} />
             </div>

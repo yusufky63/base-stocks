@@ -231,7 +231,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         )}
         {price?.deviationPct !== null && price?.deviationPct !== undefined && Math.abs(price.deviationPct) >= 15 && !price.referenceStale && !price.referencePaused && (
           <p className="text-[12px] border border-dashed border-warning-fg/60 text-warning-fg rounded-[6px] px-3 py-2">
-            {`${asset.underlying} trades ${price.deviationPct > 0 ? `${price.deviationPct.toFixed(0)}% above` : `${Math.abs(price.deviationPct).toFixed(0)}% below`} its Chainlink reference (${formatUsd(price.referenceUsd ?? 0)}). You ${side === "buy" ? "buy" : "sell"} at the pool price, not the stock price${price.deviationPct > 0 ? " — a premium this large can collapse toward the reference at any time" : ""}.`}
+            {`The pool prices ${asset.underlying} ${price.deviationPct > 0 ? `${price.deviationPct.toFixed(0)}% above` : `${Math.abs(price.deviationPct).toFixed(0)}% below`} the stock's own price. You ${side === "buy" ? "buy" : "sell"} at the pool price${price.deviationPct > 0 ? " — a premium this large can shrink at any time, whatever the stock does" : ""}.`}
           </p>
         )}
         {price?.liquidityUsd !== null && price?.liquidityUsd !== undefined && price.liquidityUsd < 50_000 && (
@@ -291,7 +291,6 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         {s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
         <Collapsible title="Execution details">
           <KeyValue k="Market price" v={displayPrice !== null ? formatUsd(displayPrice, { precise: true }) : "—"} />
-          <KeyValue k="Reference (Chainlink)" v={price?.referenceUsd !== null && price?.referenceUsd !== undefined ? `${formatUsd(price.referenceUsd, { precise: true })}${price.referenceStale ? " · stale" : ""}${price.referencePaused ? " · paused" : ""}` : "—"} />
           <KeyValue k="Buy now / Sell now" v={view?.executablePriceUsd !== null && view?.executablePriceUsd !== undefined ? formatUsd(view.executablePriceUsd, { precise: true }) : "—"} />
           <KeyValue k="Route" v={view?.route.length ? view.route.map((r) => r.source).join(", ") : "—"} />
           <KeyValue k="Provider" v={view ? `${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : " · best net"}` : "—"} />
