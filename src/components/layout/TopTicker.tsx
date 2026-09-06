@@ -7,7 +7,6 @@ import { useTickerSettings } from "@/hooks/useSettings";
 import { formatUsd } from "@/lib/format";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { hasMeaningfulChange, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
-import { MarketClock } from "./MarketClock";
 
 /**
  * Global marquee rows above the header: prices (on by default) and headlines (opt-in from
@@ -54,7 +53,6 @@ function PricesRow() {
   ));
   return (
     <div className="border-b border-line flex items-stretch">
-      <MarketClock className="hidden sm:inline-flex" />
       <Track cells={cells} seconds={Math.max(50, cells.length * 5)} />
     </div>
   );
