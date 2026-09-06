@@ -31,6 +31,18 @@ export function AutomateView({ initialTemplates, embedded = false }: { initialTe
     const legs = parseAutomateLegs(search.get("legs"));
     return legs.length > 0 ? { allocations: legs, name: search.get("name") ?? undefined } : undefined;
   }, [search]);
+  // A plan handed over in the URL (`&usd=&cadence=`, e.g. from the Copilot) arrives as a full
+  // draft, so amount and cadence prefill too — same shape the assistant pane produces.
+  const urlDraft = useMemo<AutomationDraft | null>(() => {
+    const legs = parseAutomateLegs(search.get("legs"));
+    const amountUsd = Number(search.get("usd"));
+    const cadenceDays = Number(search.get("cadence"));
+    if (legs.length === 0 || !Number.isFinite(amountUsd) || amountUsd < 1 || !Number.isInteger(cadenceDays) || cadenceDays < 1 || cadenceDays > 90) return null;
+    const name = search.get("name") ?? undefined;
+    const single = legs.length === 1 && legs[0]!.assetAddress !== "USDC" ? legs[0]! : null;
+    if (single) return { type: "recurring-buy", assetAddress: single.assetAddress as `0x${string}`, amountUsd, cadenceDays, notes: "" };
+    return { type: "recurring-basket", basketName: name, allocations: legs, amountUsd, cadenceDays, notes: "" };
+  }, [search]);
 
   const active = automation.active;
   const perMonth = active.reduce((s, p) => s + ((p.config.amountUsd ?? 0) * 30) / Math.max(1, p.config.cadenceDays ?? 30), 0);
@@ -66,7 +78,7 @@ export function AutomateView({ initialTemplates, embedded = false }: { initialTe
             ))}
           </div>
           <div hidden={pane !== "plan"}>
-            <PlanWizard templates={templates ?? []} draft={draft} seed={seed} />
+            <PlanWizard templates={templates ?? []} draft={draft ?? urlDraft} seed={seed} />
           </div>
           <div hidden={pane !== "assistant"} className="p-4 border-t border-line">
             <AiRuleDraft

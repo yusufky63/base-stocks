@@ -2,18 +2,14 @@ import { z } from "zod";
 import { route, json, parseBody, addressSchema } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { getAssets } from "@/services/b20-asset-service";
-import { getPriceViews } from "@/services/price-service";
-import { validateAllocations } from "@/services/portfolio-service";
 import { marketContextText } from "@/services/digest-service";
 import { getEcosystemNews, getMarketNews } from "@/services/news-service";
-import { hasMeaningfulChange, referenceGapNote, tradingStatus } from "@/lib/trading-status";
-import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation } from "@/domain/portfolio";
+import { buildUniverseContext, cleanText, finalizeBasketDraft, sanitizePrompt } from "@/services/basket-intent-service";
 import { metrics } from "@/lib/http";
 import { cached } from "@/lib/cache";
 import { timeAgo } from "@/lib/format";
 import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
 import { aiConfigFromEnv, generateStructured } from "@/lib/ai-provider";
-import type { DraftCommentary } from "@/lib/client-api";
 
 /** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
 export const maxDuration = 60;
@@ -27,8 +23,9 @@ export const maxDuration = 60;
  * - Identical prompts within 10 minutes reuse the same draft (no second model call).
  * - The user text is treated as untrusted data: fixed system prompt, structured output only,
  *   the model may only name tickers from the allowed universe and can refuse off-topic requests.
- * - Server maps symbols → canonical addresses and re-validates every allocation. The model never
- *   sees or emits contract addresses or calldata.
+ * - Server maps symbols → canonical addresses and re-validates every allocation (see
+ *   services/basket-intent-service.ts, shared with the assistant chat). The model never sees or
+ *   emits contract addresses or calldata.
  * - The draft comes with commentary — why each leg, what could go against it, which headlines it
  *   leaned on — built only from the context it was given: live status and liquidity per stock, the
  *   shared market brief, and recent headlines (titles only, untrusted).
@@ -94,31 +91,6 @@ const IntentOutput = z.object({
     .nullish(),
 });
 
-function sanitizePrompt(raw: string): string {
-  return raw
-    .replace(/[ -]/g, " ")
-    .replace(/[<>{}[\]`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_PROMPT_CHARS);
-}
-
-function cleanText(s: string, max: number): string {
-  return s.replace(/<[^>]*>/g, " ").replace(/[<>`]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function normalizeToTotal(allocs: Allocation[]): Allocation[] {
-  const sum = allocs.reduce((s, a) => s + a.weightBps, 0);
-  if (sum === TOTAL_BPS || sum <= 0) return allocs;
-  const scaled = allocs.map((a) => ({ ...a, weightBps: Math.max(1, Math.round((a.weightBps / sum) * TOTAL_BPS)) }));
-  const diff = TOTAL_BPS - scaled.reduce((s, a) => s + a.weightBps, 0);
-  if (diff !== 0) {
-    const idx = scaled.reduce((best, a, i) => (a.weightBps > scaled[best]!.weightBps ? i : best), 0);
-    scaled[idx]!.weightBps += diff;
-  }
-  return scaled;
-}
-
 function systemPrompt(universe: string): string {
   return `You are the basket-drafting component of a tokenized-stock portfolio app. Your ONLY job: turn the user's request into a stock basket TEMPLATE using the allowed universe below, and explain it.
 
@@ -144,7 +116,7 @@ export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, win
   const cfg = aiConfigFromEnv();
   if (!cfg) throw new AppError("PROVIDER_UNAVAILABLE", "AI assistance is not enabled on this deployment.", 503);
   const body = await parseBody(req, bodySchema);
-  const prompt = [sanitizePrompt(body.prompt ?? ""), guidedText(body.guided)].filter(Boolean).join(" ").slice(0, MAX_PROMPT_CHARS * 2);
+  const prompt = [sanitizePrompt(body.prompt ?? "", MAX_PROMPT_CHARS), guidedText(body.guided)].filter(Boolean).join(" ").slice(0, MAX_PROMPT_CHARS * 2);
   if (prompt.length < 3) throw new AppError("BAD_REQUEST", "Pick a theme or describe the basket you want (sectors, exclusions, cash share).", 400);
 
   const limits = quotaLimitsFromEnv();
@@ -166,12 +138,11 @@ export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, win
   }
 
   const assets = (await getAssets()).filter((a) => a.status === "active");
-  const bySymbol = new Map(assets.map((a) => [a.underlying.toUpperCase(), a]));
   const shortName = (name: string) => name.replace(/\b(Corporation|Inc\.?|Corp\.?|Group|Platforms|Holdings)\b/g, "").trim();
   // Market context so drafts follow data, not vibes: the same status Markets shows, price, 24h move,
   // DEX liquidity; then the shared brief and a few headlines per live stock, all marked as data.
-  const [views, brief, stockNews, ecosystemNews] = await Promise.all([
-    getPriceViews(assets).catch(() => new Map()),
+  const [universe, brief, stockNews, ecosystemNews] = await Promise.all([
+    buildUniverseContext(assets),
     marketContextText(1_800).catch(() => ""),
     getMarketNews(
       assets.filter((a) => a.totalSupply > 0n).map((a) => ({ ticker: a.underlying, name: shortName(a.name) })),
@@ -180,17 +151,6 @@ export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, win
     ).catch(() => []),
     getEcosystemNews(6, assets.map((a) => a.underlying)).catch(() => []),
   ]);
-  const universe = assets
-    .map((a) => {
-      const v = views.get(a.canonicalId);
-      const status = tradingStatus({ status: a.status, totalSupply: a.totalSupply.toString() }, v ? { liquidityUsd: v.liquidityUsd, volume24hUsd: v.volume24hUsd } : null);
-      const ctx =
-        status.status === "not-issued"
-          ? "not issued yet · no market"
-          : `${status.label.toLowerCase()} · ${v?.displayUsd !== null && v?.displayUsd !== undefined ? `$${v.displayUsd.toFixed(2)}` : "price n/a"}${v && hasMeaningfulChange(status.status, v) ? ` · ${v.marketChange24hPct! >= 0 ? "+" : ""}${v.marketChange24hPct!.toFixed(1)}% 24h` : ""}${v?.liquidityUsd ? ` · liquidity $${Math.round(v.liquidityUsd / 1000)}k` : " · no pool"}${referenceGapNote(v) ? ` · ${referenceGapNote(v)}` : ""}`;
-      return `${a.underlying} — ${a.name} [${a.tags.join(", ")}] · ${ctx}`;
-    })
-    .join("\n");
   const headlineLines = [
     ...ecosystemNews.map((n) => `[BASE${n.tickers && n.tickers.length ? ` · ${n.tickers.join(", ")}` : ""}] ${cleanText(n.title, 150)} (${n.source}, ${timeAgo(n.publishedAt)})`),
     ...stockNews.map((n) => `[${n.ticker}] ${cleanText(n.title, 150)} (${n.source}, ${timeAgo(n.publishedAt)})`),
@@ -227,54 +187,8 @@ export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, win
     return json({ ok: false, errors: [`Not a basket request: ${cleanText(out.refusalReason || "try describing sectors, exclusions and a cash percentage", 160)}.`], quota: remaining }, { status: 422 });
   }
 
-  // Exact ticker first (INTC, COIN end with C); only then treat a trailing "c" as the B20 suffix (NVDAc → NVDA).
-  const resolve = (raw: string) => {
-    const upper = raw.trim().toUpperCase();
-    return bySymbol.get(bySymbol.has(upper) ? upper : upper.replace(/C$/, ""));
-  };
-  const warnings: string[] = [];
-  const mapped: Allocation[] = [];
-  for (const a of out.allocations) {
-    const upper = a.symbol.trim().toUpperCase();
-    if (upper === USDC_ALLOCATION_KEY || upper === "USD" || upper === "CASH") {
-      mapped.push({ assetAddress: USDC_ALLOCATION_KEY, weightBps: a.weightBps });
-      continue;
-    }
-    const asset = resolve(a.symbol);
-    if (!asset) {
-      warnings.push(`${cleanText(a.symbol, 12)} is not available and was dropped.`);
-      continue;
-    }
-    mapped.push({ assetAddress: asset.address, weightBps: a.weightBps });
-  }
-  const normalized = normalizeToTotal(mapped.filter((a) => a.weightBps > 0));
-  const v = validateAllocations(normalized, { allowedAssets: new Set(assets.map((a) => a.canonicalId)) });
-  if (!v.ok) return json({ ok: false, errors: [...warnings, ...v.errors], quota: remaining }, { status: 422 });
+  const fin = finalizeBasketDraft(assets, { name: out.name, allocations: out.allocations, notes: out.notes, commentary: out.commentary });
+  if (!fin.ok || !fin.intent) return json({ ok: false, errors: [...fin.warnings, ...fin.errors], quota: remaining }, { status: 422 });
 
-  const inBasket = new Set(v.normalized.filter((a) => a.assetAddress !== USDC_ALLOCATION_KEY).map((a) => (a.assetAddress as string).toLowerCase()));
-  const c = out.commentary;
-  const commentary: DraftCommentary = {
-    thesis: cleanText(c?.thesis ?? "", 320),
-    legs: (c?.legs ?? [])
-      .map((l) => ({ asset: resolve(l.symbol), why: cleanText(l.why, 180) }))
-      .filter((l): l is { asset: NonNullable<ReturnType<typeof resolve>>; why: string } => !!l.asset && inBasket.has(l.asset.canonicalId) && !!l.why)
-      .map((l) => ({ symbol: l.asset.underlying, why: l.why }))
-      .slice(0, 10),
-    risks: (c?.risks ?? []).map((r) => cleanText(r, 200)).filter(Boolean).slice(0, 4),
-    fromNews: (c?.fromNews ?? []).map((n) => cleanText(n, 220)).filter(Boolean).slice(0, 4),
-  };
-
-  return json({
-    ok: true,
-    sent,
-    warnings,
-    quota: remaining,
-    intent: {
-      name: cleanText(out.name, 40).replace(/[^\w\s&.-]/g, "") || "AI draft",
-      allocations: v.normalized,
-      notes: cleanText(out.notes, 240),
-      source: "ai" as const,
-      commentary,
-    },
-  });
+  return json({ ok: true, sent, warnings: fin.warnings, quota: remaining, intent: fin.intent });
 });

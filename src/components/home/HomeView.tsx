@@ -22,6 +22,7 @@ import { PublicFeed } from "@/components/activity/PublicFeed";
 import { NewsModule } from "@/components/news/NewsModule";
 import { FundWallet } from "@/components/common/FundWallet";
 import { Coin3D, Dither } from "@/components/fx/lazy";
+import { CopilotBanner } from "@/components/assistant/CopilotBanner";
 
 export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: AssetsResponse; initialTemplates?: PortfolioTemplate[] }) {
   const { address, isConnected } = useAccount();
@@ -81,6 +82,8 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
         </div>
       </section>
 
+      <CopilotBanner />
+
       {isConnected && address && (
         <Module ticks>
           <ModuleHeader index="02" title="Your portfolio" action={<Link href="/portfolio" className="text-[13px] text-primary font-medium">Open portfolio →</Link>} />
@@ -128,7 +131,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
                 <Link key={asset.canonicalId} href={`/stocks/${asset.address}?trade=buy`} className="rail p-4 border-r border-b border-line md:border-b-0 [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:last:border-r-0 hover:bg-surface transition-fast">
                   <div className="flex items-center justify-between">
                     <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={36} />
-                    <Sparkline points={sparks?.series24h[asset.canonicalId] ?? []} width={64} height={22} />
+                    <Sparkline points={sparks?.series[asset.canonicalId] ?? []} width={64} height={22} />
                   </div>
                   <div className="mt-3 font-medium">{asset.underlying}</div>
                   <div className="display num text-[20px]">
@@ -144,7 +147,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             <Module>
               <ModuleHeader title="Watchlist" />
               {watched.map(({ asset, price }) => (
-                <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series24h[asset.canonicalId]} />
+                <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} />
               ))}
             </Module>
           )}
@@ -154,7 +157,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
           <Module>
             <ModuleHeader title="Top movers" />
             {movers.map(({ asset, price }) => (
-              <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series24h[asset.canonicalId]} />
+              <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} />
             ))}
             {movers.length === 0 && (
               <div className="p-4 flex flex-col gap-2">
@@ -340,7 +343,7 @@ function PlatformStatsModule() {
   const delivered = s ? s.directGifts + s.linksClaimed + s.poolClaims : 0;
   const cells = s
     ? [
-        { label: "Traded via BStocks", value: formatUsdCompact(s.tradeVolumeUsd) },
+        { label: "Traded via BaseStocks", value: formatUsdCompact(s.tradeVolumeUsd) },
         { label: "Trades here", value: s.trades.toLocaleString("en-US") },
         { label: "Wallets", value: s.wallets.toLocaleString("en-US") },
         { label: "Gifts delivered", value: delivered.toLocaleString("en-US") },
@@ -350,7 +353,7 @@ function PlatformStatsModule() {
     : [];
   return (
     <Module ticks>
-      <ModuleHeader title="BStocks so far" action={<Link href="/stats" className="text-[13px] text-primary font-medium">All stats →</Link>} />
+      <ModuleHeader title="BaseStocks so far" action={<Link href="/stats" className="text-[13px] text-primary font-medium">All stats →</Link>} />
       {!s ? (
         <div className="p-4">
           <Skeleton className="h-16" />

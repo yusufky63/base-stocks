@@ -20,10 +20,10 @@ export function quotaLimitsFromEnv(): QuotaLimits {
     return Number.isInteger(v) && v >= 0 ? v : d;
   };
   return {
-    perIpPerDay: n("AI_DAILY_LIMIT_PER_IP", 20),
-    perWalletPerDay: n("AI_DAILY_LIMIT_PER_WALLET", 10),
+    perIpPerDay: n("AI_DAILY_LIMIT_PER_IP", 40),
+    perWalletPerDay: n("AI_DAILY_LIMIT_PER_WALLET", 25),
     globalPerDay: n("AI_GLOBAL_DAILY_LIMIT", 500),
-    perIpPerMinute: n("AI_BURST_LIMIT_PER_IP", 4),
+    perIpPerMinute: n("AI_BURST_LIMIT_PER_IP", 5),
   };
 }
 

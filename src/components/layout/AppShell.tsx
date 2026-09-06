@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, LineChart, Layers, PieChart, Sprout, Moon, Sun, Newspaper, Settings, Gift as GiftIcon } from "lucide-react";
+import { Home, LineChart, Layers, PieChart, Sprout, Moon, Sun, Newspaper, Settings, Gift as GiftIcon, Rocket } from "lucide-react";
 import type { ReactNode } from "react";
 import { ConnectButton } from "./ConnectButton";
 import { useTheme } from "./ThemeProvider";
@@ -10,8 +10,11 @@ import { cx } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
 import { Wordmark, XMark } from "@/components/brand/Logo";
 import { BSTOCKS_X_URL } from "@/content/social";
+import { LAUNCHPAD_URL } from "@/content/ecosystem";
 import { TopTicker } from "./TopTicker";
 import { IntegrationsStrip } from "@/components/common/Integrations";
+import { CopilotProvider } from "@/components/assistant/CopilotProvider";
+import { Copilot } from "@/components/assistant/CopilotPanel";
 
 const X_URL = BSTOCKS_X_URL;
 
@@ -54,6 +57,15 @@ function isActive(path: string, href: string): boolean {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <CopilotProvider>
+      <AppFrame>{children}</AppFrame>
+    </CopilotProvider>
+  );
+}
+
+/** Everything inside the Copilot context, so any page can open the assistant with a question. */
+function AppFrame({ children }: { children: ReactNode }) {
   const path = usePathname();
   const showTicker = !path.startsWith("/admin");
   return (
@@ -62,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {showTicker && <TopTicker />}
         <header className="border-b border-line bg-canvas/95 backdrop-blur-[2px]">
           <div className="mx-auto flex h-14 max-w-[1320px] items-center justify-between gap-2 md:gap-3 px-4 md:px-6">
-            <Link href="/" aria-label="BStocks home" className="inline-flex shrink-0">
+            <Link href="/" aria-label="BaseStocks home" className="inline-flex shrink-0">
               <Wordmark />
             </Link>
             <nav aria-label="Primary" className="hidden md:flex items-center gap-0 lg:gap-0.5 min-w-0">
@@ -86,7 +98,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               })}
             </nav>
             <div className="flex items-center gap-1.5 shrink-0">
-              <ThemeToggle />
+              <a
+                href={LAUNCHPAD_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden md:inline-flex items-center gap-1.5 h-9 px-3 rounded-[6px] text-[13px] font-medium bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:brightness-[1.08] active:border-b active:translate-y-[2px] transition-fast"
+              >
+                <Rocket size={14} strokeWidth={1.75} /> Launchpad
+              </a>
               <Link
                 href="/settings"
                 aria-label="Settings"
@@ -116,8 +135,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {label}
                 </Link>
               ))}
+              <a href={LAUNCHPAD_URL} target="_blank" rel="noopener noreferrer" className="text-[13px] text-ink-secondary hover:text-primary transition-fast">
+                Launchpad&thinsp;↗
+              </a>
             </nav>
-            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BStocks on X" title="@BaseOnStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
+            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BaseStocks on X" title="@BaseOnStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
               <XLogo />
               <span className="font-mono text-[12px]">@BaseOnStocks</span>
             </a>
@@ -138,14 +160,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* Sized so the natural glyph width fills the box; lengthAdjust="spacing" only trims the
                 rounding drift, so the letterforms keep their true proportions. The viewBox crops the
                 lower third, letting the letters run off the bottom edge of the page. */}
-            <text x="0" y="286" textLength="1200" lengthAdjust="spacing" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="288" letterSpacing="-8.6">
-              {"BSTOCKS".split("").map((ch, i) => (
+            <text x="0" y="250" textLength="1200" lengthAdjust="spacing" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="202" letterSpacing="-6">
+              {"BASESTOCKS".split("").map((ch, i) => (
                 <tspan key={i}>{ch}</tspan>
               ))}
             </text>
           </svg>
         </div>
       </footer>
+
+      <Copilot />
 
       <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:max(env(safe-area-inset-bottom),var(--miniapp-safe-bottom))]">
         <div className="grid grid-cols-6">

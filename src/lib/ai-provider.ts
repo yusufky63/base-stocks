@@ -65,7 +65,7 @@ export interface StructuredResult<T> {
 }
 
 /** JSON Schema text for prompt-level guidance on providers without native structured outputs. */
-function jsonSchemaText(schema: z.ZodType): string {
+export function jsonSchemaText(schema: z.ZodType): string {
   try {
     const js = z.toJSONSchema(schema, { target: "draft-7", io: "input" }) as Record<string, unknown>;
     delete js.$schema;
@@ -75,9 +75,8 @@ function jsonSchemaText(schema: z.ZodType): string {
   }
 }
 
-/** Ask for a structured object; `schema` is enforced by the API (Anthropic) or validated after the fact (OpenAI-compatible JSON mode). */
 /** Human-readable reason for an upstream model error, so the UI can show it instead of a bare status code. */
-async function describeHttpError(provider: string, res: Response): Promise<string> {
+export async function describeHttpError(provider: string, res: Response): Promise<string> {
   let upstream = "";
   try {
     const body = (await res.json()) as { error?: { message?: string } | string; message?: string };

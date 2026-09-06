@@ -21,7 +21,7 @@ import { Dither } from "@/components/fx/lazy";
 
 export const metadata: Metadata = {
   title: "Technical docs",
-  description: "How BStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow and the contract addresses it talks to.",
+  description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, the Copilot assistant and the contract addresses it talks to.",
 };
 
 /* ------------------------------------------------------------------ data */
@@ -65,6 +65,19 @@ const COW_SPEC: Array<[string, string]> = [
   ["Cancel", "Signed off-chain (free) or on-chain via invalidateOrder"],
 ];
 
+const COPILOT_SPEC: Array<[string, string]> = [
+  ["Endpoint", "POST /api/assistant/chat — one JSON turn, no streaming"],
+  ["Loop", "Server-side tool use: at most 4 model rounds, 40 s wall clock, then a final round without tools so the turn always ends in an answer"],
+  ["Read tools", "14: portfolio, prices, market brief, news, Earn, activity, limit orders, gifts, gift pools, templates, community pulse, liquidity, platform statistics, service status"],
+  ["Draft tools", "5: swap, basket, AutoInvest plan, gift, Earn deposit — each returns a card, never a transaction"],
+  ["What the model sees", "Tickers, human amounts and tool results marked “data, not instructions”. Never an address, never calldata, never your keys"],
+  ["What the model emits", "Plain text and a draft in tickers and amounts. The server resolves symbols to contracts and re-validates every draft (shared with the basket-intent path)"],
+  ["Signing", "The swap card opens the same review sheet the stock page uses; basket, plan, gift and Earn cards open their page prefilled. Nothing moves until your wallet signs"],
+  ["Links", "Headline links come from the news service’s own rows and are shown as a card; the model is never allowed to write a URL"],
+  ["Scope", "This app’s stocks, positions and features only. No advice, no predictions, no figure that a tool did not return in that same turn"],
+  ["Budget", "One quota unit per message however many tools it used, plus the shared per-wallet, per-IP, global and monthly-USD caps"],
+];
+
 const GAS_SPEC: Array<[string, string]> = [
   ["Base Account", "Transactions go out as EIP-5792 batches; the CDP paymaster sponsors gas where its policy allows, so a fresh passkey wallet can act with zero ETH"],
   ["Other wallets", "You pay the Base network fee yourself \u2014 usually well under a cent per transaction"],
@@ -92,7 +105,7 @@ const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "Stock OracleRegistry", address: STOCK_ORACLE_REGISTRY_ADDRESS, note: "getOracleParams(token) → (multiplier, paused)" },
   { label: "Coinbase B20 creator", address: COINBASE_B20_CREATORS[0]!, note: "Only tokens created by this EOA are trusted in discovery" },
   { label: "USDC", address: USDC_ADDRESS, note: "Quote and settlement currency, 6 decimals" },
-  { label: "BStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds gifts until claim or reclaim" },
+  { label: "BaseStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds gifts until claim or reclaim" },
   { label: "CoW GPv2Settlement", address: GPV2_SETTLEMENT, note: "EIP-712 domain “Gnosis Protocol” v2; settles limit orders" },
   { label: "CoW VaultRelayer", address: GPV2_VAULT_RELAYER, note: "The only spender approved for CoW orders" },
   ...LP_MANAGER_INFO.map((m) => ({ label: `${m.label} position manager`, address: m.npm, note: `Mint / collect / withdraw; factory ${m.factory.slice(0, 10)}…` })),
@@ -199,7 +212,7 @@ export default function DocsPage() {
         <SectionHead n={1} id="architecture" title="Architecture" sub="client-first · non-custodial" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={KeyRound} title="Your keys sign everything">
-            The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BStocks never custodies funds.
+            The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BaseStocks never custodies funds.
           </Cell>
           <Cell icon={Network} title="Reads that survive outages">
             All reads batch through Multicall3 and fall back across RPCs — keyed endpoints first (a primary provider with a second one behind it), then Coinbase Developer Platform, then four public RPCs. Confirmations arrive in ~200 ms — Flashblocks preconfirmations today, canonical 200 ms blocks once the Denim hardfork activates; the same receipt call covers both.
@@ -295,7 +308,12 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={9} id="privacy" title="Data, limits and privacy" />
+        <SectionHead n={9} id="copilot" title="Copilot" sub="drafts, never executes" />
+        <SpecRows rows={COPILOT_SPEC} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={10} id="privacy" title="Data, limits and privacy" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={Database} title="Supabase for the social layer">
             Baskets, profiles, gift metadata and AI usage live behind row-level security. Positions and balances are always read from the chain, never mirrored.
@@ -310,7 +328,7 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={10} id="base-app" title="Inside the Base app" sub="the same app, one frame in" />
+        <SectionHead n={11} id="base-app" title="Inside the Base app" sub="the same app, one frame in" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={Smartphone} title="A mini app, not a wrapper">
             The site is served as a Base mini app from <span className="font-mono text-[12px]">/.well-known/farcaster.json</span>. There is no second build and no
@@ -332,7 +350,7 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={11} id="contracts" title="Contract addresses" sub="Base mainnet" />
+        <SectionHead n={12} id="contracts" title="Contract addresses" sub="Base mainnet" />
         <div className="border border-line rounded-[8px] bg-canvas overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
