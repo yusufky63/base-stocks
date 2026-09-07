@@ -1,5 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { withX402, type RouteConfig } from "x402-next";
+import { PRO_PRICE_USD } from "./catalog";
 
 /** `x402` is a transitive dependency, so the facilitator's shape comes from the function that takes it. */
 type FacilitatorConfig = NonNullable<Parameters<typeof withX402>[3]>;
@@ -18,8 +19,8 @@ type FacilitatorConfig = NonNullable<Parameters<typeof withX402>[3]>;
  * after the handler succeeds, so a failed request never costs the caller anything.
  */
 
-/** Ten cents. One number, in one place, so the docs page and the routes cannot disagree. */
-export const PRO_PRICE_USD = "$0.10";
+/** Re-exported so the payment surface stays the one import a route or a test needs. */
+export { PRO_PRICE_USD };
 
 /** Where payments land. Without it there is nothing to pay to, and the pro routes stay open. */
 function payTo(): `0x${string}` | null {

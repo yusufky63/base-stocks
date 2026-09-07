@@ -1,10 +1,16 @@
-import { PRO_PRICE_USD } from "./x402";
-
 /**
  * One description of the public API, read by the index route, the OpenAPI document, the
  * developers page and `llms.txt`. Adding an endpoint in four places is how documentation starts
  * lying, so it is added here instead.
  */
+
+/**
+ * Ten cents. One number, in one place, so the docs page and the routes cannot disagree.
+ *
+ * It lives here rather than beside the payment wiring so that a page which only writes about the
+ * price does not have to pull `x402-next` in to read it; `x402.ts` imports it back from here.
+ */
+export const PRO_PRICE_USD = "$0.10";
 export interface V1Endpoint {
   path: string;
   /** Path with a real value substituted, so every example in the docs is one somebody can run. */

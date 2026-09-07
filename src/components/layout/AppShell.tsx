@@ -41,7 +41,6 @@ const DESKTOP_NAV = [...NAV.filter((n) => n.href !== "/").map((n) => ({ ...n, ex
 const FOOTER_LINKS = [
   ["/news", "News", "lg:hidden"],
   ["/how-it-works", "How it works", ""],
-  ["/how-it-works#faq", "FAQ", ""],
   ["/docs", "Docs", ""],
   ["/developers", "API", ""],
   ["/stats", "Stats", ""],
@@ -136,9 +135,6 @@ function AppFrame({ children }: { children: ReactNode }) {
                   {label}
                 </Link>
               ))}
-              <a href={LAUNCHPAD_URL} target="_blank" rel="noopener noreferrer" className="text-[13px] text-ink-secondary hover:text-primary transition-fast">
-                Launchpad&thinsp;↗
-              </a>
             </nav>
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BaseStocks on X" title="@BaseOnStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
               <XLogo />

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BarChart3, Blocks, Bot, Boxes, Gift, Landmark, LineChart, Newspaper, PieChart, Repeat, ShieldCheck, Sprout, Users } from "lucide-react";
+import { BarChart3, Blocks, Bot, Boxes, Code2, Gift, Landmark, LineChart, Newspaper, PieChart, Repeat, ShieldCheck, Sprout, Users } from "lucide-react";
 import { LinkButton } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
 import { IntegrationsSection } from "@/components/common/Integrations";
@@ -20,6 +20,12 @@ const FEATURES = [
   { icon: Users, title: "Community", body: "Published baskets, votes, clones, public pages under your Basename, badges. Templates, not recommendations.", href: "/community" },
   { icon: Newspaper, title: "News & brief", body: "Headlines per stock and market-wide, a Base & Coinbase feed that follows tokenized-stock listings and venues, and one shared AI brief every six hours that reads about sixty headlines and leads with that ecosystem.", href: "/news" },
   { icon: Bot, title: "Copilot, fenced", body: "Ask in your own words on any page: prices, news, your portfolio, Earn, plans, gift pools. Say what you want done — buy $50 of NVDA, build a tech basket, invest weekly — and it prepares a draft you review and sign in your own wallet. It cannot sign, approve, execute or pick addresses, it only knows this app, and it explains rather than recommends.", href: "/how-it-works#faq" },
+  {
+    icon: Code2,
+    title: "Public API",
+    body: "The same data, as a read-only API: prices, Chainlink references, liquidity, headlines, USDC yield venues and any wallet's position. No key, no account, open to any origin. Two heavier endpoints cost ten cents in USDC per call over x402.",
+    href: "/developers",
+  },
   { icon: Landmark, title: "Compliance", body: "Eligibility notice for restricted regions, issuer policies and pauses read before every action, plain-language errors.", href: "/how-it-works#faq" },
   { icon: ShieldCheck, title: "Status", body: "Live checks of the chain, price feeds, trading routes, yield venues, news and storage this app depends on.", href: "/status" },
 ];
@@ -54,6 +60,14 @@ const FAQ: Array<{ q: string; a: string }> = [
   { q: "Do the tasks on a pool actually get checked?", a: "Some of them, and the app always tells you which. Owning a Basename, holding a stock and having bought one are read from Base — a purchase is re-read from its transaction receipt, so it cannot be faked. The rest are different: a follow, a repost, a like or a visit to a page cannot be checked by anyone from outside, so they are recorded as the claimant's own confirmation, with their wallet and a timestamp, and shown as “declared” rather than verified on the creator's list. A pool can ask for up to eight steps and repeat them — several accounts to follow, several links to read — but pair at least one with an onchain step if a campaign has to hold up." },
   { q: "How does auto-invest work, and what can it not do?", a: "You create a plan onchain: which stocks, in what mix, how much USDC per run, how often, for how long, and how far below the Chainlink reference a fill may land. You approve a USDC allowance for it. When a run is due, a keeper run by BaseStocks (or you, from your wallet) triggers it: the contract pulls exactly one run's USDC, swaps it through an allow-listed route with your wallet as the recipient, and reverts the whole run if you would receive less than allowed. It can never take more than the amount per run, never run more often than the cadence, never send stock anywhere but to you, and never sell. Pause, cancel or revoke the allowance at any time." },
   { q: "What if a stock in my plan cannot be bought one week?", a: "That leg is skipped for that run — its share simply stays in your wallet — and the plan keeps its schedule. The same rule that labels a stock Not issued, No pool or Paused on Markets decides this, and a leg that would be more than 2% of its pool is skipped too rather than filled at a bad price. An automatic plan also skips a leg whose pool price sits above the Chainlink reference by more than the plan's tolerance: the contract will not pay a premium on your behalf, and the wizard says so before you create the plan." },
+  {
+    q: "Is there an API I can build on?",
+    a: "Yes. Everything this app shows about tokenized stocks is a public, read-only API at /api/v1 — plain GET requests, no key, no account, and CORS open to every origin, so a browser, a script or an assistant in a chat can all read it. Six endpoints are free: every listed stock with its DEX price, Chainlink reference, liquidity, 24h volume and multiplier; one stock with the pools that trade it; headlines; USDC yield venues; any wallet's tokenized-stock position read from the chain; and platform statistics. Two more cost ten cents in USDC per call — the written market brief and full candle history — because one runs a model and the other pulls a heavy upstream series. Every response says how long it stays valid, so a polling client knows when it is worth asking again. The developer page runs every example live, and there is an OpenAPI document and an llms.txt index for machines.",
+  },
+  {
+    q: "Why do two API endpoints cost money, and how do I pay?",
+    a: "Through x402, Coinbase's HTTP payment standard: you call the URL, it answers 402 Payment Required with the amount, the asset, the network and the recipient; your client signs a USDC authorization and retries the same URL. There is nothing to sign up for and no key to rotate, which is what lets an agent pay for a call on its own. Settlement only happens after a successful answer, so a request that fails or names an unknown stock never costs anything. The free endpoints stay free because the CDN answers repeats for them; the two paid ones carry a cost per request that no cache can remove.",
+  },
   { q: "How do badges work?", a: "Badges mark onchain milestones of your own wallet: first trade, five different stocks, an executed basket, a sent gift, published and popular baskets. Recognition only, there are no payouts." },
   { q: "What happens on a dividend or split?", a: "The issuer updates the token's multiplier onchain and the reference feed may freeze during the action. BaseStocks shows scheduled multiplier changes ahead of time and keeps showing share-equivalents, so your position reads correctly before and after." },
 ];
@@ -79,6 +93,7 @@ export default function HowItWorksPage() {
             <LinkButton href="/build">Build a portfolio</LinkButton>
             <LinkButton href="#faq">Questions &amp; answers</LinkButton>
             <LinkButton href="/docs">Technical docs</LinkButton>
+            <LinkButton href="/developers">Developer API</LinkButton>
           </div>
         </div>
       </section>

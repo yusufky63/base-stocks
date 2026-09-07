@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, Send, ShieldCheck, Smartphone, Timer, Wallet, Zap } from "lucide-react";
+import { PRO_PRICE_USD, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
 import {
   B20_FACTORY_ADDRESS,
   B20_ACTIVATION_REGISTRY_ADDRESS,
@@ -21,7 +22,7 @@ import { Dither } from "@/components/fx/lazy";
 
 export const metadata: Metadata = {
   title: "Technical docs",
-  description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, the Copilot assistant and the contract addresses it talks to.",
+  description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, the Copilot assistant, the public read-only API and the contract addresses it talks to.",
 };
 
 /* ------------------------------------------------------------------ data */
@@ -35,6 +36,8 @@ const NAV = [
   ["earn", "Liquidity math"],
   ["gifts", "Gift escrow"],
   ["gas", "Gas & sponsorship"],
+  ["copilot", "Copilot"],
+  ["api", "Public API"],
   ["privacy", "Data & privacy"],
   ["base-app", "Base app"],
   ["contracts", "Contracts"],
@@ -76,6 +79,21 @@ const COPILOT_SPEC: Array<[string, string]> = [
   ["Links", "Headline links come from the news service’s own rows and are shown as a card; the model is never allowed to write a URL"],
   ["Scope", "This app’s stocks, positions and features only. No advice, no predictions, no figure that a tool did not return in that same turn"],
   ["Budget", "One quota unit per message however many tools it used, plus the shared per-wallet, per-IP, global and monthly-USD caps"],
+];
+
+/** Counted from the catalog rather than written down, so a new endpoint cannot leave this page stale. */
+const API_FREE = V1_ENDPOINTS.filter((e) => !e.paid).length;
+const API_PAID = V1_ENDPOINTS.length - API_FREE;
+
+const API_SPEC: Array<[string, string]> = [
+  ["Base URL", "https://basestocks.finance/api/v1 — plain GET, no key, no account, no sign-up; CORS is open to every origin"],
+  ["Envelope", "Every answer is { data, meta }. meta.cacheSeconds states how long the body stays valid, so a polling client knows exactly when it is worth asking again"],
+  [`Free (${API_FREE})`, "Every listed stock with DEX price, Chainlink reference, liquidity, 24h volume and multiplier; one stock with its pools; headlines; USDC yield venues; any wallet's position read from the chain; platform statistics"],
+  [`Paid (${API_PAID})`, `The written market brief and full candle history — ${PRO_PRICE_USD} in USDC per call over x402. One runs a model, the other pulls a heavy upstream series: costs a cache cannot remove`],
+  ["Paying", "Call the URL, get 402 with the amount, asset, network and recipient, sign a USDC authorization, retry the same URL. Settlement happens only after a successful answer, so a failed or unknown-symbol request is never charged"],
+  ["Caching", "Each route declares its own s-maxage and the CDN honours it. A thousand readers cost this app what one does, which is why the free tier can stay free"],
+  ["Machine-readable", "/api/v1/openapi.json is OpenAPI 3.1; /llms.txt is the one-fetch index an assistant reads before it calls anything"],
+  ["Read-only, by construction", "No endpoint signs, sends, executes or holds a key. The four B20 traps — multiplier, total-return reference, 24/5 feeds, address-as-identity — are returned explicitly rather than left to be inferred"],
 ];
 
 const GAS_SPEC: Array<[string, string]> = [
@@ -313,7 +331,20 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={10} id="privacy" title="Data, limits and privacy" />
+        <SectionHead n={10} id="api" title="Public API" sub="read-only · no key" />
+        <SpecRows rows={API_SPEC} />
+        <p className="text-[13px] text-ink-secondary leading-relaxed">
+          Everything this app shows about tokenized stocks is available as an API, on the same data and the same caches the pages use — so what a caller reads
+          cannot drift from what a visitor sees.{" "}
+          <Link href="/developers" className="text-primary font-medium">
+            The developer page
+          </Link>{" "}
+          runs every example live against this deployment.
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionHead n={11} id="privacy" title="Data, limits and privacy" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={Database} title="Supabase for the social layer">
             Baskets, profiles, gift metadata and AI usage live behind row-level security. Positions and balances are always read from the chain, never mirrored.
@@ -328,7 +359,7 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={11} id="base-app" title="Inside the Base app" sub="the same app, one frame in" />
+        <SectionHead n={12} id="base-app" title="Inside the Base app" sub="the same app, one frame in" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={Smartphone} title="A mini app, not a wrapper">
             The site is served as a Base mini app from <span className="font-mono text-[12px]">/.well-known/farcaster.json</span>. There is no second build and no
@@ -350,7 +381,7 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={12} id="contracts" title="Contract addresses" sub="Base mainnet" />
+        <SectionHead n={13} id="contracts" title="Contract addresses" sub="Base mainnet" />
         <div className="border border-line rounded-[8px] bg-canvas overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
