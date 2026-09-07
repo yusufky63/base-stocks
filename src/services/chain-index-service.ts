@@ -3,7 +3,7 @@ import { getRepos } from "@/db/repositories";
 import type { IndexedTransfer, WalletIndexRow } from "@/db/index-repos";
 import { cached } from "@/lib/cache";
 import { metrics } from "@/lib/http";
-import { getServerPublicClient } from "@/lib/viem/server-client";
+import { getServerPublicClient, getLogPublicClient } from "@/lib/viem/server-client";
 import { b20AssetAbi } from "@/lib/b20/abi";
 import type { TimelineTransfer } from "@/lib/activity/timeline";
 import { getAssets } from "./b20-asset-service";
@@ -82,7 +82,7 @@ async function getLogsAdaptive<T>(from: bigint, to: bigint, read: (a: bigint, b:
 
 /** One wallet's transfers over a block range, read from the chain (two calls per chunk, in and out). */
 async function scanWallet(wallet: Address, tokens: Address[], fromBlock: bigint, toBlock: bigint): Promise<IndexedTransfer[]> {
-  const client = getServerPublicClient();
+  const client = getLogPublicClient();
   const rows: IndexedTransfer[] = [];
   for (let start = fromBlock; start <= toBlock; start += CHUNK + 1n) {
     const end = start + CHUNK > toBlock ? toBlock : start + CHUNK;
@@ -228,7 +228,7 @@ export async function indexStatus(): Promise<IndexStatus> {
 async function tailTransfers(): Promise<IndexedTransfer[]> {
   return cached("index:tail", { ttlMs: 45_000, staleMs: 3 * 60_000, shared: true }, async () => {
     const repos = getRepos();
-    const client = getServerPublicClient();
+    const client = getLogPublicClient();
     const head = await client.getBlockNumber();
     const cursor = await repos.cursors.get(CURSOR_KEY).catch(() => null);
     let from = cursor !== null ? BigInt(cursor) + 1n : head - 500n;

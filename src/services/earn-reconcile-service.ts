@@ -1,7 +1,7 @@
 import type { Address, Hash } from "viem";
 import { getRepos, type EarnActionRecord, type ReceiptRow } from "@/db/repositories";
 import { metrics } from "@/lib/http";
-import { getServerPublicClient } from "@/lib/viem/server-client";
+import { getServerPublicClient, getLogPublicClient } from "@/lib/viem/server-client";
 import { USDC_ADDRESS } from "@/config/chain";
 import { AAVE_SUPPLY, AAVE_WITHDRAW, COMET_SUPPLY, COMET_WITHDRAW, ERC4626_DEPOSIT, ERC4626_WITHDRAW, decodeVenueEvent, earnRecordFromEvent, earnRecordId, type EarnVenue, type VenueEvent } from "@/lib/earn/venue-events";
 import { discoverUsdcEarn } from "./earn-opportunity-service";
@@ -81,7 +81,7 @@ interface Scan {
 }
 
 async function readEvents(venues: EarnVenue[], wallets: Address[], fromBlock: bigint, toBlock: bigint): Promise<Array<{ venue: EarnVenue; ev: VenueEvent }>> {
-  const client = getServerPublicClient();
+  const client = getLogPublicClient();
   const out: Array<{ venue: EarnVenue; ev: VenueEvent }> = [];
   const aave = venues.filter((v) => v.kind === "aave");
   const vaults = venues.filter((v) => v.kind === "erc4626");

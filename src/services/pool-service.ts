@@ -1,7 +1,7 @@
 import { formatUnits, parseAbiItem, type Address, type Hex } from "viem";
 import type { PoolClaim, PoolLegView, PoolOnchainState, PoolRecord, PoolView } from "@/domain/pool";
 import { getRepos } from "@/db/repositories";
-import { getServerPublicClient } from "@/lib/viem/server-client";
+import { getServerPublicClient, getLogPublicClient } from "@/lib/viem/server-client";
 import { getAssets } from "@/services/b20-asset-service";
 import { getPriceViews } from "@/services/price-service";
 import { reverseResolve } from "@/services/basename-service";
@@ -137,7 +137,7 @@ export async function listPublicPools(limit = 40): Promise<PoolView[]> {
  */
 export async function reconcilePool(record: PoolRecord): Promise<{ found: number; added: number }> {
   if (!isPoolDeployed() || !record.txHash) return { found: 0, added: 0 };
-  const client = getServerPublicClient();
+  const client = getLogPublicClient();
   const repos = getRepos();
   try {
     const receipt = await client.getTransactionReceipt({ hash: record.txHash });

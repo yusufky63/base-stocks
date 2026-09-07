@@ -1,5 +1,5 @@
 import { formatUnits, type Address } from "viem";
-import { getServerPublicClient } from "@/lib/viem/server-client";
+import { getLogPublicClient } from "@/lib/viem/server-client";
 import { b20AssetAbi } from "@/lib/b20/abi";
 import { cached } from "@/lib/cache";
 import { metrics } from "@/lib/http";
@@ -17,7 +17,7 @@ const events = b20AssetAbi.filter((x) => x.type === "event" && ["Announcement", 
 
 export async function getCorporateActions(asset: Address): Promise<{ events: CorporateActionEvent[]; scannedFromBlock: number }> {
   return cached(`announcements:${asset.toLowerCase()}`, { ttlMs: 10 * 60_000, staleMs: 60 * 60_000, shared: true }, async () => {
-    const client = getServerPublicClient();
+    const client = getLogPublicClient();
     const latest = await client.getBlockNumber();
     const from = latest > LOOKBACK_BLOCKS ? latest - LOOKBACK_BLOCKS : 0n;
     const out: CorporateActionEvent[] = [];

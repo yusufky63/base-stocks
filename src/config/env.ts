@@ -6,8 +6,14 @@ import { z } from "zod";
  */
 const serverSchema = z.object({
   BASE_RPC_URL: z.string().url().optional(),
-  /** Second keyed RPC (dRPC); slots in between the primary and the CDP fallback. */
+  /** Second keyed RPC (dRPC); an equal member of the read rotation alongside the primary and CDP. */
   DRPC_RPC_URL: z.string().url().optional(),
+  /**
+   * How server reads divide between the keyed RPCs, as `alchemy=1,drpc=2,cdp=2` — slots, not
+   * percentages. Unset means an even split. Tuning it needs no deploy, which is the point: a
+   * provider that starts rate-limiting can be weighted down from the dashboard.
+   */
+  RPC_WEIGHTS: z.string().optional(),
   ZEROX_API_KEY: z.string().min(1).optional(),
   /** Uniswap Trading API key (developers.uniswap.org); enables the Uniswap route behind KyberSwap. */
   UNISWAP_API_KEY: z.string().min(1).optional(),

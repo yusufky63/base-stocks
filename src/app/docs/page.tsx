@@ -233,7 +233,7 @@ export default function DocsPage() {
             The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BaseStocks never custodies funds.
           </Cell>
           <Cell icon={Network} title="Reads that survive outages">
-            All reads batch through Multicall3 and fall back across RPCs — keyed endpoints first (a primary provider with a second one behind it), then Coinbase Developer Platform, then four public RPCs. Confirmations arrive in ~200 ms — Flashblocks preconfirmations today, canonical 200 ms blocks once the Denim hardfork activates; the same receipt call covers both.
+            All reads batch through Multicall3 and rotate across the keyed RPCs by weight — no single account carries the traffic — with every other provider, then four public endpoints, queued behind whichever one served the call. Log sweeps skip providers that cap block ranges. Confirmations arrive in ~200 ms — Flashblocks preconfirmations today, canonical 200 ms blocks once the Denim hardfork activates; the same receipt call covers both.
           </Cell>
           <Cell icon={Zap} title="One signature, many calls">
             On Base Account, approve + swap or approve + mint go out as a single atomic EIP-5792 batch, gas-sponsored when the paymaster allows, with ERC-8021 builder attribution on every call.

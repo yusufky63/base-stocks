@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/db/supabase";
 import { getRepos } from "@/db/repositories";
 import { indexStatus } from "@/services/chain-index-service";
 import { monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
+import { rpcRotation } from "@/lib/viem/server-client";
 
 export const maxDuration = 30;
 
@@ -97,6 +98,9 @@ export const GET = route({ rateLimit: { key: "admin.overview", limit: 60, window
       oracleStalenessSeconds: env.ORACLE_STALENESS_SECONDS,
       backend: getRepos().backend,
       nodeEnv: env.NODE_ENV,
+      // Which RPC accounts server reads are billed to, and in what proportion. Without this the
+      // split is invisible until an invoice says otherwise.
+      rpcRotation: rpcRotation(),
     },
     time: Date.now(),
   });

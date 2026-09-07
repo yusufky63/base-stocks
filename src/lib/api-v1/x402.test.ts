@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { NextRequest } from "next/server";
 
 /**
@@ -11,6 +11,15 @@ import type { NextRequest } from "next/server";
  */
 const PAY_TO = "0x1111111111111111111111111111111111111111";
 const original = { payTo: process.env.X402_PAY_TO, id: process.env.CDP_API_KEY_ID, secret: process.env.CDP_API_KEY_SECRET };
+
+/**
+ * Warm the module graph once. `x402-next` is inlined for this suite and takes seconds to load from
+ * a cold cache — enough to spend a whole 5 s test budget on an import, which is how this passed
+ * locally and failed in CI.
+ */
+beforeAll(async () => {
+  await import("./x402");
+}, 60_000);
 
 afterEach(() => {
   process.env.X402_PAY_TO = original.payTo;
