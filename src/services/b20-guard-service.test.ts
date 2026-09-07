@@ -71,11 +71,12 @@ describe("B20GuardService", () => {
     expect(r.warnings).toEqual([]);
   });
 
-  it("flags corporate actions (oracle paused) without blocking secondary-market trades", async () => {
-    requireAsset.mockResolvedValue(asset({ oracle: { feed: "0x04689a41629776563E6822F76f2e57D148d28513", answer: 1n, updatedAt: 0n, decimals: 8, paused: true, stale: false, staleAfterSeconds: 3600, freshness: "live", marketOpen: true, priceUsd: 1 } }));
+  it("says nothing about a frozen reference either, and still does not block the trade", async () => {
+    requireAsset.mockResolvedValue(asset({ oracle: { feed: "0x04689a41629776563E6822F76f2e57D148d28513", answer: 1n, updatedAt: 0n, decimals: 8, paused: true, stale: false, staleAfterSeconds: 3600, freshness: "frozen", marketOpen: true, priceUsd: 1 } }));
     multicall.mockResolvedValue([{ status: "success", result: true }]);
     const r = await guard.preTradeCheck({ assetAddress: NVDA, side: "buy", taker: USER });
-    expect(r.warnings.some((w) => /corporate action/i.test(w))).toBe(true);
+    // The swap settles against the pool, not the feed, so the feed's state is not the trader's problem.
+    expect(r.warnings).toEqual([]);
   });
 
   it("rejects the wrong chain before touching the registry", async () => {

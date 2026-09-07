@@ -24,7 +24,6 @@ import { PositionModule, type LpSummary } from "./PositionModule";
 import { TradesModule } from "./TradesModule";
 import { OrdersModule } from "@/components/trade/OrdersModule";
 import { PoolsModule } from "./PoolsModule";
-import { CorporateActionsModule } from "./CorporateActionsModule";
 import { LaunchpadModule } from "./LaunchpadModule";
 import { PlatformActivity } from "./PlatformActivity";
 import { TradePanel } from "@/components/trade/TradePanel";
@@ -183,9 +182,6 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
             )}
             {tab === "details" && (
               <>
-                <div className="p-4 border-b border-line [&:empty]:hidden">
-                  <CorporateActionsModule asset={asset} />
-                </div>
                 <div className="p-4 border-b border-line">
                   <PlatformActivity assetAddress={asset.address} underlying={asset.underlying} />
                 </div>

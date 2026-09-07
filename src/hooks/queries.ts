@@ -19,7 +19,6 @@ import {
   type ActivityItem,
   type PortfolioExecution,
   type GiftRecord,
-  type AnnouncementsResponse,
   type RegionResponse,
   type LpPositionDTO,
 } from "@/lib/client-api";
@@ -55,15 +54,6 @@ export function useSparklines() {
     queryKey: ["sparklines"],
     queryFn: () => apiGet<{ series: Record<string, number[]>; series24h: Record<string, number[]>; updatedAt: number }>("/api/sparklines"),
     staleTime: 5 * 60_000,
-  });
-}
-
-export function useAnnouncements(address: string) {
-  return useQuery({
-    queryKey: ["announcements", address.toLowerCase()],
-    queryFn: () => apiGet<AnnouncementsResponse>(`/api/assets/${address}/announcements`),
-    staleTime: 5 * 60_000,
-    enabled: !!address,
   });
 }
 

@@ -246,7 +246,7 @@ export default function DocsPage() {
         <div className="module-grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr] ticks">
           <Formula label="Share equivalents" lines={["scaled = raw × mult / 1e18", "8 decimals · WAD multiplier"]} />
           <Cell icon={Blocks} title="Corporate actions, onchain">
-            Splits and dividends update the token&apos;s multiplier; scheduled changes are announced onchain ahead of time and shown on the stock page. The OracleRegistry&apos;s pause flag freezes the reference feed during the action — surfaced, never hidden.
+            Splits and dividends update the token&apos;s multiplier; a scheduled change is announced onchain ahead of time and flagged on the stock page, because it changes how many shares a token is worth. The OracleRegistry&apos;s pause flag freezes the reference feed during the action, which the app reads but does not warn about: it never settles against that feed.
           </Cell>
           <Cell icon={ShieldCheck} title="Discovery trusts one creator">
             Dozens of copycat “NVDAc” tokens exist. Discovery only accepts B20s deployed by Coinbase&apos;s creator address and picks up new listings with a background scan roughly every 30 minutes.

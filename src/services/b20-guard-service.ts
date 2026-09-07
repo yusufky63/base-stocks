@@ -85,22 +85,18 @@ export class B20GuardService {
     });
   }
 
-  checkOracleState(asset: B20Asset): string[] {
-    const w: string[] = [];
-    if (!asset.oracle) {
-      w.push("Reference price unavailable. Showing executable quotes only.");
-      return w;
-    }
-    // A stale reference is not warned about here. The feeds run 24/5, so "stale" is the normal state
-    // every night, weekend and market holiday — a warning that is usually on teaches people to
-    // ignore the ones that are not, and this one ended by admitting it does not affect the trade.
-    // The reference's own freshness label carries it where it belongs, next to the price.
-    if (asset.oracle.paused) w.push("Reference price is frozen for a corporate action. Executable quotes still reflect live market prices.");
-    return w;
-  }
-
-  checkCorporateActionState(asset: B20Asset): string[] {
-    return asset.oracle?.paused ? ["Corporate action in progress: the issuer has paused the reference oracle for this stock."] : [];
+  /**
+   * Nothing about the reference feed is warned about before a trade.
+   *
+   * The price shown and the price traded both come from the pool; the Chainlink feed is a separate
+   * number this app never settles against. So its state — stale overnight, frozen during a
+   * corporate action, missing entirely — changes nothing about the transaction being signed, and a
+   * warning that changes nothing is noise in the one place a reader should be reading carefully.
+   *
+   * What genuinely gates a trade still throws: transfer pauses and issuer policy, above.
+   */
+  checkOracleState(): string[] {
+    return [];
   }
 
   /** Full pre-trade gate for Buy / Sell. Throws typed errors, returns non-blocking warnings. */
@@ -113,8 +109,7 @@ export class B20GuardService {
     } else {
       await this.checkUserAuthorization(asset, { sender: params.taker });
     }
-    const warnings = [...this.checkOracleState(asset), ...this.checkCorporateActionState(asset)];
-    return { asset, warnings: Array.from(new Set(warnings)) };
+    return { asset, warnings: this.checkOracleState() };
   }
 
   /** Pre-send gate for Gift / Send of an existing position. */
@@ -122,7 +117,7 @@ export class B20GuardService {
     const asset = await this.validateCanonicalAsset(params.assetAddress);
     this.checkTransferState(asset);
     await this.checkUserAuthorization(asset, { sender: params.sender, receiver: params.recipient });
-    return { asset, warnings: this.checkCorporateActionState(asset) };
+    return { asset, warnings: this.checkOracleState() };
   }
 }
 

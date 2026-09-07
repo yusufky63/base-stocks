@@ -248,24 +248,6 @@ export interface ReverseResponse {
   avatar: string | null;
 }
 
-export interface CorporateActionEvent {
-  kind: "announcement" | "end-announcement" | "multiplier" | "multiplier-scheduled" | "multiplier-cancelled" | "metadata";
-  id?: string;
-  description?: string;
-  uri?: string;
-  multiplier?: string;
-  blockNumber: number;
-  timestamp?: number;
-  txHash: string;
-}
-
-export interface AnnouncementsResponse {
-  assetAddress: Address;
-  events: CorporateActionEvent[];
-  scannedFromBlock: number;
-  updatedAt: number;
-}
-
 /**
  * The assistant's reasoning next to a draft: grounded in the live universe, the shared market
  * brief and the headlines it was given. Commentary, never advice — the UI says so every time.
