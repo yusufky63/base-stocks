@@ -114,7 +114,11 @@ function ensurePool(): Pool {
   if (!slots.length) slots.push(...clients.map((_, i) => i));
   if (!logSlots.length) logSlots.push(...slots);
 
-  pool = { providers, clients, slots, logSlots, cursor: 0, logCursor: 0 };
+  // Each serverless instance starts at its own offset. Starting every one at zero would send the
+  // first call of every cold instance to the same provider, which on short-lived instances is most
+  // of the traffic — the rotation would divide a warm process's load and skew everyone else's.
+  const start = (n: number) => Math.floor(Math.random() * n);
+  pool = { providers, clients, slots, logSlots, cursor: start(slots.length), logCursor: start(logSlots.length) };
   return pool;
 }
 
