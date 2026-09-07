@@ -10,7 +10,7 @@ import { apiGet, type EarnResponse } from "@/lib/client-api";
 import { formatPct, formatUsd, formatUsdCompact, timeAgo } from "@/lib/format";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { USDC_ADDRESS, USDC_DECIMALS } from "@/config/chain";
-import { Module, ModuleHeader, Button, Skeleton } from "@/components/ui/primitives";
+import { Module, ModuleHeader, Button, Badge, Skeleton } from "@/components/ui/primitives";
 import { ProtocolLogo } from "@/components/common/ProtocolLogo";
 import { EarnDepositSheet } from "./EarnDepositSheet";
 import { qk } from "@/hooks/queries";
@@ -63,7 +63,9 @@ export function UsdcEarnModule() {
   const positions = useQuery({ queryKey: ["earn", "positions", address ?? ""], queryFn: () => apiGet<{ positions: PositionDTO[] }>(`/api/earn/positions?user=${address}`), enabled: !!address, staleTime: 30_000 });
   const [sheet, setSheet] = useState<{ o: EarnOpportunity; action: "deposit" | "withdraw"; available: bigint } | null>(null);
 
-  const list = (venues.data?.opportunities ?? []).filter((o) => o.inApp);
+  // Every venue the service curated. Ones without an in-app deposit path link out instead of
+  // being hidden: knowing a better rate exists is worth more than a uniform row of buttons.
+  const list = venues.data?.opportunities ?? [];
   const pos = positions.data?.positions ?? [];
   const refresh = () => {
     balances.refetch();
@@ -116,6 +118,13 @@ export function UsdcEarnModule() {
             <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-secondary">
               <ProtocolLogo provider={o.provider} size={16} withLabel label={o.provider === "morpho" ? "Powered by Morpho" : LABEL[o.provider]} className="font-medium text-ink whitespace-nowrap" />
               <span>{o.tvlUsd !== undefined ? `${formatUsdCompact(o.tvlUsd)} TVL` : o.type}</span>
+              {o.metadata.listed === false && (
+                <span title="Not on Morpho's curated list — read the vault before depositing">
+                  <Badge tone="warning" className="h-5 px-1.5 text-[10px]">
+                    unvetted
+                  </Badge>
+                </span>
+              )}
               {o.url && (
                 <a href={o.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-ink-muted hover:text-ink">
                   venue <ExternalLink size={11} strokeWidth={1.75} />
@@ -131,9 +140,20 @@ export function UsdcEarnModule() {
                 {typeof o.metadata.performanceFee === "number" && o.metadata.performanceFee > 0 ? `${Math.round(o.metadata.performanceFee * 100)}% fee · ` : ""}variable · {timeAgo(o.dataTimestamp)}
               </div>
             </div>
-            <Button size="sm" disabled={!address || balances.usdc === 0n} onClick={() => setSheet({ o, action: "deposit", available: balances.usdc })}>
-              Deposit
-            </Button>
+            {o.inApp ? (
+              <Button size="sm" disabled={!address || balances.usdc === 0n} onClick={() => setSheet({ o, action: "deposit", available: balances.usdc })}>
+                Deposit
+              </Button>
+            ) : (
+              <a
+                href={o.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-[6px] border border-line text-[13px] font-medium text-ink-secondary hover:text-ink hover:border-line-strong transition-fast"
+              >
+                Open <ExternalLink size={12} strokeWidth={1.75} />
+              </a>
+            )}
           </div>
         </div>
       ))}

@@ -69,16 +69,71 @@ export async function discoverEarn(assetAddress: Address, user?: Address): Promi
   });
 }
 
-/** "Put idle USDC to work": Morpho USDC vaults (top by TVL) and the Aave USDC reserve. */
+/**
+ * An APY that only an upstream API could have produced.
+ *
+ * Morpho's vault feed occasionally reports a rate in the tens of thousands of percent for a small
+ * vault — a real number in the data, and obvious nonsense on a page about where to put savings.
+ * Aave and Compound are read from their own contracts and cannot drift this way, but the same
+ * ceiling is applied to everything so one rule covers the list.
+ */
+const MAX_PLAUSIBLE_APY = 50;
+
+/** Vaults thinner than this are curator experiments, not somewhere to point a stranger's USDC. */
+const MIN_VAULT_TVL_USD = 100_000;
+
+/** How many vaults are taken for depth, and how many for rate. The union is what gets shown. */
+const VAULTS_BY_TVL = 4;
+const VAULTS_BY_APY = 4;
+
+function plausible(o: EarnOpportunity): boolean {
+  const apy = o.variableApy;
+  if (apy === undefined || !Number.isFinite(apy) || apy < 0 || apy > MAX_PLAUSIBLE_APY) return false;
+  // Aave and Compound report no TVL of their own here; the floor is a vault rule.
+  return o.type !== "vault" || (o.tvlUsd ?? 0) >= MIN_VAULT_TVL_USD;
+}
+
+/**
+ * "Put idle USDC to work": the lending markets, plus the Morpho vaults worth showing.
+ *
+ * Selection takes the union of the largest vaults and the best-paying ones. Either alone lies:
+ * ranking by TVL buried a vault paying a point more than anything on the page, and ranking by APY
+ * alone would drop the two deepest vaults on Base for a small one with a better week. The list is
+ * then ordered by rate, because that is what the reader is scanning for; depth, fee, curator
+ * vetting and data age all sit on the row for the decision that follows.
+ *
+ * Borrow markets and liquidity pools are left out — this module is about idle USDC earning a
+ * variable rate, and both of those are a different bargain. `inApp` is deliberately not a filter:
+ * a venue that has to be finished in its own interface is still worth knowing about, and the row
+ * links out instead of offering a deposit button.
+ */
+export function curateUsdcVenues(all: EarnOpportunity[]): EarnOpportunity[] {
+  const usable = all.filter((o) => (o.type === "supply" || o.type === "vault") && plausible(o));
+  const markets = usable.filter((o) => o.type === "supply");
+  const vaults = usable.filter((o) => o.type === "vault");
+  const byTvl = [...vaults].sort((a, b) => (b.tvlUsd ?? 0) - (a.tvlUsd ?? 0)).slice(0, VAULTS_BY_TVL);
+  const byApy = [...vaults].sort((a, b) => (b.variableApy ?? 0) - (a.variableApy ?? 0)).slice(0, VAULTS_BY_APY);
+  const picked = new Map([...byTvl, ...byApy].map((o) => [o.id, o]));
+  return [...markets, ...picked.values()].sort((a, b) => (b.variableApy ?? 0) - (a.variableApy ?? 0));
+}
+
 export async function discoverUsdcEarn(): Promise<EarnDiscoveryResult> {
-  return cached("earn:usdc", TTL.earn, async () => {
-    const r = await discoverFor(USDC_ADDRESS, 1, undefined);
-    const usable = r.opportunities.filter((o) => o.type !== "liquidity" && o.inApp);
-    // Top Morpho vaults by TVL plus every lending market (Aave, Compound), kept even when smaller.
-    const morpho = usable.filter((o) => o.provider === "morpho").slice(0, 4);
-    const markets = usable.filter((o) => o.provider !== "morpho");
-    return { ...r, opportunities: [...markets, ...morpho] };
-  });
+  const r = await usdcDiscovery();
+  return { ...r, opportunities: curateUsdcVenues(r.opportunities) };
+}
+
+/**
+ * The raw USDC discovery, cached once and shared by the display list and the position reader.
+ *
+ * The two need different lists. Display is curated down to what is worth offering; positions have
+ * to cover every venue a deposit could already be sitting in, including one that has since fallen
+ * out of the shortlist. Reading positions from the curated list is how somebody's balance quietly
+ * disappears from the page while their money is still in the vault.
+ */
+function usdcDiscovery(): Promise<EarnDiscoveryResult> {
+  // A key of its own: "earn:usdc" used to hold the curated list, and re-curating that after a
+  // deploy would quietly serve a list of a list until the old entry aged out.
+  return cached("earn:usdc:raw", TTL.earn, () => discoverFor(USDC_ADDRESS, 1, undefined));
 }
 
 /** Build deposit / withdraw calls for an opportunity id. The client executes them with the wallet. */
@@ -91,10 +146,10 @@ export async function prepareEarn(input: EarnIntent): Promise<EarnExecution> {
 
 /** Current positions in the USDC opportunities (vault shares → assets, aToken balance). */
 export async function getEarnPositions(user: Address): Promise<EarnPosition[]> {
-  const { opportunities } = await discoverUsdcEarn();
+  const { opportunities } = await usdcDiscovery();
   const client = getServerPublicClient();
   const positions: EarnPosition[] = [];
-  const vaults = opportunities.filter((o) => o.provider === "morpho").map((o) => ({ o, vault: String(o.metadata.vault) as Address }));
+  const vaults = opportunities.filter((o) => o.provider === "morpho" && o.type === "vault").map((o) => ({ o, vault: String(o.metadata.vault) as Address }));
   const aave = opportunities.find((o) => o.provider === "aave");
   const contracts = vaults.map((v) => ({ address: v.vault, abi: erc4626Abi, functionName: "balanceOf" as const, args: [user] as const }));
   const shares = contracts.length ? await client.multicall({ contracts, allowFailure: true }) : [];
