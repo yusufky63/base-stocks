@@ -16,6 +16,11 @@ class FakeStore implements SharedStore {
     this.writes += 1;
     this.items.set(key, entry);
   }
+  async dropPrefix(prefix: string) {
+    let n = 0;
+    for (const k of [...this.items.keys()]) if (k.startsWith(prefix)) { this.items.delete(k); n += 1; }
+    return n;
+  }
   async sweep() {
     return 0;
   }
@@ -77,8 +82,49 @@ describe("the shared tier under cached()", () => {
     expect(await cached("k5", { ttlMs: 10_000, shared: true }, async () => "newer")).toBe("new");
   });
 
+  it("keeps a partial result only briefly, so the next reader retries the provider that failed", async () => {
+    let loads = 0;
+    const opts = {
+      ttlMs: 600_000,
+      staleMs: 600_000,
+      isPartial: (v: unknown) => (v as { missing: string[] }).missing.length > 0,
+      partialTtlMs: -1, // already expired: the assertion is about the window, not about waiting
+    };
+    const partial = () => cached("p1", opts, async () => ({ missing: ["uniswap"], count: ++loads }));
+    await partial();
+    await partial();
+    // Two calls, two loads — a partial answer never became the answer for the next ten minutes.
+    expect(loads).toBe(2);
+  });
+
+  it("caches a complete result for the full window", async () => {
+    let loads = 0;
+    const opts = { ttlMs: 600_000, isPartial: (v: unknown) => (v as { missing: string[] }).missing.length > 0, partialTtlMs: -1 };
+    const complete = () => cached("p2", opts, async () => ({ missing: [] as string[], count: ++loads }));
+    await complete();
+    await complete();
+    expect(loads).toBe(1);
+  });
+
+  it("clears the shared tier too, so a refresh actually refreshes", async () => {
+    const fake = new FakeStore();
+    setSharedStore(fake);
+    let loads = 0;
+    const load = () => cached("earn:usdc", { ttlMs: 600_000, shared: true }, async () => `run-${++loads}`);
+    expect(await load()).toBe("run-1");
+    await invalidate("earn:");
+    // Local only would have left run-1 in the shared store for the next read to pull straight back.
+    expect(await load()).toBe("run-2");
+    expect(fake.items.size).toBe(1);
+  });
+
+  it("treats a shared tier that will not answer as a re-scan, not an error", async () => {
+    setSharedStore({ name: "broken", get: async () => null, set: async () => {}, sweep: async () => 0, dropPrefix: async () => { throw new Error("down"); } });
+    await expect(invalidate("earn:")).resolves.toBeUndefined();
+  });
+
   it("falls back to the loader when the shared store fails", async () => {
-    setSharedStore({ name: "broken", get: async () => { throw new Error("down"); }, set: async () => { throw new Error("down"); }, sweep: async () => 0 });
+    setSharedStore({ name: "broken", get: async () => { throw new Error("down"); }, set: async () => { throw new Error("down"); }, sweep: async () => 0, dropPrefix: async () => { throw new Error("down"); } });
     expect(await cached("k6", { ttlMs: 1_000, shared: true }, async () => "computed")).toBe("computed");
   });
 });

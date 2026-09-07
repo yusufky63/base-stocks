@@ -25,6 +25,10 @@ const vaultsSchema = z.object({
             name: z.string().nullable().optional(),
             symbol: z.string().nullable().optional(),
             listed: z.boolean().nullable().optional(),
+            /** What is withdrawable right now, which is not the same as what is deposited. */
+            liquidity: z.object({ usd: z.number().nullable().optional() }).nullable().optional(),
+            /** Morpho's own flags: deposit_disabled, short_timelock, low_liquidity, not_whitelisted, deprecated… */
+            warnings: z.array(z.object({ type: z.string(), level: z.string().nullable().optional() })).nullable().optional(),
             asset: z.object({ address: z.string(), symbol: z.string().nullable().optional() }).nullable().optional(),
             chain: z.object({ id: z.number() }).nullable().optional(),
             state: z
@@ -51,7 +55,7 @@ const vaultsSchema = z.object({
 /** `allRewards` includes campaigns forwarded from underlying markets (Merkl); `rewards` is deprecated (removal 2026-09-30). */
 const QUERY = `query VaultsForAsset($chainIds: [Int!], $assets: [String!]) {
   vaults(first: 20, where: { chainId_in: $chainIds, assetAddress_in: $assets }, orderBy: TotalAssetsUsd, orderDirection: Desc) {
-    items { address name symbol listed asset { address symbol } chain { id } state { apy netApy netApyExcludingRewards totalAssetsUsd timestamp fee allRewards { supplyApr asset { symbol } } } }
+    items { address name symbol listed liquidity { usd } warnings { type level } asset { address symbol } chain { id } state { apy netApy netApyExcludingRewards totalAssetsUsd timestamp fee allRewards { supplyApr asset { symbol } } } }
   }
 }`;
 
@@ -202,7 +206,17 @@ export class MorphoEarnProvider implements EarnProvider {
               "Withdrawals depend on available liquidity in the vault's markets.",
             ],
             inApp: true,
-            metadata: { vault: v.address, listed: v.listed ?? false, symbol: v.symbol ?? null, performanceFee: v.state?.fee ?? null, rewardSymbols, netApyExcludingRewards: v.state?.netApyExcludingRewards ?? null },
+            metadata: {
+              vault: v.address,
+              listed: v.listed ?? false,
+              symbol: v.symbol ?? null,
+              performanceFee: v.state?.fee ?? null,
+              rewardSymbols,
+              netApyExcludingRewards: v.state?.netApyExcludingRewards ?? null,
+              // The two things Morpho's own interface warns about, kept as data rather than prose.
+              warnings: (v.warnings ?? []).map((w) => ({ type: w.type, level: (w.level ?? "").toUpperCase() })),
+              withdrawableUsd: v.liquidity?.usd ?? null,
+            },
           };
         });
     } catch (err) {

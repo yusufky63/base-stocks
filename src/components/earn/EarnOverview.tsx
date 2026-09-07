@@ -33,6 +33,9 @@ export function EarnOverview() {
       return apiGet<{ items: Item[]; updatedAt: number; checked?: { assets: number; of: number; providers: string[]; unavailable: string[] } }>(`/api/earn${fresh ? "?fresh=1" : ""}`);
     },
     staleTime: 2 * 60_000,
+    // A run that lost a provider is worth showing and worth replacing. Asking again on a timer
+    // means the pools that were missing appear by themselves rather than waiting for a click.
+    refetchInterval: (q) => ((q.state.data?.checked?.unavailable.length ?? 0) > 0 ? 25_000 : false),
   });
   const hardRefresh = () => {
     freshRef.current = true;

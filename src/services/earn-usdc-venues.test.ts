@@ -58,6 +58,28 @@ describe("USDC venue curation", () => {
     expect(ids(out)).toEqual(["ok"]);
   });
 
+  it("refuses a vault Morpho has flagged red, whatever the rate says", () => {
+    const red = (type: string) => venue(type, "vault", 6.5, 30_000_000, { metadata: { warnings: [{ type, level: "RED" }] } });
+    const out = curateUsdcVenues([venue("ok", "vault", 4.2, 5_000_000), red("deposit_disabled"), red("deprecated"), red("short_timelock")]);
+    expect(ids(out)).toEqual(["ok"]);
+  });
+
+  it("keeps an amber flag on the page, since it qualifies a vault rather than disqualifying it", () => {
+    const amber = venue("amber", "vault", 4.9, 90_000_000, { metadata: { warnings: [{ type: "not_whitelisted", level: "YELLOW" }] } });
+    expect(ids(curateUsdcVenues([amber]))).toEqual(["amber"]);
+  });
+
+  it("refuses a vault whose deposits cannot be withdrawn, flagged or not", () => {
+    const stuck = venue("stuck", "vault", 8.1, 40_000_000, { metadata: { withdrawableUsd: 150_000 } }); // 0.4% available
+    const open = venue("open", "vault", 4.0, 40_000_000, { metadata: { withdrawableUsd: 20_000_000 } });
+    expect(ids(curateUsdcVenues([stuck, open]))).toEqual(["open"]);
+  });
+
+  it("does not treat a missing liquidity figure as a blocked exit", () => {
+    const out = curateUsdcVenues([venue("no-figure", "vault", 4.2, 5_000_000, { metadata: {} })]);
+    expect(ids(out)).toEqual(["no-figure"]);
+  });
+
   it("leaves out borrowing and liquidity — a different bargain, and each has its own section", () => {
     const out = curateUsdcVenues([venue("supply", "supply", 3.7), venue("borrow", "borrow", 6.1), venue("pool", "liquidity", 30, 1_000_000)]);
     expect(ids(out)).toEqual(["supply"]);

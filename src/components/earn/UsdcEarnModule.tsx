@@ -29,6 +29,28 @@ interface PositionDTO {
 
 const LABEL: Record<EarnOpportunity["provider"], string> = { morpho: "Morpho", aave: "Aave", aerodrome: "Aerodrome", compound: "Compound", uniswap: "Uniswap" };
 
+/**
+ * Morpho's own advisory flags, in the words of the person deciding.
+ *
+ * Only the amber ones reach here — a vault carrying a red flag never leaves the service — so these
+ * qualify a venue rather than disqualifying it, which is why they are a badge and not an absence.
+ */
+const FLAG_COPY: Record<string, { label: string; title: string }> = {
+  not_whitelisted: { label: "unvetted", title: "Not on Morpho's curated list — read the vault before depositing" },
+  low_liquidity: { label: "thin exit", title: "Much of this vault's deposits are lent out; a full withdrawal may not be immediate" },
+};
+
+function vaultFlags(o: EarnOpportunity): Array<{ label: string; title: string }> {
+  const warnings = o.metadata.warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .filter((w) => (w as { level?: string }).level === "YELLOW")
+    .map((w) => {
+      const type = String((w as { type?: string }).type ?? "");
+      return FLAG_COPY[type] ?? { label: type.replace(/_/g, " "), title: `Morpho flags this vault: ${type.replace(/_/g, " ")}` };
+    });
+}
+
 /** Total in Earn, value-weighted APY and the yearly figure that implies — all variable, never promised. */
 function EarnSummary({ positions }: { positions: PositionDTO[] }) {
   const total = positions.reduce((s, p) => s + p.valueUsd, 0);
@@ -118,13 +140,13 @@ export function UsdcEarnModule() {
             <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-secondary">
               <ProtocolLogo provider={o.provider} size={16} withLabel label={o.provider === "morpho" ? "Powered by Morpho" : LABEL[o.provider]} className="font-medium text-ink whitespace-nowrap" />
               <span>{o.tvlUsd !== undefined ? `${formatUsdCompact(o.tvlUsd)} TVL` : o.type}</span>
-              {o.metadata.listed === false && (
-                <span title="Not on Morpho's curated list — read the vault before depositing">
+              {vaultFlags(o).map((f) => (
+                <span key={f.label} title={f.title}>
                   <Badge tone="warning" className="h-5 px-1.5 text-[10px]">
-                    unvetted
+                    {f.label}
                   </Badge>
                 </span>
-              )}
+              ))}
               {o.url && (
                 <a href={o.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-ink-muted hover:text-ink">
                   venue <ExternalLink size={11} strokeWidth={1.75} />

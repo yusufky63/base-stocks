@@ -1,6 +1,6 @@
 import { erc20Abi, type Address } from "viem";
 import type { EarnExecution, EarnIntent, EarnOpportunity, EarnPosition } from "@/domain/earn";
-import { cached, TTL } from "@/lib/cache";
+import { cached, TTL, type CacheOptions } from "@/lib/cache";
 import { morphoProvider } from "@/providers/earn/morpho/adapter";
 import { aaveProvider, AAVE_V3_BASE_DATA_PROVIDER } from "@/providers/earn/aave/adapter";
 import { aerodromeProvider } from "@/providers/earn/aerodrome/adapter";
@@ -25,6 +25,19 @@ export interface EarnDiscoveryResult {
   unavailableProviders: string[];
   updatedAt: number;
 }
+
+/**
+ * Discovery caching, with a provider that did not answer treated as a reason to ask again soon.
+ *
+ * A run where Uniswap timed out still has Aerodrome's pools in it and should be shown; it just
+ * must not be the answer for the next ten minutes. Kept this short, the pools that were missing
+ * turn up on their own within about half a minute, without the reader pressing anything.
+ */
+const EARN_CACHE: CacheOptions = {
+  ...TTL.earn,
+  isPartial: (v) => ((v as EarnDiscoveryResult | null)?.unavailableProviders?.length ?? 0) > 0,
+  partialTtlMs: 20_000,
+};
 
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
@@ -62,7 +75,7 @@ async function discoverFor(address: Address, priceUsd: number | null, user?: Add
 }
 
 export async function discoverEarn(assetAddress: Address, user?: Address): Promise<EarnDiscoveryResult> {
-  return cached(`earn:${assetAddress.toLowerCase()}`, TTL.earn, async () => {
+  return cached(`earn:${assetAddress.toLowerCase()}`, EARN_CACHE, async () => {
     const asset = await getAsset(assetAddress);
     if (!asset) return { assetAddress, opportunities: [], unavailableProviders: [], updatedAt: Date.now() };
     return discoverFor(asset.address, asset.oracle?.priceUsd ?? null, user);
@@ -86,9 +99,42 @@ const MIN_VAULT_TVL_USD = 100_000;
 const VAULTS_BY_TVL = 4;
 const VAULTS_BY_APY = 4;
 
+/**
+ * A vault has to be one somebody can actually get out of again.
+ *
+ * Morpho publishes its own flags, and the red ones are disqualifying rather than advisory:
+ * `deposit_disabled` means the deposit this page is offering would revert, `deprecated` means the
+ * curator has retired it, `short_timelock` means its parameters can change without warning. A page
+ * that says "put idle USDC here" must not list any of them, however good the rate looks.
+ */
+function hasBlockingWarning(o: EarnOpportunity): boolean {
+  const warnings = o.metadata.warnings;
+  if (!Array.isArray(warnings)) return false;
+  return warnings.some((w) => (w as { level?: string }).level === "RED");
+}
+
+/**
+ * What share of a vault's deposits can be withdrawn right now.
+ *
+ * Deposits sit in lending markets, and a vault whose markets are fully borrowed cannot return them
+ * on demand: Morpho warns at "less than 0.5% available". The ratio is checked here rather than
+ * trusting the flag alone, so a vault that is illiquid but unflagged still cannot reach the page.
+ */
+const MIN_WITHDRAWABLE_SHARE = 0.05;
+
+function exitIsOpen(o: EarnOpportunity): boolean {
+  if (o.type !== "vault") return true;
+  const withdrawable = o.metadata.withdrawableUsd;
+  const deposits = o.tvlUsd ?? 0;
+  // No figure published is not evidence of a problem; the TVL floor already covers the small ones.
+  if (typeof withdrawable !== "number" || deposits <= 0) return true;
+  return withdrawable / deposits >= MIN_WITHDRAWABLE_SHARE;
+}
+
 function plausible(o: EarnOpportunity): boolean {
   const apy = o.variableApy;
   if (apy === undefined || !Number.isFinite(apy) || apy < 0 || apy > MAX_PLAUSIBLE_APY) return false;
+  if (hasBlockingWarning(o) || !exitIsOpen(o)) return false;
   // Aave and Compound report no TVL of their own here; the floor is a vault rule.
   return o.type !== "vault" || (o.tvlUsd ?? 0) >= MIN_VAULT_TVL_USD;
 }
@@ -133,7 +179,7 @@ export async function discoverUsdcEarn(): Promise<EarnDiscoveryResult> {
 function usdcDiscovery(): Promise<EarnDiscoveryResult> {
   // A key of its own: "earn:usdc" used to hold the curated list, and re-curating that after a
   // deploy would quietly serve a list of a list until the old entry aged out.
-  return cached("earn:usdc:raw", TTL.earn, () => discoverFor(USDC_ADDRESS, 1, undefined));
+  return cached("earn:usdc:raw", EARN_CACHE, () => discoverFor(USDC_ADDRESS, 1, undefined));
 }
 
 /**

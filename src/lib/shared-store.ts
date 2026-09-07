@@ -25,6 +25,13 @@ export interface SharedStore {
   set(key: string, entry: SharedEntry): Promise<void>;
   /** Drop entries nobody could still serve. Returns how many were removed, when the backend knows. */
   sweep(): Promise<number>;
+  /**
+   * Drop every entry under a prefix, for a deliberate re-scan.
+   *
+   * Without it "refresh" clears only the instance that was asked, and the next read pulls the same
+   * stale answer back out of the shared tier — a refresh button that refreshes nothing.
+   */
+  dropPrefix(prefix: string): Promise<number>;
 }
 
 class UpstashStore implements SharedStore {
@@ -51,6 +58,12 @@ class UpstashStore implements SharedStore {
   async sweep() {
     return 0; // Redis expires keys on its own.
   }
+  async dropPrefix(prefix: string) {
+    const keys = await this.command<string[]>(["KEYS", `${prefix}*`]);
+    if (!keys?.length) return 0;
+    await this.command(["DEL", ...keys]);
+    return keys.length;
+  }
 }
 
 class SupabaseStore implements SharedStore {
@@ -73,6 +86,13 @@ class SupabaseStore implements SharedStore {
   }
   async sweep() {
     const { data, error } = await this.sb().from("kv_cache").delete().lt("stale_until", Date.now()).select("key");
+    if (error) throw error;
+    return (data ?? []).length;
+  }
+  async dropPrefix(prefix: string) {
+    // `like` rather than a range scan: the prefixes are literal ("earn:", "stats:"), so the
+    // escape-free pattern is exact.
+    const { data, error } = await this.sb().from("kv_cache").delete().like("key", `${prefix}%`).select("key");
     if (error) throw error;
     return (data ?? []).length;
   }

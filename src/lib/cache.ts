@@ -43,6 +43,16 @@ export interface CacheOptions {
   staleMs?: number;
   /** Also read from and write to the shared store, so every server instance computes it once. */
   shared?: boolean;
+  /**
+   * Whether a result came back missing part of itself — an upstream that timed out — and the short
+   * window such a result is kept for instead of the full one.
+   *
+   * Serving a partial answer is right: what did arrive is worth showing. Serving it for the usual
+   * ten minutes is not, because that turns a provider's bad thirty seconds into the page's bad ten
+   * minutes. A partial value gets no stale window either, so the next reader triggers a real retry.
+   */
+  isPartial?: (value: unknown) => boolean;
+  partialTtlMs?: number;
 }
 
 function setAbsolute<T>(key: string, value: T, expiresAt: number, staleUntil: number): void {
@@ -131,8 +141,9 @@ export async function cached<T>(key: string, opts: CacheOptions, loader: () => P
 
 export function set<T>(key: string, value: T, opts: CacheOptions): void {
   const now = Date.now();
-  const expiresAt = now + opts.ttlMs;
-  const staleUntil = now + opts.ttlMs + (opts.staleMs ?? 0);
+  const partial = opts.isPartial?.(value) === true;
+  const expiresAt = now + (partial ? (opts.partialTtlMs ?? 20_000) : opts.ttlMs);
+  const staleUntil = partial ? expiresAt : expiresAt + (opts.staleMs ?? 0);
   setAbsolute(key, value, expiresAt, staleUntil);
   if (opts.shared) publish(key, value, expiresAt, staleUntil);
 }
@@ -142,8 +153,21 @@ export function peek<T>(key: string): T | undefined {
   return e && e.staleUntil > Date.now() ? e.value : undefined;
 }
 
-export function invalidate(prefix: string): void {
+/**
+ * Forget everything under a prefix, in both tiers.
+ *
+ * The shared tier has to go too: clearing only this instance leaves the next read to pull the same
+ * answer back out of Redis or Supabase, which is a refresh button that refreshes nothing. A shared
+ * tier that will not answer costs the caller a re-scan, never an error.
+ */
+export async function invalidate(prefix: string): Promise<void> {
   for (const k of store.keys()) if (k.startsWith(prefix)) store.delete(k);
+  const shared = getSharedStore();
+  if (!shared) return;
+  await shared.dropPrefix(prefix).catch((err) => {
+    metrics.count("cache.shared.drop", false, err instanceof Error ? err.message : String(err));
+    return 0;
+  });
 }
 
 export const TTL = {

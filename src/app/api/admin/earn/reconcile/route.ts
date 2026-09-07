@@ -22,6 +22,6 @@ export const POST = route({ rateLimit: { key: "admin.earn", limit: 10, windowMs:
   requireAdmin(req, serverEnv().ADMIN_API_TOKEN);
   const body = await parseBody(req, bodySchema.optional().default({}));
   const result = await sweepEarn({ fromBlock: body.fromBlock !== undefined ? BigInt(body.fromBlock) : undefined, maxBlocks: body.maxBlocks !== undefined ? BigInt(body.maxBlocks) : undefined });
-  if (result.added > 0) invalidate("stats:");
+  if (result.added > 0) await invalidate("stats:");
   return json(result);
 });
