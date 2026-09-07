@@ -60,7 +60,7 @@ Without any keys the app still runs: assets, multipliers, pause flags, policies 
 | `NEXT_PUBLIC_GIFT_POOL_ADDRESS` | Gift pools; unset hides the feature entirely |
 | `POOL_GATE_SIGNER_KEY` | Steps in front of a gift pool; without it, link and open pools still work |
 | `NEXT_PUBLIC_AUTO_INVEST_ADDRESS`, `AUTOMATION_KEEPER_KEY` | Auto-invest: the deployed AutoInvest contract and the keeper that runs due plans ([docs/AUTO_INVEST.md](docs/AUTO_INVEST.md)); without them plans are confirmed by hand |
-| `ADMIN_API_TOKEN` | The `/admin` page: verifying newly discovered tokens, recent errors, health alerts |
+| `ADMIN_API_TOKEN` | The `/admin` operations console: health and alerts, recorded errors, maintenance jobs, asset verification, and what this deployment is configured to do |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | A Redis shared-cache tier across serverless instances (optional; the `kv_cache` table is used otherwise) |
 
 The full list with explanations is in [.env.example](.env.example). Apply the database schema to a Supabase project with `pnpm db:apply` (see the script in `scripts/db-apply.mjs`) or through the Supabase MCP.

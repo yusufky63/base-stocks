@@ -9,6 +9,12 @@ import { metrics } from "@/lib/http";
  * and the message with numbers and hashes stripped), counted, with the last stack kept. The admin
  * page and `/api/health` read them back; the monitor workflow raises an alert when the last hour
  * is loud. Recording never throws and never blocks a response.
+ *
+ * Only production writes rows. A local `.env` points at the same Supabase project, so every
+ * half-finished edit during `next dev` — a component referenced before its import was written —
+ * used to land in the production console and sit in the 24-hour list next to real incidents.
+ * Development keeps the in-memory view, which is the one a developer is actually looking at; set
+ * `ERROR_SINK_WRITES=always` when you deliberately want to exercise the stored path.
  */
 export type ErrorSource = "server" | "route" | "client";
 
@@ -69,6 +75,7 @@ export async function recordError(report: ErrorReport): Promise<void> {
       memory.set(fingerprint, { ...report, message, stack: report.stack?.slice(0, 4_000), fingerprint, count: 1, firstAt: now, lastAt: now });
     }
     metrics.count(`error.${report.source}`, false, message.slice(0, 120));
+    if (process.env.NODE_ENV !== "production" && process.env.ERROR_SINK_WRITES !== "always") return;
     const sb = getSupabaseAdmin();
     if (!sb) return;
     const last = recentlyWritten.get(fingerprint) ?? 0;
@@ -132,4 +139,29 @@ export async function recentErrors(limit = 20, sinceMs = 24 * 3600_000): Promise
  */
 export async function errorCount(sinceMs = 3600_000): Promise<number> {
   return (await recentErrors(100, sinceMs)).length;
+}
+
+/**
+ * Forget errors: one fingerprint, or every row last seen before `olderThan`.
+ *
+ * A fixed error keeps its row for a day, which is right for a postmortem and wrong for a console
+ * you are watching during one — the list should show what is still happening. Clearing is an
+ * admin action and it is not a cover-up: the row is a report of the past, and the error will
+ * write a new one the moment it happens again.
+ */
+export async function clearErrors(opts: { fingerprint?: string; olderThan?: number } = {}): Promise<number> {
+  const { fingerprint, olderThan } = opts;
+  for (const [key, e] of [...memory]) {
+    if (fingerprint ? key === fingerprint : olderThan === undefined || e.lastAt < olderThan) memory.delete(key);
+  }
+  const sb = getSupabaseAdmin();
+  if (!sb) return 0;
+  let q = sb.from("error_events").delete();
+  q = fingerprint ? q.eq("fingerprint", fingerprint) : olderThan !== undefined ? q.lt("last_at", new Date(olderThan).toISOString()) : q.neq("fingerprint", "");
+  const { data, error } = await q.select("fingerprint");
+  if (error) {
+    metrics.count("error.sink.clear", false, error.message);
+    return 0;
+  }
+  return (data ?? []).length;
 }

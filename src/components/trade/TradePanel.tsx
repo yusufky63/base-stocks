@@ -61,7 +61,9 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
   const region = useRegion();
   const restricted = region.data?.restricted === true;
   const ethUsd = assetsData?.ethUsd ?? null;
-  const ethBalance = useBalance({ address, chainId: BASE_CHAIN_ID, query: { enabled: !!address, refetchInterval: 30_000 } });
+  // The one balance still read from the browser (it is not in the portfolio snapshot). It moves
+  // only when its owner transacts, so it is polled as a safety net, not as a live feed.
+  const ethBalance = useBalance({ address, chainId: BASE_CHAIN_ID, query: { enabled: !!address, staleTime: 60_000, refetchInterval: 120_000 } });
   const ethWei = ethBalance.data?.value ?? 0n;
   const [recipientInput, setRecipientInput] = useState("");
   const { slippageBps } = useSlippage();

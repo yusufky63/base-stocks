@@ -210,8 +210,8 @@ function deriveStatus(transferPaused: boolean, metaOk: boolean): B20Asset["statu
 async function assembleAssets(entries: readonly CuratedAssetEntry[]): Promise<B20Asset[]> {
   const [meta, live, feeds] = await Promise.all([
     cached(`b20:meta:${entries.map((e) => e.address).join(",")}`, TTL.assetMetadata, () => loadStaticMeta(entries)),
-    cached(`b20:live:${entries.map((e) => e.address).join(",")}`, TTL.oracle, () => loadLiveState(entries)),
-    cached(`b20:feeds:${entries.map((e) => e.chainlinkFeed).join(",")}`, TTL.oracle, () => loadFeeds(entries.map((e) => e.chainlinkFeed))),
+    cached(`b20:live:${entries.map((e) => e.address).join(",")}`, TTL.oracleLive, () => loadLiveState(entries)),
+    cached(`b20:feeds:${entries.map((e) => e.chainlinkFeed).join(",")}`, TTL.oracleFeed, () => loadFeeds(entries.map((e) => e.chainlinkFeed))),
   ]);
   const now = Date.now();
   const assets: B20Asset[] = [];

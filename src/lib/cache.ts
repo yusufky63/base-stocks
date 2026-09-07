@@ -149,8 +149,17 @@ export function invalidate(prefix: string): void {
 export const TTL = {
   /** Canonical B20 metadata: long cache, event-triggered refresh. */
   assetMetadata: { ttlMs: 10 * 60_000, staleMs: 60 * 60_000, shared: true },
-  /** Chainlink: short. */
-  oracle: { ttlMs: 15_000, staleMs: 60_000, shared: true },
+  /**
+   * Chainlink equity feeds publish on a ~24 h heartbeat and only during US trading hours — the
+   * app's own staleness threshold is 26 h. Re-reading them every fifteen seconds cost thousands
+   * of calls a day for a number that cannot have moved. The displayed age comes from the feed's
+   * own `updatedAt`, not from this cache, so a longer window never makes the age look wrong.
+   */
+  oracleFeed: { ttlMs: 5 * 60_000, staleMs: 30 * 60_000, shared: true },
+  /** Multiplier, pause flags and supply: changed by events, not by the second. */
+  oracleLive: { ttlMs: 60_000, staleMs: 5 * 60_000, shared: true },
+  /** ETH/USD backs gas estimates, so it stays short. One feed, one call. */
+  oracle: { ttlMs: 60_000, staleMs: 5 * 60_000, shared: true },
   /** Market snapshots: short, respects API plan limits. */
   market: { ttlMs: 30_000, staleMs: 5 * 60_000, shared: true },
   ohlcv: { ttlMs: 60_000, staleMs: 10 * 60_000, shared: true },

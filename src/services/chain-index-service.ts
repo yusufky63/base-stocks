@@ -191,6 +191,36 @@ export async function sweepTransfers(opts: { maxBlocks?: bigint } = {}): Promise
   return { ...base, toBlock: covered.toString(), found, added, more: covered < head };
 }
 
+/** Base mines a block every two seconds, so a block count converts straight into how stale the index is. */
+const BLOCK_SECONDS = 2;
+
+export interface IndexStatus {
+  cursor: number | null;
+  head: number;
+  /** Blocks the sweep has not read yet — the age of the oldest transfer a timeline could be missing. */
+  lag: number;
+  lagSeconds: number;
+  wallets: number;
+}
+
+/**
+ * How far behind the transfer index is.
+ *
+ * The number that says whether the sweep is keeping up, and the one worth looking at first when a
+ * timeline is missing a trade: the tail read covers a few thousand blocks, so a lag past that is
+ * the point where the cursor needs walking forward rather than waiting.
+ */
+export async function indexStatus(): Promise<IndexStatus> {
+  const repos = getRepos();
+  const [head, cursor, wallets] = await Promise.all([
+    getServerPublicClient().getBlockNumber(),
+    repos.cursors.get(CURSOR_KEY).catch(() => null),
+    repos.walletIndex.listWallets().catch(() => [] as Address[]),
+  ]);
+  const lag = cursor === null ? 0 : Math.max(0, Number(head) - cursor);
+  return { cursor, head: Number(head), lag, lagSeconds: lag * BLOCK_SECONDS, wallets: wallets.length };
+}
+
 /**
  * The blocks the sweep has not reached yet, read once for everyone and cached briefly: a
  * transfer mined a minute ago shows up without waiting for the next sweep.

@@ -102,12 +102,21 @@ export function useChart(address: string, timeframe: Timeframe) {
   });
 }
 
+/**
+ * The wallet's positions, and the balances every trade surface reads (see `useTokenBalances`).
+ *
+ * A balance only moves when its owner acts, and every action here already invalidates this key
+ * when it lands, so polling is the safety net for what happens elsewhere — a gift arriving, a
+ * plan run, a transfer from another wallet — not the way the number is kept current. Two minutes
+ * covers that, where thirty seconds meant a per-visitor read four times a minute, all day.
+ */
 export function usePortfolio(owner?: Address) {
   return useQuery({
     queryKey: qk.portfolio(owner ?? ""),
     queryFn: () => apiGet<PortfolioSnapshot>(`/api/portfolio/${owner}`),
     enabled: !!owner,
-    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchInterval: 120_000,
   });
 }
 
