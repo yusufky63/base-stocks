@@ -88,7 +88,15 @@ export function useTrade(): TradeRun {
     else if (chain === "confirmed") state = "CONFIRMED";
     else if (chain === "failed") {
       state = "FAILED";
-      error = { code: "SIMULATION_FAILED", message: "The transaction reverted onchain. Your funds were not moved.", detail: txHash };
+      // The route is simulated before the wallet opens, so a revert here means the state changed
+      // between that simulation and inclusion — on a swap with a minimum-output check, that is the
+      // pool price moving past the slippage limit. Saying so beats "reverted onchain", which tells
+      // a reader neither what happened nor what to do about it.
+      error = {
+        code: "SIMULATION_FAILED",
+        message: "This reverted after it was sent. It simulated cleanly first, so the pool price moved past your slippage limit in between — no tokens changed hands, only the network fee was spent. Try again for a fresh quote, or raise slippage before retrying.",
+        detail: txHash,
+      };
     }
   }
   const settledHash = txHash ?? order?.txHash ?? undefined;

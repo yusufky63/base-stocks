@@ -192,7 +192,7 @@ export function usePortfolioExecution() {
                 commit(updateStep(latest.current!, l.stepId, { status: "confirmed", txHash: receipt.transactionHash }));
                 void recordTrade(l, receipt.transactionHash);
               } else {
-                commit(updateStep(latest.current!, l.stepId, { status: "failed", errorCode: "SIMULATION_FAILED", errorMessage: result.status === "failure" ? "The batched transaction reverted; nothing in it was bought." : "This purchase reverted onchain.", txHash: receipt?.transactionHash }));
+                commit(updateStep(latest.current!, l.stepId, { status: "failed", errorCode: "SIMULATION_FAILED", errorMessage: result.status === "failure" ? "The batched transaction reverted; nothing in it was bought. The price moved past the slippage limit after signing — retry for a fresh quote." : "This purchase reverted after sending: the price moved past the slippage limit between signing and inclusion. Retry for a fresh quote.", txHash: receipt?.transactionHash }));
               }
             });
             return true;
