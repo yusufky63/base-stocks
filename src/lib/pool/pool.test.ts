@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { encodeAbiParameters, getAddress, keccak256, stringToHex, verifyTypedData } from "viem";
+import { concat, encodeAbiParameters, getAddress, hashTypedData, keccak256, stringToHex, verifyTypedData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   makePoolLinkSecret,
@@ -185,5 +185,50 @@ describe("splitting a total into shares", () => {
         expect(dust).toBeLessThan(BigInt(slots));
       }
     }
+  });
+});
+
+/**
+ * The ticket digest, recomputed the way GiftPool.sol computes it.
+ *
+ * The app signed under "BaseStocks GiftPool" while the deployed contract's constructor had fixed
+ * its separator from "BStocks GiftPool". Nothing failed until a claim reached the chain, where
+ * `ecrecover` returned a stranger and every quest- and link-gated pool reverted with BadSignature.
+ * A digest asserted against the contract's own formula catches that before a deploy does.
+ */
+describe("ticket digest matches GiftPool.sol", () => {
+  const POOL = "0xBD23ABB61D80B88DacB1Dc56DC2641e4Bfb76E10" as const;
+  const id = "0x37d29beba4d25642369383d7359cfc13a4a57ca99b8566557a0e90ac9cfc740c" as const;
+  const recipient = "0xEAa823AB4C4eE00283d8ed7be713ddf8A5ba0Fac" as const;
+  const deadline = 1_789_000_000n;
+
+  /** keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash)), built from the literals in the contract. */
+  function contractDigest(name: string): Hex {
+    const domainSeparator = keccak256(
+      encodeAbiParameters(
+        [{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "uint256" }, { type: "address" }],
+        [
+          keccak256(stringToHex("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")),
+          keccak256(stringToHex(name)),
+          keccak256(stringToHex("1")),
+          8453n,
+          POOL,
+        ],
+      ),
+    );
+    const structHash = keccak256(
+      encodeAbiParameters(
+        [{ type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "uint64" }],
+        [keccak256(stringToHex("Ticket(bytes32 poolId,address recipient,uint64 deadline)")), id, recipient, deadline],
+      ),
+    );
+    return keccak256(concat(["0x1901", domainSeparator, structHash]));
+  }
+
+  it("signs under the name the contract's constructor fixed", () => {
+    const signed = hashTypedData({ domain: poolTicketDomain(POOL), types: POOL_TICKET_TYPES, primaryType: "Ticket", message: { poolId: id, recipient, deadline } });
+    expect(signed).toBe(contractDigest("BStocks GiftPool"));
+    // The name the app used to send. Kept as an assertion so the regression cannot come back quietly.
+    expect(signed).not.toBe(contractDigest("BaseStocks GiftPool"));
   });
 });

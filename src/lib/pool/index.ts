@@ -202,8 +202,17 @@ export function onchainIdFor(creator: Address, appId: string): Hex {
 
 /* ------------------------------ claim tickets ------------------------------ */
 
+/**
+ * The EIP-712 domain, spelled the way the deployed contract spells it.
+ *
+ * GiftPool fixes its separator in the constructor from the literal "BStocks GiftPool". Signing
+ * under any other name produces a digest the contract never computes, so `ecrecover` returns a
+ * stranger and every gated claim reverts with `BadSignature` — which is exactly what "BaseStocks
+ * GiftPool" here did to quest- and link-gated pools. The contract is immutable; this string is the
+ * one that has to give.
+ */
 export const poolTicketDomain = (verifyingContract: Address) =>
-  ({ name: "BaseStocks GiftPool", version: "1", chainId: BASE_CHAIN_ID, verifyingContract }) as const;
+  ({ name: "BStocks GiftPool", version: "1", chainId: BASE_CHAIN_ID, verifyingContract }) as const;
 
 export const POOL_TICKET_TYPES = {
   Ticket: [
