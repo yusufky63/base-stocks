@@ -63,11 +63,12 @@ describe("B20GuardService", () => {
     expect(r.warnings).toEqual([]);
   });
 
-  it("does not block on oracle staleness but surfaces a warning", async () => {
-    requireAsset.mockResolvedValue(asset({ oracle: { feed: "0x04689a41629776563E6822F76f2e57D148d28513", answer: 1n, updatedAt: 0n, decimals: 8, paused: false, stale: true, staleAfterSeconds: 3600, freshness: "live", marketOpen: true, priceUsd: 1 } }));
+  it("says nothing about a stale reference: the feeds run 24/5, so it is the normal overnight state", async () => {
+    requireAsset.mockResolvedValue(asset({ oracle: { feed: "0x04689a41629776563E6822F76f2e57D148d28513", answer: 1n, updatedAt: 0n, decimals: 8, paused: false, stale: true, staleAfterSeconds: 3600, freshness: "last-close", marketOpen: false, priceUsd: 1 } }));
     multicall.mockResolvedValue([{ status: "success", result: true }]);
     const r = await guard.preTradeCheck({ assetAddress: NVDA, side: "buy", taker: USER });
-    expect(r.warnings.some((w) => /stale/i.test(w))).toBe(true);
+    // Not blocked either — staleness never gated the trade, and still does not.
+    expect(r.warnings).toEqual([]);
   });
 
   it("flags corporate actions (oracle paused) without blocking secondary-market trades", async () => {

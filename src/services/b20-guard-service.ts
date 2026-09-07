@@ -91,8 +91,11 @@ export class B20GuardService {
       w.push("Reference price unavailable. Showing executable quotes only.");
       return w;
     }
+    // A stale reference is not warned about here. The feeds run 24/5, so "stale" is the normal state
+    // every night, weekend and market holiday — a warning that is usually on teaches people to
+    // ignore the ones that are not, and this one ended by admitting it does not affect the trade.
+    // The reference's own freshness label carries it where it belongs, next to the price.
     if (asset.oracle.paused) w.push("Reference price is frozen for a corporate action. Executable quotes still reflect live market prices.");
-    else if (asset.oracle.stale) w.push("Reference price is stale (outside US market hours or no recent update). Executable quotes still reflect live market prices.");
     return w;
   }
 
