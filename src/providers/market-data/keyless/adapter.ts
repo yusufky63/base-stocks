@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { getDexScreenerMarkets, getDexScreenerLogo } from "../dexscreener/adapter";
 import { getGeckoTerminalMetadata, getGeckoTerminalOhlcv, getGeckoTerminalPrices, getGeckoTerminalPrimaryPool } from "../geckoterminal/adapter";
+import { getDexPools } from "@/providers/earn/geckoterminal-pools";
 
 /**
  * Keyless market data (default): DexScreener for shared price snapshots (price, 24h change,
@@ -12,6 +13,22 @@ import { getGeckoTerminalMetadata, getGeckoTerminalOhlcv, getGeckoTerminalPrices
  * as the price fallback. Everything is cached in-process with stale-while-revalidate, so a
  * burst of visitors costs one upstream request per window — never one per user.
  */
+/**
+ * GeckoTerminal's liquidity, restated the way DexScreener states it.
+ *
+ * `total_reserve_in_usd` counts only the token's own side of each pool; DexScreener's
+ * `liquidity.usd` counts both. Adding one to the other produced a headline liquidity figure that
+ * moved by a factor of two depending on which provider happened to answer for which stock that
+ * minute — the same NVDAc read as $3.8M from one and $1.5M from the other. The pools carry
+ * `reserve_in_usd`, which is both sides, so the figure is summed from those instead and the total
+ * is one definition throughout.
+ */
+async function comparableLiquidity(asset: Address): Promise<number | null> {
+  const pools = await getDexPools(asset, { includeUnknown: true }).catch(() => []);
+  if (pools.length === 0) return null;
+  return pools.reduce((sum, p) => sum + p.reserveUsd, 0);
+}
+
 export class KeylessMarketDataProvider implements MarketDataProvider {
   readonly id = "keyless";
 
@@ -34,7 +51,7 @@ export class KeylessMarketDataProvider implements MarketDataProvider {
           for (const a of missing) {
             const v = gt.get(a.toLowerCase());
             if (!v || v.priceUsd === null) continue;
-            rows.set(a.toLowerCase(), { address: a, priceUsd: v.priceUsd, change24hPct: null, volume24hUsd: v.volume24hUsd, liquidityUsd: v.liquidityUsd, marketCapUsd: v.marketCapUsd, source: "geckoterminal", updatedAt: now, primaryPool: v.primaryPool });
+            rows.set(a.toLowerCase(), { address: a, priceUsd: v.priceUsd, change24hPct: null, volume24hUsd: v.volume24hUsd, liquidityUsd: await comparableLiquidity(a), marketCapUsd: v.marketCapUsd, source: "geckoterminal", updatedAt: now, primaryPool: v.primaryPool });
           }
         } catch (err) {
           metrics.count("keyless.prices.gt", false, err instanceof Error ? err.message : String(err));
