@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address;
 const NVDA = "0xb20000000000000000000078ee7ce2fE4908108C" as Address;
+const TAKER = "0xEAa823AB4C4eE00283d8ed7be713ddf8A5ba0Fac" as Address;
 
 const asset = {
   address: NVDA,
@@ -53,6 +54,11 @@ function provider(id: TradeProviderId, indicative: () => Promise<IndicativeQuote
 
 const providers: TradeProvider[] = [];
 
+/** The taker's sell-side balance, as the chain would report it. */
+let heldBalance = 10n ** 30n;
+vi.mock("@/lib/viem/server-client", () => ({
+  getServerPublicClient: () => ({ getBalance: async () => heldBalance, readContract: async () => heldBalance }),
+}));
 vi.mock("@/providers/trading", () => ({ getTradeProviders: () => providers }));
 vi.mock("./b20-guard-service", () => ({ b20Guard: { preTradeCheck: vi.fn(async () => ({ asset, warnings: ["stale oracle"] })) } }));
 vi.mock("./price-service", () => ({
@@ -66,6 +72,7 @@ const { tradeRouter } = await import("./trade-router");
 
 beforeEach(() => {
   providers.length = 0;
+  heldBalance = 10n ** 30n;
 });
 
 describe("trade router comparison", () => {
@@ -82,6 +89,57 @@ describe("trade router comparison", () => {
     expect(alts[0]!.provider).toBe("velora");
     expect(alts[0]!.best).toBe(true);
     expect(alts.find((a) => a.provider === "kyber")!.netUsd!).toBeLessThan(alts[0]!.netUsd!);
+  });
+
+  it("reports an empty wallet whatever route wins, not only the one provider that checks", async () => {
+    // Kyber, Uniswap, Velora, Aerodrome, OKX and CoW all return a hardcoded balanceInsufficient:
+    // false beside simulationIncomplete: true — "I did not look". Believing it turned a plain empty
+    // wallet into a bundle simulation revert with no reason attached.
+    providers.push(provider("kyber", async () => quote("kyber", 5_000_000n, 0n)));
+    heldBalance = 9_262_023n; // less than the 10 USDC being spent
+    const summary = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: 10_000_000n, taker: TAKER });
+    expect(summary.balanceInsufficient).toBe(true);
+  });
+
+  it("does not cry poor when the wallet covers the trade", async () => {
+    providers.push(provider("kyber", async () => quote("kyber", 5_000_000n, 0n)));
+    heldBalance = 10_000_000n; // exactly enough
+    const summary = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: 10_000_000n, taker: TAKER });
+    expect(summary.balanceInsufficient).toBe(false);
+  });
+
+  it("refuses a winner no other router can corroborate", async () => {
+    // The real shape of it: selling GOOGLc, Velora quoted 6.24 USDC through a Uniswap v4 route
+    // while everyone else agreed on ~4.85. Picking it set a minimum output no pool could pay, and
+    // the swap reverted with nothing to explain it.
+    providers.push(
+      provider("velora", async () => quote("velora", 6_241_114n, 0n)),
+      provider("okx", async () => quote("okx", 4_866_352n, 0n)),
+      provider("kyber", async () => quote("kyber", 4_862_061n, 0n)),
+    );
+    const summary = await tradeRouter.price({ side: "sell", assetAddress: NVDA, sellAmount: 1_437_028n });
+    expect(summary.provider).toBe("okx");
+    const velora = summary.alternatives!.find((a) => a.provider === "velora")!;
+    expect(velora.best).toBe(false);
+    expect(velora.buyAmount).toBeNull();
+    expect(velora.error).toMatch(/above every other route/i);
+  });
+
+  it("leaves a genuinely better route alone", async () => {
+    // Routers do disagree; a few percent is routing, not fiction.
+    providers.push(
+      provider("kyber", async () => quote("kyber", 5_100_000n, 0n)),
+      provider("velora", async () => quote("velora", 5_000_000n, 0n)),
+    );
+    const summary = await tradeRouter.price({ side: "sell", assetAddress: NVDA, sellAmount: 1_000_000n });
+    expect(summary.provider).toBe("kyber");
+    expect(summary.alternatives!.find((a) => a.provider === "kyber")!.error).toBeUndefined();
+  });
+
+  it("keeps the only quote there is, having nothing to check it against", async () => {
+    providers.push(provider("velora", async () => quote("velora", 6_241_114n, 0n)));
+    const summary = await tradeRouter.price({ side: "sell", assetAddress: NVDA, sellAmount: 1_437_028n });
+    expect(summary.provider).toBe("velora");
   });
 
   it("keeps failing providers in the comparison with their error", async () => {

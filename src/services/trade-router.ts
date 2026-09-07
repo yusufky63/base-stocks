@@ -1,4 +1,4 @@
-import { formatUnits, type Address } from "viem";
+import { erc20Abi, formatUnits, type Address } from "viem";
 import { BASE_CHAIN_ID, DEFAULT_SLIPPAGE_BPS, MIN_TRADE_USD, NATIVE_ETH, NATIVE_ETH_DECIMALS, USDC_ADDRESS, USDC_DECIMALS, isNativeEth } from "@/config/chain";
 import type { B20Asset } from "@/domain/asset";
 import type { ExecutableQuote, ExecutableQuoteDTO, IndicativeQuote, TradeIntent, TradeProvider, TradeProviderId, TradeQuoteAlternative, TradeQuoteSummary, TradeSide } from "@/domain/trade";
@@ -9,6 +9,7 @@ import { getTradeProviders } from "@/providers/trading";
 import { raceWithFallback } from "@/lib/fallback";
 import { b20Guard } from "./b20-guard-service";
 import { getEthUsd, getMarketDataMap, buildPriceView, impactBasis } from "./price-service";
+import { getServerPublicClient } from "@/lib/viem/server-client";
 
 export interface TradeRequest {
   side: TradeSide;
@@ -88,8 +89,30 @@ function executablePrice(side: TradeSide, q: IndicativeQuote, asset: B20Asset, e
   return usd / token;
 }
 
+/**
+ * Whether the taker actually holds what the quote proposes to spend.
+ *
+ * Only 0x reports this; every other adapter returns a hardcoded false next to `simulationIncomplete:
+ * true`, meaning "I did not look". Trusting that made a plain empty wallet fail as a bundle
+ * simulation revert with no reason attached — the app knew nothing, so it said nothing useful. One
+ * balance read makes the answer true whichever route wins.
+ */
+async function sellSideShort(taker: Address | undefined, sellToken: Address, sellAmount: bigint): Promise<boolean> {
+  if (!taker) return false;
+  try {
+    const client = getServerPublicClient();
+    const held = isNativeEth(sellToken)
+      ? await client.getBalance({ address: taker })
+      : await client.readContract({ address: sellToken, abi: erc20Abi, functionName: "balanceOf", args: [taker] });
+    return held < sellAmount;
+  } catch {
+    // A read that fails is not evidence of an empty wallet; the simulation still stands behind it.
+    return false;
+  }
+}
+
 async function summarize(req: TradeRequest, asset: B20Asset, q: IndicativeQuote, warnings: string[]): Promise<TradeQuoteSummary> {
-  const [md, ethUsd] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd()]);
+  const [md, ethUsd, short] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd(), sellSideShort(req.taker, q.sellToken, q.sellAmount)]);
   const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
   const exec = executablePrice(req.side, q, asset, ethUsd);
   const basis = impactBasis(view);
@@ -122,13 +145,51 @@ async function summarize(req: TradeRequest, asset: B20Asset, q: IndicativeQuote,
     liquidityAvailable: q.liquidityAvailable,
     allowanceRequired: q.issues.allowanceRequired,
     allowanceSpender: q.issues.allowanceSpender ?? q.allowanceTarget,
-    balanceInsufficient: q.issues.balanceInsufficient,
+    balanceInsufficient: q.issues.balanceInsufficient || short,
     route: q.route,
     fetchedAt: q.fetchedAt,
     warnings,
   };
 }
 
+
+/**
+ * How far the best quote may stand above the runner-up before it is treated as a claim rather than
+ * an offer. Routers disagree by fractions of a percent on the same pools; a fifth more output is
+ * not a better route.
+ */
+const IMPLAUSIBLE_WINNER_RATIO = 1.1;
+
+/**
+ * Refuse a winning quote that no other router can corroborate.
+ *
+ * Nothing checked what a provider claimed it would return. Selling $4.87 of GOOGLc, Velora quoted
+ * $6.24 through a Uniswap v4 route while six other routers agreed on $4.85–4.87 — so the app picked
+ * it, set the minimum output from the inflated figure, and the swap could not possibly satisfy it.
+ * The user got "execution reverted for an unknown reason", which is what a lie looks like from
+ * inside a simulation.
+ *
+ * The runner-up is the check: on the same pools, routers land within a fraction of a percent of
+ * each other, so a quote standing far above the field is describing liquidity that is not there.
+ * It stays in the comparison, with its reason, rather than vanishing — but it cannot win, and the
+ * second-best quote (which every other router agrees is real) takes the trade.
+ *
+ * A lone quote has nothing to be checked against; the price-impact warning covers that case.
+ */
+function demoteImplausibleWinner(ok: Array<{ alt: TradeQuoteAlternative; q: IndicativeQuote | null; net: number }>): void {
+  while (ok.length >= 2) {
+    const [best, runnerUp] = ok as [(typeof ok)[number], (typeof ok)[number]];
+    if (!(runnerUp.net > 0 && best.net > runnerUp.net * IMPLAUSIBLE_WINNER_RATIO)) return;
+    const over = Math.round((best.net / runnerUp.net - 1) * 100);
+    best.alt.error = `Quoted ${over}% above every other route; no pool backs that price, so the swap would revert.`;
+    best.alt.buyAmount = null;
+    best.alt.netUsd = null;
+    best.q = null;
+    metrics.count("trade.implausible", false, `${best.alt.provider} +${over}%`);
+    // `scored` still holds it with q === null, so the alternatives list picks it up with its reason.
+    ok.shift();
+  }
+}
 
 /** Per-provider budget for the comparison: a slow provider must not hold the sheet (guide §43). */
 const COMPARE_TIMEOUT_MS = 2_500;
@@ -166,6 +227,7 @@ async function compareProviders(intent: TradeIntent, asset: B20Asset, side: Trad
     return { alt: { provider, buyAmount: q.buyAmount.toString(), netUsd: outUsd !== null ? outUsd - feeUsd : null, latencyMs: r.value.latencyMs, route: q.route.map((f) => f.source).join(", "), best: false, outUsd, estimatedNetworkFeeUsd: q.totalNetworkFeeWei !== null && ethUsd !== null ? feeUsd : null, executablePriceUsd: executablePrice(side, q, asset, ethUsd) }, q, net };
   });
   const ok = scored.filter((x) => x.q !== null).sort((a, b) => b.net - a.net);
+  demoteImplausibleWinner(ok);
   if (ok.length === 0) {
     const errors = scored.map((x) => x.alt.error ?? "").filter(Boolean);
     const liquidity = errors.some((e) => /liquidity|no route|route not found/i.test(e));
