@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useAccount } from "wagmi";
-import { Sprout, ShieldCheck, Layers, RefreshCw } from "lucide-react";
+import { Sprout, ShieldCheck, Layers, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import type { EarnOpportunity } from "@/domain/earn";
 import { apiGet } from "@/lib/client-api";
 import { formatPct, formatUsdCompact, timeAgo } from "@/lib/format";
@@ -17,6 +17,9 @@ import { VenueSheet } from "./VenueSheet";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 
 type Item = EarnOpportunity & { symbol: string; underlying: string; logoURI?: string };
+
+/** Enough rows to compare without the page turning into a scroll of thin pools. */
+const PAGE_SIZE = 8;
 
 /** Earn: idle-USDC venues executed in-app + stock-specific opportunities discovered at runtime. */
 export function EarnOverview() {
@@ -37,10 +40,16 @@ export function EarnOverview() {
   };
   const items = data?.items ?? [];
   const [selected, setSelected] = useState<Item | null>(null);
+  const [page, setPage] = useState(0);
   // Supply/vault and borrow venues for B20 stocks do not exist yet; filters for them were
   // permanently-empty chrome, so everything discovered is listed directly (badges still say what
-  // each row is if a lending market ever appears).
-  const shown = items;
+  // each row is if a lending market ever appears). The server has already graded them by what the
+  // stock is paired against and by depth, so page one is the part worth reading.
+  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  // Clamped rather than reset: a re-scan that returns fewer venues must not strand the reader on
+  // a page that no longer exists.
+  const current = Math.min(page, pages - 1);
+  const shown = items.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
   return (
     <div className="flex flex-col gap-6">
       <PageTitle
@@ -131,9 +140,41 @@ export function EarnOverview() {
             </span>
           </button>
         ))}
+        {pages > 1 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted">
+              {current * PAGE_SIZE + 1}–{current * PAGE_SIZE + shown.length} of {items.length}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <PageButton label="Previous venues" onClick={() => setPage(current - 1)} disabled={current === 0}>
+                <ChevronLeft size={15} strokeWidth={1.75} />
+              </PageButton>
+              <span className="font-mono text-[12px] text-ink-secondary tabular-nums px-1">
+                {current + 1} / {pages}
+              </span>
+              <PageButton label="More venues" onClick={() => setPage(current + 1)} disabled={current >= pages - 1}>
+                <ChevronRight size={15} strokeWidth={1.75} />
+              </PageButton>
+            </span>
+          </div>
+        )}
       </Module>
       <VenueSheet o={selected} symbol={selected?.underlying ?? ""} onClose={() => setSelected(null)} showStockLink />
     </div>
+  );
+}
+
+function PageButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center justify-center h-8 w-8 rounded-[6px] border border-line text-ink-secondary hover:text-ink hover:border-line-strong transition-fast disabled:opacity-40 disabled:pointer-events-none"
+    >
+      {children}
+    </button>
   );
 }
 

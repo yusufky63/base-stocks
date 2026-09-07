@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Address } from "viem";
 import type { EarnOpportunity, EarnType } from "@/domain/earn";
-import { curateUsdcVenues } from "./earn-opportunity-service";
+import { curateUsdcVenues, rankStockVenues } from "./earn-opportunity-service";
 
 /**
  * Which USDC venues make it onto the page.
@@ -74,5 +74,63 @@ describe("USDC venue curation", () => {
     expect(out.some((o) => o.id === "aave")).toBe(true);
     // Four for depth, four for rate, one overlap between them, plus the market.
     expect(out.length).toBeLessThanOrEqual(1 + 8);
+  });
+});
+
+/**
+ * Which stock pools are worth putting in front of somebody, and in what order.
+ *
+ * Ranking by depth alone put a stock paired against a memecoin above a deeper stock/USDC pool, and
+ * the list carried pools holding a few hundred dollars whose headline APY was an artefact of their
+ * own thinness. Both read as recommendations, so the grading is pinned.
+ */
+const NVDA = "0xb200000000000000000000000000000000000001" as Address;
+const AAPL = "0xb200000000000000000000000000000000000002" as Address;
+const STOCKS = new Set([NVDA.toLowerCase(), AAPL.toLowerCase()]);
+
+function pool(id: string, asset: Address, quote: string | undefined, liquidityUsd: number): EarnOpportunity {
+  return {
+    id,
+    provider: "aerodrome",
+    assetAddress: asset,
+    type: "liquidity",
+    title: id,
+    liquidityUsd,
+    riskLabel: "higher",
+    dataTimestamp: Date.now(),
+    risks: [],
+    inApp: false,
+    metadata: quote === undefined ? {} : { quote },
+  } as EarnOpportunity;
+}
+
+describe("stock venue ranking", () => {
+  it("grades by what the stock is paired against before depth", () => {
+    const out = rankStockVenues(
+      [pool("memecoin-deep", NVDA, "BOX", 500_000), pool("weth-mid", NVDA, "WETH", 200_000), pool("usdc-shallow", NVDA, "USDC", 100_000)],
+      STOCKS,
+    );
+    expect(ids(out)).toEqual(["usdc-shallow", "weth-mid", "memecoin-deep"]);
+  });
+
+  it("orders by depth within one quote asset", () => {
+    const out = rankStockVenues([pool("small", NVDA, "USDC", 50_000), pool("deep", AAPL, "USDC", 2_000_000), pool("mid", NVDA, "USDC", 400_000)], STOCKS);
+    expect(ids(out)).toEqual(["deep", "mid", "small"]);
+  });
+
+  it("drops pools too thin to join", () => {
+    const out = rankStockVenues([pool("real", NVDA, "USDC", 25_000), pool("dust", NVDA, "USDC", 446), pool("edge", AAPL, "USDC", 9_999)], STOCKS);
+    expect(ids(out)).toEqual(["real"]);
+  });
+
+  it("treats an unknown quote as the riskiest rather than the safest", () => {
+    const out = rankStockVenues([pool("unknown-quote", NVDA, undefined, 900_000), pool("usdc", AAPL, "USDC", 20_000)], STOCKS);
+    expect(ids(out)).toEqual(["usdc", "unknown-quote"]);
+  });
+
+  it("refuses anything that is not a pool on a listed stock", () => {
+    const notAStock = "0x4200000000000000000000000000000000000006" as Address;
+    const out = rankStockVenues([pool("eth-usdc", notAStock, "USDC", 50_000_000), pool("nvda-usdc", NVDA, "USDC", 20_000)], STOCKS);
+    expect(ids(out)).toEqual(["nvda-usdc"]);
   });
 });

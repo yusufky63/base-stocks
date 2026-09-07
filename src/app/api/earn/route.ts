@@ -1,7 +1,7 @@
 import { route, json } from "@/lib/api";
 import { invalidate } from "@/lib/cache";
 import { getAssets } from "@/services/b20-asset-service";
-import { discoverEarn } from "@/services/earn-opportunity-service";
+import { discoverEarn, rankStockVenues } from "@/services/earn-opportunity-service";
 
 /** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
 export const maxDuration = 60;
@@ -14,7 +14,9 @@ export const GET = route({ rateLimit: { key: "earn.all", limit: 30, windowMs: 60
   if (fresh) invalidate("earn:");
   const assets = await getAssets();
   const results = await Promise.all(assets.map((a) => discoverEarn(a.address).catch(() => null)));
-  const items = results.flatMap((r, i) => (r ? r.opportunities.map((o) => ({ ...o, symbol: assets[i]!.symbol, underlying: assets[i]!.underlying, logoURI: assets[i]!.logoURI })) : []));
+  const found = results.flatMap((r, i) => (r ? r.opportunities.map((o) => ({ ...o, symbol: assets[i]!.symbol, underlying: assets[i]!.underlying, logoURI: assets[i]!.logoURI })) : []));
+  // Graded by what the stock is paired against, then by depth, with the unjoinable dust removed.
+  const items = rankStockVenues(found, new Set(assets.map((a) => a.address.toLowerCase())));
   // Honest empty states: say what was scanned and which venue did not answer.
   const unavailable = new Set<string>();
   let scanned = 0;

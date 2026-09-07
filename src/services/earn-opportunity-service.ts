@@ -136,6 +136,42 @@ function usdcDiscovery(): Promise<EarnDiscoveryResult> {
   return cached("earn:usdc:raw", TTL.earn, () => discoverFor(USDC_ADDRESS, 1, undefined));
 }
 
+/**
+ * A stock pool this thin cannot be joined usefully: any position is dust next to the spread, and
+ * the "APY" a few dollars of volume implies is noise rather than a rate.
+ */
+const MIN_POOL_LIQUIDITY_USD = 10_000;
+
+/** What the pool pairs the stock against, as a risk ladder rather than a preference. */
+function quoteRank(o: EarnOpportunity): number {
+  const quote = String(o.metadata.quote ?? "").toUpperCase();
+  if (quote === "USDC") return 0; // the position is a bet on the stock and nothing else
+  if (quote === "WETH" || quote === "ETH") return 1; // plus ETH exposure, still legible
+  return 2; // paired against another token entirely — a different bargain
+}
+
+function poolDepth(o: EarnOpportunity): number {
+  return o.liquidityUsd ?? o.tvlUsd ?? 0;
+}
+
+/**
+ * Order the stock venues the way somebody deciding where to provide liquidity would.
+ *
+ * Depth alone is not the answer: it would put a stock paired against a memecoin above a deeper
+ * stock/USDC pool, and the headline rate on a thin pool is an artefact of its thinness rather than
+ * a yield anybody collects. So the pools are graded by what the stock is paired against first and
+ * by depth within that, and anything too small to join is dropped outright.
+ *
+ * Every venue here is already a stock pool by construction — discovery runs per B20 asset, so a
+ * plain USDC or ETH/USDC pool has no way in. The assertion is kept explicit so a future provider
+ * that scans more broadly cannot quietly widen the list.
+ */
+export function rankStockVenues<T extends EarnOpportunity>(items: T[], stocks: ReadonlySet<string>): T[] {
+  return items
+    .filter((o) => stocks.has(o.assetAddress.toLowerCase()) && poolDepth(o) >= MIN_POOL_LIQUIDITY_USD)
+    .sort((a, b) => quoteRank(a) - quoteRank(b) || poolDepth(b) - poolDepth(a));
+}
+
 /** Build deposit / withdraw calls for an opportunity id. The client executes them with the wallet. */
 export async function prepareEarn(input: EarnIntent): Promise<EarnExecution> {
   if (input.opportunityId.startsWith("morpho:")) return morphoProvider.prepare(input);
