@@ -31,7 +31,16 @@ export function RichText({ text }: { text: string }) {
         return (
           <p key={i} className={cx("text-[13px] leading-relaxed", bullet && "pl-3 relative")}>
             {bullet && <span aria-hidden className="absolute left-0 top-[0.6em] h-1 w-1 rounded-full bg-primary" />}
-            {label && <span className="font-semibold text-ink">{label}: </span>}
+            {/*
+              The label goes through Inline too. The prompt tells the model to lead lines with
+              "NVDA: …", so rendering the label as plain text defeated the ticker chips on exactly
+              the format the prompt mandates.
+            */}
+            {label && (
+              <span className="font-semibold text-ink">
+                <Inline text={label} byTicker={byTicker} />:{" "}
+              </span>
+            )}
             <Inline text={rest} byTicker={byTicker} />
           </p>
         );

@@ -5,6 +5,7 @@ import { requestCountry } from "@/lib/geo";
 import { getAssets } from "@/services/b20-asset-service";
 import { buildUniverseContext, cleanText, sanitizePrompt } from "@/services/basket-intent-service";
 import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
+import { sessionAddress } from "@/lib/auth/session";
 import { aiConfigFromEnv } from "@/lib/ai-provider";
 import { runAssistantTurn } from "@/lib/assistant/loop";
 import { assistantSystemPrompt } from "@/lib/assistant/prompt";
@@ -45,7 +46,7 @@ export const POST = route({ rateLimit: { key: "assistant.chat", limit: 10, windo
 
   const limits = quotaLimitsFromEnv();
   const ip = clientIp(req);
-  const [quota, spent] = await Promise.all([checkQuota(ip, owner, limits), monthlySpendUsd()]);
+  const [quota, spent] = await Promise.all([checkQuota(ip, sessionAddress(req)?.toLowerCase() as typeof owner, limits), monthlySpendUsd()]);
   const budget = monthlyBudgetUsd();
   if (budget > 0 && spent >= budget) {
     metrics.count("ai.budget", false, `monthly budget reached: $${spent.toFixed(2)} / $${budget}`);
@@ -66,7 +67,11 @@ export const POST = route({ rateLimit: { key: "assistant.chat", limit: 10, windo
   const ctx = makeToolCtx(owner, assets, requestCountry(req));
   const system = assistantSystemPrompt(universe, { walletConnected: !!owner, pathNote: pathContext(body.path, assets) });
 
-  await consumeQuota(ip, owner);
+  // Quota is charged to the wallet only when a signature proves it. `owner` arrives in the body
+  // unauthenticated, so keying the daily allowance on it let anyone exhaust any address's 25 a day
+  // by typing it. Reading that wallet's public data with the hint stays fine; spending its budget
+  // does not. Without a session the request still counts against the IP bucket.
+  await consumeQuota(ip, sessionAddress(req)?.toLowerCase() as typeof owner);
   const history: NormMessage[] = bounded.map((m) => ({ role: m.role, content: m.content }));
 
   try {
