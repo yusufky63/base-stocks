@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { Wallet } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import type { PortfolioTemplate } from "@/domain/portfolio";
@@ -43,6 +44,11 @@ const PROVIDER_LABEL: Record<string, string> = { morpho: "Morpho", aave: "Aave",
  * Portfolio (spec §45) as four tabs. The tab lives in the URL (`?tab=rebalance`) so a link from
  * Automate or a shared address lands on the right panel and the back button does what it says.
  */
+/** Nothing here yet: no USDC worth spending, no stock, no Earn position, no liquidity. */
+function isEmptyWallet(d: { usdcValueUsd: number; holdings: unknown[]; earnValueUsd: number; lpValueUsd: number }): boolean {
+  return d.usdcValueUsd < 1 && d.holdings.length === 0 && d.earnValueUsd < 1 && d.lpValueUsd < 1;
+}
+
 export function PortfolioView({ initialTemplates }: { initialTemplates?: PortfolioTemplate[] }) {
   const { address, isConnected } = useAccount();
   const { data, isLoading, isError, refetch } = usePortfolio(address);
@@ -65,6 +71,7 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
     [router, pathname, search],
   );
   const [templateId, setTemplateId] = useState<string>("");
+  const [addFunds, setAddFunds] = useState(false);
 
   const savedTarget = useTargetAllocation();
   const driftBps = useMemo(() => (data ? maxDriftBps(data, savedTarget.allocations) : null), [data, savedTarget.allocations]);
@@ -140,7 +147,18 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
           </button>
         </p>
       )}
-      {data && data.usdcValueUsd < 1 && data.holdings.length === 0 && data.earnValueUsd < 1 && data.lpValueUsd < 1 && <FundWallet />}
+      {/*
+        An empty wallet gets the funding paths opened for it, because there is nothing else to do
+        here. A wallet with something in it gets a way to reach them: adding money is not only a
+        thing people do when they are down to zero, and hiding the panel behind an empty balance
+        made card top-ups reachable only by the users least likely to be looking for them.
+      */}
+      {data && (isEmptyWallet(data) || addFunds) && <FundWallet />}
+      {data && !isEmptyWallet(data) && !addFunds && (
+        <button type="button" onClick={() => setAddFunds(true)} className="self-start inline-flex items-center gap-1.5 h-9 px-3 rounded-[6px] border border-line text-[13px] font-medium text-ink-secondary hover:text-ink hover:border-line-strong transition-fast">
+          <Wallet size={14} strokeWidth={1.75} /> Add funds
+        </button>
+      )}
 
       <div role="tablist" aria-label="Portfolio sections" className="grid grid-cols-4 p-1 rounded-[8px] bg-surface-muted">
         {TABS.map((t) => (
