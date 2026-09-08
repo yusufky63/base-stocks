@@ -9,8 +9,6 @@ import { qk, useRegion } from "@/hooks/queries";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/primitives";
 
-const DISMISSED = "bstocks:eligibility-dismissed";
-
 /**
  * The eligibility question, asked once on arrival rather than at the moment of a trade.
  *
@@ -28,17 +26,10 @@ export function EligibilityGate() {
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Read once, at first render. There is no sessionStorage on the server, so it starts closed
-  // there; that cannot mismatch visibly because `open` also needs the region query, which has not
-  // resolved on the first client render either.
-  const [dismissed, setDismissed] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      return sessionStorage.getItem(DISMISSED) === "1";
-    } catch {
-      return false;
-    }
-  });
+  // Not remembered across pages. The shell keys this component by pathname, so closing it clears
+  // the current page and the next one asks again: somebody being refused should be told on every
+  // page they land on, not once and then silently.
+  const [dismissed, setDismissed] = useState(false);
 
   const data = region.data;
   // `restricted` is the field that already accounts for the mode. Reading blockedCountry and the
@@ -47,14 +38,7 @@ export function EligibilityGate() {
   const open = !dismissed && !!data?.restricted;
   const attest = data?.mode === "attest";
 
-  const close = () => {
-    try {
-      sessionStorage.setItem(DISMISSED, "1");
-    } catch {
-      /* private mode: the gate simply asks again on the next page load */
-    }
-    setDismissed(true);
-  };
+  const close = () => setDismissed(true);
 
   const confirm = async () => {
     setBusy(true);

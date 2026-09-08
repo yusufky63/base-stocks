@@ -169,8 +169,9 @@ function AppFrame({ children }: { children: ReactNode }) {
 
       <Copilot />
 
-      {/* Asked on arrival, not at the Buy button. Skipped in the admin console, which trades nothing. */}
-      {!path.startsWith("/admin") && <EligibilityGate />}
+      {/* Asked on arrival, not at the Buy button, and keyed by path so every page asks again.
+          Skipped in the admin console, which trades nothing. */}
+      {!path.startsWith("/admin") && <EligibilityGate key={path} />}
 
       <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:max(env(safe-area-inset-bottom),var(--miniapp-safe-bottom))]">
         <div className="grid grid-cols-6">
