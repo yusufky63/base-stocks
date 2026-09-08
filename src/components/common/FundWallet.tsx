@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Building2, Check, Copy, CreditCard, ExternalLink, Fuel, Globe, QrCode, Wallet, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, Building2, Check, ChevronDown, Copy, CreditCard, ExternalLink, Fuel, Globe, QrCode, Wallet, type LucideIcon } from "lucide-react";
 import { useAccount } from "wagmi";
 import QRCode from "qrcode";
 import { hasReown } from "@/config/wagmi";
@@ -16,6 +16,10 @@ import { cx } from "@/components/ui/primitives";
 interface Props {
   compact?: boolean;
   className?: string;
+  /** Render the header as a disclosure the reader can close again, rather than a fixed panel. */
+  collapsible?: boolean;
+  /** Only meaningful with `collapsible`: whether it starts open. */
+  defaultOpen?: boolean;
   /** Trade panel only: switch the payment token to ETH that is already on Base. */
   onPayWithEth?: () => void;
   /** Whether the wallet holds ETH on Base (makes the ETH tile the suggested path). */
@@ -39,11 +43,12 @@ interface Tile {
  * the wallet's own onramp providers; LI.FI from any chain; or a plain receive (address + QR) from
  * any wallet or exchange. Base Account can also draw from a Coinbase balance at confirmation.
  */
-export function FundWallet({ compact = false, className, onPayWithEth, ethAvailable = false }: Props) {
+export function FundWallet({ compact = false, className, onPayWithEth, ethAvailable = false, collapsible = false, defaultOpen = true }: Props) {
   const { address, connector } = useAccount();
   const { ensureSignedIn } = useAuth();
   const flags = useConfigFlags();
   const [receive, setReceive] = useState(false);
+  const [open, setOpen] = useState(!collapsible || defaultOpen);
   const [onrampBusy, setOnrampBusy] = useState(false);
   const [onrampError, setOnrampError] = useState<string | null>(null);
   if (!address) return null;
@@ -89,19 +94,32 @@ export function FundWallet({ compact = false, className, onPayWithEth, ethAvaila
   tiles.push({ id: "lifi", icon: Globe, title: "From another chain", body: "Bridge or swap from 20+ chains with LI.FI.", href: lifiUrlFor(address) });
   tiles.push({ id: "receive", icon: QrCode, title: "Receive", body: "Address and QR for any wallet or exchange.", onClick: () => setReceive((v) => !v), active: receive });
 
+  const header = (
+    <>
+      <span className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-[6px] bg-primary-soft text-primary">
+        <Wallet size={15} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block text-[13px] font-medium leading-tight">{compact ? "Add USDC to trade" : "Add funds"}</span>
+        <span className="block text-[12px] text-ink-secondary leading-snug mt-0.5">
+          {isBaseAccount ? "Base Account can pay from your Coinbase balance when you confirm a trade, so a top-up is optional." : "Trades settle in USDC on Base. Pick the path that already holds your money."}
+        </span>
+      </span>
+      {collapsible && <ChevronDown size={16} strokeWidth={1.75} className={cx("shrink-0 mt-0.5 text-ink-muted transition-transform", open && "rotate-180")} />}
+    </>
+  );
+
   return (
     <div className={cx("border border-line rounded-[8px] overflow-hidden bg-surface", className)}>
-      <div className="px-3 py-2.5 flex items-start gap-2.5">
-        <span className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-[6px] bg-primary-soft text-primary">
-          <Wallet size={15} strokeWidth={1.75} />
-        </span>
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium leading-tight">{compact ? "Add USDC to trade" : "Add funds to start trading"}</div>
-          <p className="text-[12px] text-ink-secondary leading-snug mt-0.5">
-            {isBaseAccount ? "Base Account can pay from your Coinbase balance when you confirm a trade, so a top-up is optional." : "Trades settle in USDC on Base. Pick the path that already holds your money."}
-          </p>
-        </div>
-      </div>
+      {collapsible ? (
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="w-full px-3 py-2.5 flex items-start gap-2.5 hover:bg-surface-muted/60 transition-fast">
+          {header}
+        </button>
+      ) : (
+        <div className="px-3 py-2.5 flex items-start gap-2.5">{header}</div>
+      )}
+      {open && (
+        <>
       <div className={cx("grid gap-px bg-line border-t border-line", compact ? "grid-cols-2" : "grid-cols-2 md:grid-cols-3")}>
         {tiles.map((t, i) => (
           <FundTile key={t.id} tile={t} compact={compact} className={i === tiles.length - 1 ? lastTileSpan(tiles.length, compact) : undefined} />
@@ -113,6 +131,8 @@ export function FundWallet({ compact = false, className, onPayWithEth, ethAvaila
         <p className="px-3 py-2 border-t border-line text-[11px] text-ink-muted flex items-center gap-1.5">
           <Check size={12} strokeWidth={2} className="text-positive-fg" /> Base Account connected: gas is sponsored and a Coinbase balance can fund the trade at confirmation.
         </p>
+      )}
+        </>
       )}
     </div>
   );
@@ -138,7 +158,12 @@ function FundTile({ tile, compact, className: extra }: { tile: Tile; compact: bo
       {!compact && <span className="block text-[11px] text-ink-secondary leading-snug">{tile.body}</span>}
     </>
   );
-  const className = cx("flex flex-col gap-1.5 p-3 text-left bg-canvas hover:bg-surface transition-fast min-h-[64px]", extra, tile.active && "bg-primary-soft/60", tile.highlight && "bg-primary-soft/40");
+  const className = cx(
+    "flex flex-col gap-1.5 p-3 text-left bg-canvas hover:bg-surface transition-fast min-h-[64px]",
+    extra,
+    tile.active && "bg-primary-soft",
+    tile.highlight && "bg-primary-soft ring-1 ring-inset ring-primary/25",
+  );
   if (tile.href) {
     return (
       <a href={tile.href} target="_blank" rel="noreferrer noopener" className={className} title={tile.body}>

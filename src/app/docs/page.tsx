@@ -19,6 +19,7 @@ import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
 import { IntegrationMark } from "@/components/common/IntegrationMark";
 import { LinkButton } from "@/components/ui/primitives";
 import { Dither } from "@/components/fx/lazy";
+import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
 
 export const metadata: Metadata = {
   title: "Technical docs",
@@ -199,6 +200,27 @@ function Marks({ items }: { items: Array<{ name: string; mark: string | null; co
 
 /* ------------------------------------------------------------------ page */
 
+/**
+ * The page's own text, indexed for search.
+ *
+ * The spec tables carry most of the answers, so each row becomes an entry under the section that
+ * renders it. The nav supplies a fallback entry per section, so a term that only appears in prose
+ * still lands somewhere sensible.
+ */
+const SPEC_SECTIONS: Array<[string, Array<[string, string]>]> = [
+  ["limit-orders", COW_SPEC],
+  ["copilot", COPILOT_SPEC],
+  ["api", API_SPEC],
+  ["gas", GAS_SPEC],
+  ["gifts", GIFT_SPEC],
+];
+
+const SEARCH_ENTRIES: DocEntry[] = [
+  ...NAV.map(([id, title]) => ({ id, title, body: title })),
+  ...SPEC_SECTIONS.flatMap(([id, rows]) => rows.map(([k, v]) => ({ id, title: k, body: v }))),
+  ...CONTRACTS.map((c) => ({ id: "contracts", title: c.label, body: `${c.note} ${c.address}` })),
+];
+
 export default function DocsPage() {
   return (
     <div className="flex flex-col gap-10">
@@ -227,6 +249,9 @@ export default function DocsPage() {
               </a>
             ))}
           </nav>
+          <div className="mt-5 max-w-[520px]">
+            <DocSearch entries={SEARCH_ENTRIES} placeholder="Search the docs: multiplier, slippage, paymaster…" />
+          </div>
         </div>
       </section>
 

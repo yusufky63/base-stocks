@@ -54,19 +54,21 @@ export function MarketDigestCard({ compact = false }: { compact?: boolean }) {
             <p className="text-[15px] font-medium leading-snug">{d.headline}</p>
             <p className="text-[14px] text-ink-secondary leading-relaxed">{d.summary}</p>
             {spotlight.length > 0 && (
-              <div className="border border-primary/40 bg-primary-soft/40 rounded-[8px] p-3 flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
+              <div className="border border-primary/30 bg-primary-soft rounded-[8px] overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-primary/20">
                   <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-primary">Base &amp; Coinbase</span>
-                  <Link href="/news?scope=ecosystem" className="text-[12px] text-primary font-medium">
-                    All ecosystem headlines →
+                  <Link href="/news?scope=ecosystem" className="text-[12px] text-primary font-medium whitespace-nowrap">
+                    All headlines →
                   </Link>
                 </div>
-                <ul className="flex flex-col gap-1.5">
+                <ul className="divide-y divide-primary/15">
                   {spotlight.slice(0, compact ? 3 : 5).map((s, i) => (
-                    <li key={`${i}-${s.note.slice(0, 24)}`} className="text-[13px] flex flex-col gap-0.5">
-                      <span className="text-ink">{s.note}</span>
+                    // Tickers ride at the end of the sentence they belong to rather than on a line of
+                    // their own: five headlines each with a stacked chip row read as ten items.
+                    <li key={`${i}-${s.note.slice(0, 24)}`} className="px-3 py-2 text-[13px] text-ink leading-snug">
+                      {s.note}
                       {s.tickers.length > 0 && (
-                        <span className="flex gap-2 flex-wrap">
+                        <span className="inline-flex gap-1.5 flex-wrap align-middle ml-1.5">
                           {s.tickers.map((t) => (
                             <Ticker key={t} t={t} addr={addressOf(t)} />
                           ))}
@@ -78,16 +80,21 @@ export function MarketDigestCard({ compact = false }: { compact?: boolean }) {
               </div>
             )}
             {!compact && d.bullets.length > 0 && (
-              <ul className="flex flex-col gap-1.5">
-                {d.bullets.map((b, i) => (
-                  <li key={`${b.ticker}-${i}`} className="text-[13px] flex gap-2">
-                    <span className="shrink-0 w-[52px]">
-                      <Ticker t={b.ticker} addr={addressOf(b.ticker)} />
-                    </span>
-                    <span className="text-ink-secondary">{b.note}</span>
-                  </li>
-                ))}
-              </ul>
+              // Eight one-line rundowns stacked in a single column ran the card down the page. Two
+              // columns from md up halve the height and let the eye scan tickers rather than read.
+              <div className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Per stock</span>
+                <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-1.5">
+                  {d.bullets.map((b, i) => (
+                    <li key={`${b.ticker}-${i}`} className="text-[13px] leading-snug">
+                      <span className="mr-1.5 align-middle">
+                        <Ticker t={b.ticker} addr={addressOf(b.ticker)} />
+                      </span>
+                      <span className="text-ink-secondary">{b.note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {!compact && themes.length > 0 && (
               <div className="flex items-center gap-1.5 flex-wrap">

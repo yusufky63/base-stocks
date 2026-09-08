@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
-import { Wallet } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import type { PortfolioTemplate } from "@/domain/portfolio";
@@ -12,7 +11,7 @@ import { maxDriftBps } from "@/lib/portfolio/drift";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar, ColorDot } from "@/components/common/AllocationBar";
 import { assetColor } from "@/lib/colors";
-import { Module, ModuleHeader, Skeleton, Stat, Button, LinkButton, PageTitle, cx } from "@/components/ui/primitives";
+import { Module, ModuleHeader, Skeleton, Stat, LinkButton, PageTitle, cx } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ConnectButton } from "@/components/layout/ConnectButton";
@@ -71,7 +70,6 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
     [router, pathname, search],
   );
   const [templateId, setTemplateId] = useState<string>("");
-  const [addFunds, setAddFunds] = useState(false);
 
   const savedTarget = useTargetAllocation();
   const driftBps = useMemo(() => (data ? maxDriftBps(data, savedTarget.allocations) : null), [data, savedTarget.allocations]);
@@ -153,12 +151,8 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
         thing people do when they are down to zero, and hiding the panel behind an empty balance
         made card top-ups reachable only by the users least likely to be looking for them.
       */}
-      {data && (isEmptyWallet(data) || addFunds) && <FundWallet />}
-      {data && !isEmptyWallet(data) && !addFunds && (
-        <Button variant="primary" className="self-start" onClick={() => setAddFunds(true)}>
-          <Wallet size={15} strokeWidth={1.75} /> Add funds
-        </Button>
-      )}
+      {/* Always reachable, opened for a wallet with nothing in it and closed for one that has something. */}
+      {data && <FundWallet collapsible defaultOpen={isEmptyWallet(data)} />}
 
       <div role="tablist" aria-label="Portfolio sections" className="grid grid-cols-4 p-1 rounded-[8px] bg-surface-muted">
         {TABS.map((t) => (

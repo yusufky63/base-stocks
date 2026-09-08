@@ -5,6 +5,7 @@ import { LinkButton } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
 import { IntegrationsSection } from "@/components/common/Integrations";
 import { Dither } from "@/components/fx/lazy";
+import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
 
 export const metadata: Metadata = { title: "How it works" };
 
@@ -80,6 +81,18 @@ const FAQ: Array<{ q: string; a: string }> = [
   { q: "What happens on a dividend or split?", a: "The issuer updates the token's multiplier onchain and the reference feed may freeze during the action. BaseStocks shows scheduled multiplier changes ahead of time and keeps showing share-equivalents, so your position reads correctly before and after." },
 ];
 
+/** A stable anchor per question, so a search hit can land on the one that answers it. */
+function faqId(q: string): string {
+  return `q-${q.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48)}`;
+}
+
+/** Everything on this page a reader might search for, indexed from the arrays that render it. */
+const SEARCH_ENTRIES: DocEntry[] = [
+  ...FEATURES.map((f) => ({ id: "features", title: f.title, body: f.body })),
+  ...STEPS.map((st) => ({ id: "steps", title: st.title, body: `${st.body} ${st.detail ?? ""}` })),
+  ...FAQ.map((f) => ({ id: faqId(f.q), title: f.q, body: f.a })),
+];
+
 export default function HowItWorksPage() {
   return (
     <div className="flex flex-col gap-8">
@@ -106,7 +119,7 @@ export default function HowItWorksPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section id="features" className="flex flex-col gap-3 scroll-mt-24">
         <div className="eyebrow">What you can do here</div>
         <div className="module-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ticks">
           {FEATURES.map(({ icon: Icon, title, body, href }) => (
@@ -119,7 +132,7 @@ export default function HowItWorksPage() {
         </div>
       </section>
 
-      <div className="module-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+      <div id="steps" className="module-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 scroll-mt-24">
         {STEPS.map((s) => (
           <article key={s.n} className="p-5 md:p-6 flex flex-col gap-3 min-h-[240px]">
             <div className="display num text-[40px] text-primary leading-none">{s.n}</div>
@@ -158,9 +171,10 @@ export default function HowItWorksPage() {
 
       <section id="faq" className="flex flex-col gap-3 scroll-mt-24">
         <div className="eyebrow">Questions &amp; answers</div>
+        <DocSearch entries={SEARCH_ENTRIES} placeholder="Search this page: fees, gas, eligibility, gifts…" />
         <div className="border border-line rounded-[8px] bg-canvas divide-y divide-line">
           {FAQ.map((f) => (
-            <details key={f.q} className="group px-4 md:px-5">
+            <details key={f.q} id={faqId(f.q)} className="group px-4 md:px-5 scroll-mt-24">
               <summary className="cursor-pointer select-none py-3.5 text-[15px] font-medium list-none flex items-center justify-between gap-3">
                 {f.q}
                 <span aria-hidden className="font-mono text-ink-muted group-open:rotate-45 transition-transform">+</span>
