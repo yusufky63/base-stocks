@@ -7,13 +7,20 @@ import { NextResponse, type NextRequest } from "next/server";
  *    persons outside the United States, and 0x's tokenized-equities opt-in makes the integrator
  *    responsible for geoblocking. Browsing, prices and news stay open everywhere. The country comes
  *    from the hosting provider's header; when no header is present nothing is blocked (no guessing).
- *    GEOBLOCK_MODE=attest (default) lets a visitor from a blocked country self-certify eligibility
- *    (cookie set by POST /api/region, 30 days); GEOBLOCK_MODE=block is the hard version.
+ *    GEOBLOCK_MODE=block (default) refuses outright; GEOBLOCK_MODE=attest is the softer version,
+ *    where a visitor self-certifies eligibility (cookie set by POST /api/region, 30 days).
  */
 export const ELIGIBILITY_COOKIE = "bstocks_eligibility";
 
+/**
+ * `block` is the default, and `attest` has to be asked for.
+ *
+ * Self-certification is a real mechanism, but it means a visitor from a blocked country can tick a
+ * box and trade, which is enabling trading for those users however the box is worded. The safe
+ * reading has to be the one you get by configuring nothing.
+ */
 function geoblockMode(): "block" | "attest" {
-  return process.env.GEOBLOCK_MODE === "block" ? "block" : "attest";
+  return process.env.GEOBLOCK_MODE === "attest" ? "attest" : "block";
 }
 /** Closed to a blocked region whatever the method: these routes exist only to build an execution. */
 const RESTRICTED_API = [/^\/api\/trade\//, /^\/api\/earn\/prepare/, /^\/api\/portfolio\/(plan|quote|execute)/];
@@ -50,9 +57,9 @@ export function proxy(req: NextRequest) {
         const mode = geoblockMode();
         const attested = mode === "attest" && req.cookies.get(ELIGIBILITY_COOKIE)?.value === "confirmed";
         if (!attested) {
-          // In `attest` — the default, and the mode this deployment runs — a blocked region is not
-          // banned, it is asked. The wording has to say that, or a 451 that a checkbox clears reads
-          // like a wall. `block` is the only mode where there is genuinely nothing to do.
+          // In `attest` a blocked region is not banned, it is asked, and the wording has to say so
+          // or a 451 that a checkbox clears reads like a wall. In `block`, the default, there is
+          // genuinely nothing the visitor can do.
           const message =
             mode === "attest"
               ? "Confirm your eligibility to continue. Coinbase Tokenized Stocks are offered only to eligible persons outside the United States."

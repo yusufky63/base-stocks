@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertTradingAllowed } from "@/lib/geo";
 import { route, json, parseBody, addressSchema } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { getAssets } from "@/services/b20-asset-service";
@@ -113,6 +114,7 @@ ${universe}`;
 }
 
 export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, windowMs: 60_000 } }, async (req) => {
+  assertTradingAllowed(req);
   const cfg = aiConfigFromEnv();
   if (!cfg) throw new AppError("PROVIDER_UNAVAILABLE", "AI assistance is not enabled on this deployment.", 503);
   const body = await parseBody(req, bodySchema);

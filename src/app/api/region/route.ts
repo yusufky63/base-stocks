@@ -1,23 +1,12 @@
 import { z } from "zod";
 import { route, json, parseBody } from "@/lib/api";
-import { serverEnv } from "@/config/env";
-import { requestCountry } from "@/lib/geo";
+import { regionState } from "@/lib/geo";
 
 const COOKIE = "bstocks_eligibility";
 const THIRTY_DAYS = 30 * 24 * 3600;
 
-function describe(req: Request) {
-  const country = requestCountry(req) ?? "";
-  const env = serverEnv();
-  const blocked = (env.GEOBLOCK_COUNTRIES ?? "US")
-    .split(",")
-    .map((c) => c.trim().toUpperCase())
-    .filter(Boolean);
-  const mode: "block" | "attest" = env.GEOBLOCK_MODE === "block" ? "block" : "attest";
-  const attested = /(?:^|;\s*)bstocks_eligibility=confirmed(?:;|$)/.test(req.headers.get("cookie") ?? "");
-  const blockedCountry = !!country && blocked.includes(country);
-  return { country: country || null, blocked, mode, blockedCountry, attested, restricted: blockedCountry && !(mode === "attest" && attested) };
-}
+/** One definition of the rule, shared with the routes that enforce it. */
+const describe = regionState;
 
 /**
  * The visitor's region as the hosting provider reports it and whether execution routes are blocked

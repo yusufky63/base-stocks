@@ -8,6 +8,8 @@ export type AppErrorCode =
   | "RATE_LIMITED"
   | "UNAUTHORIZED"
   | "INTERNAL"
+  /** The issuer does not offer these assets where the request came from. */
+  | "REGION_BLOCKED"
   // Gift pools
   | "POOL_UNAVAILABLE"
   | "POOL_CLOSED"

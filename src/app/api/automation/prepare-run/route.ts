@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertTradingAllowed } from "@/lib/geo";
 import { route, json, parseBody } from "@/lib/api";
 import { requireSession } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
@@ -18,6 +19,7 @@ const bodySchema = z.object({ id: z.string().min(4) });
  * when no keeper is configured, or when they simply do not want to wait for the next tick.
  */
 export const POST = route({ rateLimit: { key: "automation.prepare", limit: 20, windowMs: 60_000 } }, async (req) => {
+  assertTradingAllowed(req);
   const owner = requireSession(req);
   if (!isAutoInvestDeployed()) throw new AppError("BAD_REQUEST", "Auto-invest is not enabled on this deployment.", 400);
   const { id } = await parseBody(req, bodySchema);

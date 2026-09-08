@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { route, json, parseBody, addressSchema, bigintStringSchema } from "@/lib/api";
 import { tradeRouter } from "@/services/trade-router";
-import { requestCountry } from "@/lib/geo";
+import { requestCountry, assertTradingAllowed } from "@/lib/geo";
 
 /** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
 export const maxDuration = 60;
@@ -25,6 +25,7 @@ const bodySchema = z.object({
 
 /** Firm executable quote. Short-lived; never long-cached. */
 export const POST = route({ rateLimit: { key: "trade.quote", limit: 40, windowMs: 60_000 } }, async (req) => {
+  assertTradingAllowed(req);
   const body = await parseBody(req, bodySchema);
   const quote = await tradeRouter.quote({ ...body, noZeroX: requestCountry(req) === "US" });
   return json(quote);

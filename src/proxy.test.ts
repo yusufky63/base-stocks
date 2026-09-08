@@ -54,20 +54,35 @@ describe("compliance geoblock", () => {
    * The default mode asks, it does not ban. A 451 a checkbox clears must not be worded like a wall,
    * or the copy tells a visitor the opposite of what the product does.
    */
-  it("asks rather than refuses while the mode is attest", async () => {
+  it("refuses outright by default, with no box to tick", async () => {
     const res = proxy(request("/api/pools", { ...US, method: "POST" }));
     expect(res.status).toBe(451);
     const body = (await res.json()) as { error: { code: string; message: string; details: { mode: string } } };
     expect(body.error.code).toBe("REGION_RESTRICTED");
-    expect(body.error.details.mode).toBe("attest");
-    expect(body.error.message).toMatch(/confirm your eligibility/i);
-    expect(body.error.message).not.toMatch(/not available/i);
+    expect(body.error.details.mode).toBe("block");
+    expect(body.error.message).toMatch(/not available in your region/i);
   });
 
-  it("opens once the visitor has confirmed eligibility", () => {
-    expect(blocked("/api/pools", { ...US, method: "POST", attested: true })).toBe(false);
-    expect(blocked("/api/gifts", { ...US, method: "POST", attested: true })).toBe(false);
-    expect(blocked("/api/trade/quote", { ...US, method: "POST", attested: true })).toBe(false);
+  it("does not open on an attestation cookie while the mode is block", () => {
+    // Self-certification is a real mechanism, but it has to be asked for: a checkbox that unlocks
+    // trading for a blocked region is enabling trading for that region, however it is worded.
+    expect(blocked("/api/pools", { ...US, method: "POST", attested: true })).toBe(true);
+    expect(blocked("/api/trade/quote", { ...US, method: "POST", attested: true })).toBe(true);
+  });
+
+  it("opens on an attestation only where the deployment asked for attest mode", async () => {
+    const prev = process.env.GEOBLOCK_MODE;
+    process.env.GEOBLOCK_MODE = "attest";
+    try {
+      expect(blocked("/api/trade/quote", { ...US, method: "POST", attested: true })).toBe(false);
+      const res = proxy(request("/api/pools", { ...US, method: "POST" }));
+      const body = (await res.json()) as { error: { message: string; details: { mode: string } } };
+      expect(body.error.details.mode).toBe("attest");
+      expect(body.error.message).toMatch(/confirm your eligibility/i);
+    } finally {
+      if (prev === undefined) delete process.env.GEOBLOCK_MODE;
+      else process.env.GEOBLOCK_MODE = prev;
+    }
   });
 
   it("never blocks a region that is not on the list", () => {
