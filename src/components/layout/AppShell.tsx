@@ -15,6 +15,7 @@ import { TopTicker } from "./TopTicker";
 import { IntegrationsStrip } from "@/components/common/Integrations";
 import { CopilotProvider } from "@/components/assistant/CopilotProvider";
 import { Copilot } from "@/components/assistant/CopilotPanel";
+import { EligibilityGate } from "@/components/common/EligibilityGate";
 
 const X_URL = BSTOCKS_X_URL;
 
@@ -167,6 +168,9 @@ function AppFrame({ children }: { children: ReactNode }) {
       </footer>
 
       <Copilot />
+
+      {/* Asked on arrival, not at the Buy button. Skipped in the admin console, which trades nothing. */}
+      {!path.startsWith("/admin") && <EligibilityGate />}
 
       <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:max(env(safe-area-inset-bottom),var(--miniapp-safe-bottom))]">
         <div className="grid grid-cols-6">
