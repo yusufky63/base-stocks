@@ -63,6 +63,21 @@ async function withTimes(rows: IndexedTransfer[]): Promise<IndexedTransfer[]> {
  */
 const MIN_CHUNK = 1_000n;
 
+/**
+ * How wide one sweep request is, and how long the whole sweep may take.
+ *
+ * The sweep used to read its whole allowance in a single `eth_getLogs`, so there was nothing to
+ * interrupt: as the stocks got busier that one call outgrew the function's 60 s and the job started
+ * answering 504 with the cursor unmoved, forever. Small chunks give the loop somewhere to stop, and
+ * a budget that ends the run cleanly turns "too much to do" into partial progress rather than a
+ * failure. Whatever is left is picked up fifteen minutes later, and `more` says so.
+ *
+ * 1,000 blocks is also the widest range CDP's node serves, so this width never triggers the
+ * halving fallback either.
+ */
+const SWEEP_CHUNK = 1_000n;
+const SWEEP_BUDGET_MS = 35_000;
+
 function isRangeLimit(err: unknown): boolean {
   const m = err instanceof Error ? err.message : String(err);
   return /limited to|block range|range is too large|exceed|too many blocks|up to \d+ blocks/i.test(m);
@@ -168,8 +183,15 @@ export async function sweepTransfers(opts: { maxBlocks?: bigint } = {}): Promise
   const kept: IndexedTransfer[] = [];
   let found = 0;
   let covered = from - 1n;
-  for (let start = from; start <= to; start += CHUNK + 1n) {
-    const end = start + CHUNK > to ? to : start + CHUNK;
+  const startedAt = Date.now();
+  for (let start = from; start <= to; start += SWEEP_CHUNK + 1n) {
+    // Checked before the call, never during: an in-flight request cannot be interrupted, which is
+    // why the chunk has to be small enough that one of them always fits in what is left.
+    if (Date.now() - startedAt > SWEEP_BUDGET_MS) {
+      metrics.count("index.sweep.budget", true, `stopped at ${covered}`);
+      break;
+    }
+    const end = start + SWEEP_CHUNK > to ? to : start + SWEEP_CHUNK;
     let logs;
     try {
       logs = await getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: a, toBlock: b }));
