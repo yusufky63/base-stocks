@@ -29,6 +29,9 @@ export const GET = route({}, async () => {
       poolQuestsEnabled: isGateSignerConfigured(),
       /** AutoInvest: plans that run without the owner present. `keeperConfigured` false means owners run due plans themselves. */
       autoInvest: { enabled: isAutoInvestDeployed(), address: isAutoInvestDeployed() ? AUTO_INVEST_ADDRESS : null, keeperConfigured: isKeeperConfigured(), keeper: keeperAddress() },
+      // Card top-ups need the CDP credentials the x402 facilitator already uses; without them the
+      // tile would open a route that can only answer 503.
+      onramp: !!process.env.CDP_API_KEY_ID?.trim() && !!process.env.CDP_API_KEY_SECRET?.trim(),
       storage: getRepos().backend,
       minTradeUsd: MIN_TRADE_USD,
       defaultSlippageBps: DEFAULT_SLIPPAGE_BPS,

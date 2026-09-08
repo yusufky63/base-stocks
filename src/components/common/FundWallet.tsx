@@ -5,6 +5,9 @@ import { ArrowUpRight, Building2, Check, Copy, CreditCard, ExternalLink, Fuel, G
 import { useAccount } from "wagmi";
 import QRCode from "qrcode";
 import { hasReown } from "@/config/wagmi";
+import { useConfigFlags } from "@/hooks/queries";
+import { useAuth } from "@/hooks/useAuth";
+import { apiPost, ApiError } from "@/lib/client-api";
 import { getAppKit } from "@/config/appkit";
 import { USDC_ADDRESS } from "@/config/chain";
 import { shortenAddress } from "@/lib/format";
@@ -38,7 +41,11 @@ interface Tile {
  */
 export function FundWallet({ compact = false, className, onPayWithEth, ethAvailable = false }: Props) {
   const { address, connector } = useAccount();
+  const { ensureSignedIn } = useAuth();
+  const flags = useConfigFlags();
   const [receive, setReceive] = useState(false);
+  const [onrampBusy, setOnrampBusy] = useState(false);
+  const [onrampError, setOnrampError] = useState<string | null>(null);
   if (!address) return null;
   const isBaseAccount = connector?.id === "baseAccount";
   const openAppKitOnramp = () => {
@@ -46,10 +53,39 @@ export function FundWallet({ compact = false, className, onPayWithEth, ethAvaila
     if (kit) void kit.open({ view: "OnRampProviders" });
   };
 
+  /**
+   * Coinbase Onramp. The session token is minted server-side for the signed-in wallet and expires
+   * in five minutes, so the window is opened on the click that asked for it rather than from a
+   * link prepared earlier.
+   */
+  const openCoinbaseOnramp = async () => {
+    setOnrampBusy(true);
+    setOnrampError(null);
+    try {
+      await ensureSignedIn();
+      const { url } = await apiPost<{ url: string }>("/api/onramp/session", {});
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setOnrampError(err instanceof ApiError ? err.message : "Could not start a top-up right now. Try again.");
+    } finally {
+      setOnrampBusy(false);
+    }
+  };
+
   const tiles: Tile[] = [];
   if (onPayWithEth) tiles.push({ id: "eth", icon: Fuel, title: ethAvailable ? "Pay with ETH instead" : "Pay with ETH", body: ethAvailable ? "You already hold ETH on Base. No bridge, no top-up." : "ETH already on Base needs no bridge.", onClick: onPayWithEth, highlight: ethAvailable });
   tiles.push({ id: "coinbase", icon: Building2, title: "From Coinbase", body: "Withdraw USDC on the Base network to this wallet.", onClick: () => setReceive(true), active: receive });
-  if (hasReown) tiles.push({ id: "card", icon: CreditCard, title: "Card or bank", body: "Onramp providers inside your wallet.", onClick: openAppKitOnramp });
+  if (flags.data?.onramp) {
+    tiles.push({
+      id: "onramp",
+      icon: CreditCard,
+      title: onrampBusy ? "Opening Coinbase…" : "Card or Apple Pay",
+      body: "Buy USDC with Coinbase. It lands in this wallet on Base.",
+      onClick: () => void openCoinbaseOnramp(),
+    });
+  } else if (hasReown) {
+    tiles.push({ id: "card", icon: CreditCard, title: "Card or bank", body: "Onramp providers inside your wallet.", onClick: openAppKitOnramp });
+  }
   tiles.push({ id: "lifi", icon: Globe, title: "From another chain", body: "Bridge or swap from 20+ chains with LI.FI.", href: lifiUrlFor(address) });
   tiles.push({ id: "receive", icon: QrCode, title: "Receive", body: "Address and QR for any wallet or exchange.", onClick: () => setReceive((v) => !v), active: receive });
 
@@ -71,6 +107,7 @@ export function FundWallet({ compact = false, className, onPayWithEth, ethAvaila
           <FundTile key={t.id} tile={t} compact={compact} className={i === tiles.length - 1 ? lastTileSpan(tiles.length, compact) : undefined} />
         ))}
       </div>
+      {onrampError && <p className="px-3 py-2 border-t border-line text-[12px] text-danger-fg">{onrampError}</p>}
       {receive && <ReceivePanel address={address} onClose={() => setReceive(false)} />}
       {isBaseAccount && (
         <p className="px-3 py-2 border-t border-line text-[11px] text-ink-muted flex items-center gap-1.5">

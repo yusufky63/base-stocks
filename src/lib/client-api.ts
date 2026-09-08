@@ -61,6 +61,8 @@ export interface ConfigResponse {
   poolQuestsEnabled?: boolean;
   /** AutoInvest contract + keeper availability. */
   autoInvest?: AutoInvestConfig;
+  /** Card and Apple Pay top-ups through Coinbase Onramp, when CDP credentials are configured. */
+  onramp: boolean;
   storage: "memory" | "supabase";
   minTradeUsd: number;
   defaultSlippageBps: number;
