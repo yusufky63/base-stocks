@@ -63,14 +63,16 @@ export const INTEGRATIONS: IntegrationGroup[] = [
   {
     id: "base",
     title: "Built on Base",
-    blurb: "Base-native pieces that make the app feel simple: passkey accounts, names, attribution, fast confirmations.",
+    blurb: "Base-native pieces that make the app feel simple: passkey accounts, sponsored gas, names, attribution, fast confirmations, and payments an agent can make on its own.",
     items: [
       { name: "Coinbase Tokenized Stocks", mark: null, color: "#0052ff", url: "https://www.base.org/stocks", role: "B20 assets, registry, oracles" },
-      { name: "StockPair", mark: null, color: "#0370fd", url: LAUNCHPAD_URL, role: "Stock-paired token launchpad · part of BaseStocks" },
-      { name: "Base Account", mark: null, color: "#0000ff", url: "https://docs.base.org/sdks/base-account/overview", role: "Passkey wallet, atomic batches, sponsored gas" },
+      { name: "BaseStocks Launchpad", mark: null, color: "#0370fd", url: LAUNCHPAD_URL, role: "Tokens priced in a stock, not ETH" },
+      { name: "Base Account", mark: null, color: "#0000ff", url: "https://docs.base.org/sdks/base-account/overview", role: "Passkey wallet, atomic batches" },
+      { name: "CDP Paymaster", mark: null, color: "#0052ff", url: "https://docs.base.org/sdks/base-account/improve-ux/sponsor-gas", role: "Sponsored gas: trade, earn and claim with zero ETH" },
       { name: "Basenames", mark: null, color: "#0000ff", url: "https://www.base.org/names", role: "Send to alice.base.eth" },
       { name: "Builder Codes", mark: null, color: "#0000ff", url: "https://docs.base.org/specifications/builder-codes/for-app-developers", role: "ERC-8021 attribution on every transaction" },
       { name: "Flashblocks", mark: null, color: "#0000ff", url: "https://docs.base.org/specifications/flashblocks", role: "Preconfirmed status in ~200 ms" },
+      { name: "x402", mark: null, color: "#0052ff", url: "https://docs.base.org/build-on-base/accept-payments/charge-for-an-api", role: "Pay-per-call on the public API, settled in USDC" },
       { name: "Reown AppKit", mark: null, color: "#008847", url: "https://reown.com", role: "Wallet modal, MetaMask, Rabby, WalletConnect" },
     ],
   },
@@ -79,6 +81,7 @@ export const INTEGRATIONS: IntegrationGroup[] = [
     title: "Funding",
     blurb: "Ways to get USDC onto Base without leaving the app.",
     items: [
+      { name: "Coinbase Onramp", mark: null, color: "#0052ff", url: "https://www.coinbase.com/developer-platform/products/onramp", role: "Card, Apple Pay or Google Pay straight into your wallet" },
       { name: "LI.FI", mark: "li.fi", color: "#5c67ff", url: "https://li.fi", role: "Bridge from 20+ chains" },
       { name: "Coinbase", mark: null, color: "#0052ff", url: "https://www.coinbase.com", role: "Withdraw USDC on Base to your address" },
     ],

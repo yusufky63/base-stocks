@@ -65,7 +65,7 @@ export function LaunchpadModule({ stockAddress, underlying }: { stockAddress: st
           </li>
         ))}
       </ul>
-      <p className="mt-1 text-[11px] text-ink-muted leading-relaxed">Community tokens paired 1:1 with {underlying} on {LAUNCHPAD_NAME}, the BaseStocks launchpad. Separate product, separate risks.</p>
+      <p className="mt-1 text-[11px] text-ink-muted leading-relaxed">Community tokens paired 1:1 with {underlying} on the {LAUNCHPAD_NAME}. Separate product, separate risks.</p>
     </div>
   );
 }

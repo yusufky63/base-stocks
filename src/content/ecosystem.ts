@@ -4,7 +4,12 @@
  * exists for previews pointing at a launchpad preview deployment.
  */
 export const LAUNCHPAD_URL = process.env.NEXT_PUBLIC_LAUNCHPAD_URL ?? "https://launchpad.basestocks.finance";
-export const LAUNCHPAD_NAME = "StockPair";
+/**
+ * What the launchpad calls itself. It ships under the BaseStocks wordmark with a LAUNCHPAD eyebrow
+ * and titles its own pages "BaseStocks Launchpad", so calling it anything else here sends a reader
+ * looking for a name that appears nowhere once they arrive.
+ */
+export const LAUNCHPAD_NAME = "BaseStocks Launchpad";
 
 export function launchpadTokenUrl(token: string): string {
   return `${LAUNCHPAD_URL}/token/${token}`;
