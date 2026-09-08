@@ -22,7 +22,7 @@ import { Dither } from "@/components/fx/lazy";
 
 export const metadata: Metadata = {
   title: "Technical docs",
-  description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, the Copilot assistant, the public read-only API and the contract addresses it talks to.",
+  description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, gas sponsorship and card funding, the Copilot assistant, the public read-only API and the contract addresses it talks to.",
 };
 
 /* ------------------------------------------------------------------ data */
@@ -35,7 +35,7 @@ const NAV = [
   ["limit-orders", "Limit orders"],
   ["earn", "Liquidity math"],
   ["gifts", "Gift escrow"],
-  ["gas", "Gas & sponsorship"],
+  ["gas", "Gas & funding"],
   ["copilot", "Copilot"],
   ["api", "Public API"],
   ["privacy", "Data & privacy"],
@@ -103,6 +103,10 @@ const GAS_SPEC: Array<[string, string]> = [
   ["CoW limit orders", "Placing and (off-chain) cancelling cost no gas at all \u2014 the winning solver pays the settlement gas; only the one-time approval is a transaction"],
   ["Gift claims", "claim() is allowlisted on the paymaster, so recipients with empty wallets claim for free; the function is also permissionless \u2014 anyone holding the recipient's EIP-712 signature can pay the gas instead"],
   ["Sponsorship limits", "Paymaster budgets and policies live on Coinbase Developer Platform; if a sponsorship is declined the wallet simply asks the user to pay, nothing breaks"],
+  [
+    "Funding the wallet",
+    "Coinbase Onramp buys USDC with a card, Apple Pay or Google Pay and sends it straight to the user's own address on Base. The session token is minted server-side for the signed-in wallet only, is single-use and expires in five minutes, so a caller cannot fund an address they do not control. Nothing is custodied: the app supplies an address and nothing else",
+  ],
 ];
 
 const GIFT_SPEC: Array<[string, string]> = [
@@ -321,7 +325,7 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={8} id="gas" title="Gas and sponsorship" sub="who pays for what" />
+        <SectionHead n={8} id="gas" title="Gas and funding" sub="who pays for what" />
         <SpecRows rows={GAS_SPEC} />
       </section>
 

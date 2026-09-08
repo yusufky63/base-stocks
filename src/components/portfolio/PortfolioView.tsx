@@ -12,7 +12,7 @@ import { maxDriftBps } from "@/lib/portfolio/drift";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar, ColorDot } from "@/components/common/AllocationBar";
 import { assetColor } from "@/lib/colors";
-import { Module, ModuleHeader, Skeleton, Stat, LinkButton, PageTitle, cx } from "@/components/ui/primitives";
+import { Module, ModuleHeader, Skeleton, Stat, Button, LinkButton, PageTitle, cx } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { ConnectButton } from "@/components/layout/ConnectButton";
@@ -155,9 +155,9 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
       */}
       {data && (isEmptyWallet(data) || addFunds) && <FundWallet />}
       {data && !isEmptyWallet(data) && !addFunds && (
-        <button type="button" onClick={() => setAddFunds(true)} className="self-start inline-flex items-center gap-1.5 h-9 px-3 rounded-[6px] border border-line text-[13px] font-medium text-ink-secondary hover:text-ink hover:border-line-strong transition-fast">
-          <Wallet size={14} strokeWidth={1.75} /> Add funds
-        </button>
+        <Button variant="primary" className="self-start" onClick={() => setAddFunds(true)}>
+          <Wallet size={15} strokeWidth={1.75} /> Add funds
+        </Button>
       )}
 
       <div role="tablist" aria-label="Portfolio sections" className="grid grid-cols-4 p-1 rounded-[8px] bg-surface-muted">
