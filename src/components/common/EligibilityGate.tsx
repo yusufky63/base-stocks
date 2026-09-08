@@ -41,7 +41,10 @@ export function EligibilityGate() {
   });
 
   const data = region.data;
-  const open = !dismissed && !!data?.blockedCountry && !data.attested;
+  // `restricted` is the field that already accounts for the mode. Reading blockedCountry and the
+  // cookie separately meant a visitor carrying an attestation from before the switch to block mode
+  // saw no modal at all while every execution route still refused them: blocked, and never told why.
+  const open = !dismissed && !!data?.restricted;
   const attest = data?.mode === "attest";
 
   const close = () => {
