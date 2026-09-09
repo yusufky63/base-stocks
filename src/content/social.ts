@@ -1,5 +1,5 @@
 /** BaseStocks on X. One constant so the footer, the share sheet and the pool quests never drift apart. */
-export const BSTOCKS_X_HANDLE = "BaseOnStocks";
+export const BSTOCKS_X_HANDLE = "xBaseStocks";
 export const BSTOCKS_X_URL = `https://x.com/${BSTOCKS_X_HANDLE}`;
 
 /** Strips a leading @ and anything that is not a legal X handle character. */

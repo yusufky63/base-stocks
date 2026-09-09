@@ -137,9 +137,9 @@ function AppFrame({ children }: { children: ReactNode }) {
                 </Link>
               ))}
             </nav>
-            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BaseStocks on X" title="@BaseOnStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
+            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BaseStocks on X" title="@xBaseStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
               <XLogo />
-              <span className="font-mono text-[12px]">@BaseOnStocks</span>
+              <span className="font-mono text-[12px]">@xBaseStocks</span>
             </a>
           </div>
           <IntegrationsStrip />
