@@ -8,7 +8,7 @@ test.describe("anonymous smoke", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Stocks,");
     await expect(page.getByRole("banner").getByRole("link", { name: "Gifts" })).toBeVisible();
     await expect(page.locator("footer svg.footer-wordmark")).toBeAttached();
-    await expect(page.locator("footer").getByText("@xBaseStocks")).toBeVisible();
+    await expect(page.locator("footer").getByText("@codexsha")).toBeVisible();
   });
 
   test("markets lists live stocks with prices", async ({ page }) => {

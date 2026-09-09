@@ -9,7 +9,7 @@ import { useTheme } from "./ThemeProvider";
 import { cx } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
 import { Wordmark, XMark } from "@/components/brand/Logo";
-import { BSTOCKS_X_URL } from "@/content/social";
+import { BSTOCKS_X_HANDLE, BSTOCKS_X_URL } from "@/content/social";
 import { LAUNCHPAD_URL } from "@/content/ecosystem";
 import { TopTicker } from "./TopTicker";
 import { IntegrationsStrip } from "@/components/common/Integrations";
@@ -137,9 +137,9 @@ function AppFrame({ children }: { children: ReactNode }) {
                 </Link>
               ))}
             </nav>
-            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="BaseStocks on X" title="@xBaseStocks on X" className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
+            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label={`@${BSTOCKS_X_HANDLE} on X`} title={`@${BSTOCKS_X_HANDLE} on X`} className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
               <XLogo />
-              <span className="font-mono text-[12px]">@xBaseStocks</span>
+              <span className="font-mono text-[12px]">@{BSTOCKS_X_HANDLE}</span>
             </a>
           </div>
           <IntegrationsStrip />

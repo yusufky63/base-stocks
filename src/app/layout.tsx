@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     title: "BaseStocks — Stocks, built for onchain",
     description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   },
-  twitter: { card: "summary_large_image", site: "@xBaseStocks", creator: "@xBaseStocks" },
+  twitter: { card: "summary_large_image", creator: "@codexsha" },
   robots: { index: true, follow: true },
   // Icons come from the app/ file conventions (favicon.ico, icon.svg, apple-icon.tsx), which
   // override anything listed here: the blue tile with the white ascending blocks.
@@ -47,7 +47,7 @@ const jsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@graph": [
     { "@type": "WebSite", name: "BaseStocks", url: APP_URL, description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put supported assets to work on Base." },
-    { "@type": "Organization", name: "BaseStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png`, sameAs: ["https://x.com/xBaseStocks"] },
+    { "@type": "Organization", name: "BaseStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png` },
   ],
 });
 

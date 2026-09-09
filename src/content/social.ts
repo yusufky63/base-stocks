@@ -1,5 +1,9 @@
-/** BaseStocks on X. One constant so the footer, the share sheet and the pool quests never drift apart. */
-export const BSTOCKS_X_HANDLE = "xBaseStocks";
+/**
+ * The X account BaseStocks points people at. This is the builder's own profile, not a brand
+ * account: the two brand accounts were suspended, and a live personal account is worth more than
+ * a dead branded one. One constant so the footer, the share sheet and the pool quests agree.
+ */
+export const BSTOCKS_X_HANDLE = "codexsha";
 export const BSTOCKS_X_URL = `https://x.com/${BSTOCKS_X_HANDLE}`;
 
 /** Strips a leading @ and anything that is not a legal X handle character. */
