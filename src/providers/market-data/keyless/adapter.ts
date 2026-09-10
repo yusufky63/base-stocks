@@ -77,18 +77,22 @@ export class KeylessMarketDataProvider implements MarketDataProvider {
     return logo ? { address, logoURI: logo, ...meta } : meta;
   }
 
+  /**
+   * Candles for the token, with the pair's orientation read from the data rather than assumed.
+   *
+   * This used to take the pool from DexScreener and hardcode `tokenIsBase = true`, on the reasoning
+   * that the token is the base asset in a DexScreener pair "by construction". It is, for
+   * DexScreener. GeckoTerminal orders the same pool by its own rule, and when the two disagreed the
+   * chart plotted the other side of the pair: TSLAc drew at $0.00023 while its own header said
+   * $17,936 and the reference said $366. Three numbers, one page.
+   *
+   * So the pool and its orientation now come from the same place, which is the only way the pair
+   * cannot be read upside down.
+   */
   async getTokenOhlcv(address: Address, timeframe: Timeframe): Promise<Candle[]> {
-    // Prefer the DexScreener primary pair (token is the base asset there by construction).
-    const market = await this.getTokenMarket(address).catch(() => null);
-    let pool: Address | undefined = market?.source === "dexscreener" ? market.primaryPool : undefined;
-    let tokenIsBase = true;
-    if (!pool) {
-      const gtPool = await getGeckoTerminalPrimaryPool(address);
-      if (!gtPool) return [];
-      pool = gtPool.pool;
-      tokenIsBase = gtPool.tokenIsBase;
-    }
-    return getGeckoTerminalOhlcv(pool, tokenIsBase, timeframe);
+    const gtPool = await getGeckoTerminalPrimaryPool(address);
+    if (!gtPool) return [];
+    return getGeckoTerminalOhlcv(gtPool.pool, gtPool.tokenIsBase, timeframe);
   }
 }
 

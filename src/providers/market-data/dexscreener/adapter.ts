@@ -60,7 +60,19 @@ async function fetchPairs(addresses: Address[]): Promise<DexScreenerPair[]> {
   return out;
 }
 
-/** Best pair per token: the deepest pool where the token is the base asset. */
+/**
+ * Best pair per token: the deepest pool where the token is the base asset **and** the quote is
+ * something dollars can be reached through.
+ *
+ * The quote rule is the whole point, and it was already applied to depth while price went without
+ * it. A pool prices a token against whatever sits on the other side, so a pair against a long-tail
+ * token reports that token's own valuation, not the stock's. TSLAc spent a day displayed at
+ * $17,936 against a Chainlink reference of $366 because the upstream's one returned pair was quoted
+ * in a token whose own dollar price was nonsense: 48.97x out, on a page that also said "Live".
+ *
+ * Depth cannot rescue this either. That pair held real money; being deep and being a price are
+ * different properties, and only the second one is being chosen here.
+ */
 export function pickPrimaryPairs(pairs: DexScreenerPair[], addresses: Address[]): Map<string, DexScreenerPair> {
   const best = new Map<string, DexScreenerPair>();
   const wanted = new Set(addresses.map((a) => a.toLowerCase()));
@@ -68,6 +80,8 @@ export function pickPrimaryPairs(pairs: DexScreenerPair[], addresses: Address[])
     if (p.chainId !== CHAIN) continue;
     const base = p.baseToken.address.toLowerCase();
     if (!wanted.has(base)) continue;
+    const quote = p.quoteToken?.address?.toLowerCase();
+    if (!quote || !MAJOR_QUOTES.has(quote)) continue;
     const liq = toNum(p.liquidity?.usd) ?? 0;
     const cur = best.get(base);
     if (!cur || liq > (toNum(cur.liquidity?.usd) ?? 0)) best.set(base, p);

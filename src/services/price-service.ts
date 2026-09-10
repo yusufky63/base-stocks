@@ -18,6 +18,18 @@ export const ETH_USD_FEED: Address = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70
  *   EXECUTABLE= 0x / Kyber quote (computed in trade-router)
  * Never collapsed into one field.
  */
+/**
+ * How far a pool price may sit from the reference and still be the headline number.
+ *
+ * Only consulted while the feed is live, so this is a market-hours tolerance rather than a weekend
+ * one. Twenty percent is wide for an equity and deliberately so: it is here to catch a broken
+ * price, not to second-guess a real move.
+ */
+const MAX_DISPLAY_DEVIATION_PCT = 20;
+
+/** Below this, a pool is a quote somebody left lying around rather than a market. */
+const MIN_DISPLAY_LIQUIDITY_USD = 20_000;
+
 export function buildPriceView(asset: B20Asset, market: TokenMarketData | null): PriceView {
   const referenceUsd = asset.oracle?.priceUsd ?? null;
   const referenceUsable = referenceUsd !== null && asset.oracle !== undefined && !asset.oracle.paused && !asset.oracle.stale;
@@ -25,15 +37,28 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
 
   const deviationPct = marketUsd !== null && referenceUsd !== null && referenceUsd > 0 ? ((marketUsd - referenceUsd) / referenceUsd) * 100 : null;
 
-  // Trust gate for the display price: a "market" price read off a dust pool (a few dollars of
-  // liquidity, 2-25x away from a usable reference) is noise, not a market. Keep marketUsd itself
-  // for transparency, but display the reference until real liquidity shows up.
+  /**
+   * Trust gate for the display price.
+   *
+   * Base's own guidance is the reason this exists and the reason it is shaped this way: the
+   * Chainlink feed is sourced from traditional equity market data and "the token's DEX price does
+   * not feed the oracle", so the reference is the one number nobody can move by opening a pool. A
+   * market price earns the headline only by agreeing with it.
+   *
+   * This used to be a chain of `||`, which meant deep liquidity alone satisfied the gate and the
+   * deviation was never consulted. TSLAc passed it at 48.97x out because the pool behind that price
+   * held $717k. Depth and correctness are different properties; the deviation check is now
+   * mandatory whenever there is a usable reference to check against.
+   *
+   * When the reference is not usable there is nothing to check against, and refusing the market
+   * price would leave the page blank. Off-hours that is the normal state: the feed publishes 24/5
+   * and holds its last value on nights, weekends and corporate actions, while the DEX keeps
+   * trading. So the check applies exactly when it can mean something.
+   */
   const marketTrusted =
     marketUsd !== null &&
     (!referenceUsable ||
-      (market?.liquidityUsd ?? 0) >= 20_000 ||
-      deviationPct === null ||
-      Math.abs(deviationPct) <= 20);
+      (deviationPct !== null && Math.abs(deviationPct) <= MAX_DISPLAY_DEVIATION_PCT && (market?.liquidityUsd ?? 0) >= MIN_DISPLAY_LIQUIDITY_USD));
 
   let displayUsd: number | null = null;
   let displaySource: PriceView["displaySource"] = "none";
