@@ -284,21 +284,21 @@ export default function DocsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionHead n={3} id="prices" title="Price model" sub="two prices, both shown" />
+        <SectionHead n={3} id="prices" title="Price model" sub="two prices, one checks the other" />
         <div className="module-grid grid-cols-1 md:grid-cols-2 ticks">
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Display price · live market</div>
             <div className="flex items-center gap-2 text-[14px] font-medium">
               DexScreener <span className="text-ink-muted">→</span> GeckoTerminal
             </div>
-            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down.</p>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down. Only pools quoted in USDC or ETH are priced from, and the figure has to agree with the reference to be the headline.</p>
           </article>
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>
             <div className="flex items-center gap-2 text-[14px] font-medium">
               8 decimals · total-return · 24/5
             </div>
-            <p className="text-[13px] text-ink-secondary leading-relaxed">Marked stale after one hour without an update. Price-impact math prefers a fresh reference as its fair-value basis.</p>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">Priced from traditional market data, so no pool can move it. That is why it is the check: a market price more than 20% away from a live feed is refused and this is shown instead. Marked stale after one hour without an update.</p>
           </article>
         </div>
         <Formula label="Per-share figures" lines={["per share = token price ÷ multiplier"]} />

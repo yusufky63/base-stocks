@@ -108,6 +108,10 @@ export const V1_CAVEATS = [
     body: "Outside US trading hours, and during a corporate action, a feed stops updating and keeps its last value while staying callable. Read reference.updatedAt and reference.isStale before relying on it.",
   },
   {
+    title: "A pool is not automatically a price",
+    body: "dexPriceUsd is read only from a pool quoted in USDC or ETH, and only counts as displayUsd when it is within 20% of a live reference. A pool prices a token against whatever is on its other side, so a pair quoted in a long-tail token reports that token's valuation: one such pair had a stock reading 49x its reference. When the check refuses the market price, displaySource is \"reference\" even though dexPriceUsd is present.",
+  },
+  {
     title: "Identity is the address",
     body: "Names and symbols are mutable onchain metadata. Symbols are accepted for convenience, but store the address.",
   },
