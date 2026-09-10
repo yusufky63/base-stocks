@@ -78,21 +78,46 @@ export class KeylessMarketDataProvider implements MarketDataProvider {
   }
 
   /**
-   * Candles for the token, with the pair's orientation read from the data rather than assumed.
+   * Candles for the token, checked against the price rather than trusted on faith.
    *
-   * This used to take the pool from DexScreener and hardcode `tokenIsBase = true`, on the reasoning
-   * that the token is the base asset in a DexScreener pair "by construction". It is, for
-   * DexScreener. GeckoTerminal orders the same pool by its own rule, and when the two disagreed the
-   * chart plotted the other side of the pair: TSLAc drew at $0.00023 while its own header said
-   * $17,936 and the reference said $366. Three numbers, one page.
+   * The pool comes from DexScreener when it priced the token, which costs nothing extra: that call
+   * already happened. GeckoTerminal's own lookup is the fallback, and it is a fallback rather than
+   * the default because every GeckoTerminal call waits behind a 2.2 second gate on the keyless
+   * tier, shared with pool discovery. Asking it twice per chart, once for the pool and once for the
+   * candles, is what made every chart in the app fall back to the reference series for a while.
    *
-   * So the pool and its orientation now come from the same place, which is the only way the pair
-   * cannot be read upside down.
+   * That leaves the orientation, which used to be assumed and was wrong: DexScreener and
+   * GeckoTerminal each order a pair by their own rule, and when they disagreed the chart plotted the
+   * far side. TSLAc drew at $0.00023 under a header reading $17,936.
+   *
+   * So rather than pay a call to learn the orientation, the series is validated against the price
+   * that already passed its own reference check. A series that disagrees with it is not this token's
+   * series, whichever way it got that way, and returning nothing hands the chart to Chainlink round
+   * history, which Base documents as a first-class source for exactly this.
    */
   async getTokenOhlcv(address: Address, timeframe: Timeframe): Promise<Candle[]> {
-    const gtPool = await getGeckoTerminalPrimaryPool(address);
-    if (!gtPool) return [];
-    return getGeckoTerminalOhlcv(gtPool.pool, gtPool.tokenIsBase, timeframe);
+    const market = await this.getTokenMarket(address).catch(() => null);
+    let pool: Address | undefined = market?.source === "dexscreener" ? market.primaryPool : undefined;
+    let tokenIsBase = true;
+    if (!pool) {
+      const gtPool = await getGeckoTerminalPrimaryPool(address);
+      if (!gtPool) return [];
+      pool = gtPool.pool;
+      tokenIsBase = gtPool.tokenIsBase;
+    }
+
+    const candles = await getGeckoTerminalOhlcv(pool, tokenIsBase, timeframe);
+    const expected = market?.priceUsd ?? null;
+    if (candles.length === 0 || expected === null || expected <= 0) return candles;
+
+    const last = candles[candles.length - 1]?.close ?? 0;
+    // A quarter is loose on purpose: the last candle can be hours old while the price is live, and
+    // this is here to catch a series in the wrong units, not to police a real move.
+    if (!(last > 0) || Math.abs(last - expected) / expected > 0.25) {
+      metrics.count("keyless.ohlcv.rejected", false, `${address}: last ${last} vs price ${expected}`);
+      return [];
+    }
+    return candles;
   }
 }
 
