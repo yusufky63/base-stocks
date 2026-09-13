@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts, ogHeadlineSize } from "@/lib/og";
-import { getGiftReceipt, giftAmountLabel, giftPartyLabel } from "@/services/gift-service";
+import { getGiftReceipt } from "@/services/gift-service";
+import { giftAmountLabel, giftPartyName } from "@/lib/gift/format";
 
 export const alt = "A gift on BaseStocks";
 export const size = OG.size;
@@ -11,14 +12,15 @@ export const contentType = "image/png";
  *
  * Green throughout, because this card is not selling anything — someone is handing the reader a
  * share of a company. The amount is the headline for the same reason: it is the gift, and a title
- * above it would only push it down the card. No secret is ever in here; the claim key lives in the
- * URL fragment, which never reaches this server.
+ * above it would only push it down the card. The sender is named by identity (Basename or address,
+ * with any display name beside it), never by a name alone. No secret is ever in here; the claim key
+ * lives in the URL fragment, which never reaches this server.
  */
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const r = await getGiftReceipt(id).catch(() => null);
   const amount = r ? giftAmountLabel(r) : "A tokenized stock";
-  const sender = r ? giftPartyLabel(r.sender) : null;
+  const sender = r ? giftPartyName(r.sender) : null;
   return new ImageResponse(
     (
       <OgCard accent={OG.gift} footer="Self-custodial from the moment you claim · not investment advice" art={hasCoinArt([r?.asset?.underlying]) ? <OgCoins tickers={[r?.asset?.underlying]} /> : undefined}>

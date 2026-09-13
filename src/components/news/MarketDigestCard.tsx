@@ -56,7 +56,7 @@ export function MarketDigestCard({ compact = false }: { compact?: boolean }) {
             {spotlight.length > 0 && (
               <div className="border border-primary/30 bg-primary-soft rounded-[8px] overflow-hidden">
                 <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-primary/20">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-primary">Base &amp; Coinbase</span>
+                  <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-primary">Base &amp; Coinbase</span>
                   <Link href="/news?scope=ecosystem" className="text-[12px] text-primary font-medium whitespace-nowrap">
                     All headlines →
                   </Link>
@@ -83,7 +83,7 @@ export function MarketDigestCard({ compact = false }: { compact?: boolean }) {
               // Eight one-line rundowns stacked in a single column ran the card down the page. Two
               // columns from md up halve the height and let the eye scan tickers rather than read.
               <div className="flex flex-col gap-1.5">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Per stock</span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Per stock</span>
                 <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-1.5">
                   {d.bullets.map((b, i) => (
                     <li key={`${b.ticker}-${i}`} className="text-[13px] leading-snug">
@@ -98,7 +98,7 @@ export function MarketDigestCard({ compact = false }: { compact?: boolean }) {
             )}
             {!compact && themes.length > 0 && (
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mr-1">Themes</span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted mr-1">Themes</span>
                 {themes.map((t) => (
                   <Badge key={t}>{t}</Badge>
                 ))}

@@ -24,4 +24,14 @@ describe("the equal-weight benchmark", () => {
     expect(idx!.points).toEqual([1, 1.1]);
     expect(equalWeightIndex([], 2)).toBeNull();
   });
+
+  /** A member whose feed history starts inside the window shortens the index instead of being drawn flat from its first round. */
+  it("starts where the shortest member's history starts, and is null before that", () => {
+    const idx = equalWeightIndex([[100, 110, 121], [null, 10, 11]], 3);
+    expect(idx!.members).toBe(2);
+    expect(idx!.firstIndex).toBe(1);
+    expect(idx!.points[0]).toBeNull();
+    expect(idx!.points[1]).toBe(1);
+    expect(idx!.points[2]).toBeCloseTo((1.1 + 1.1) / 2, 10);
+  });
 });

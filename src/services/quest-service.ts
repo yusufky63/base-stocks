@@ -1,14 +1,17 @@
-import { decodeEventLog, erc20Abi, formatUnits, type Address, type Hash } from "viem";
+import { formatUnits, type Address, type Hash } from "viem";
+import type { B20Asset } from "@/domain/asset";
 import { isSelfDeclared, type Quest, type QuestStatus, type QuestType } from "@/domain/pool";
 import { getRepos } from "@/db/repositories";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { getAssets } from "@/services/b20-asset-service";
-import { getPriceViews } from "@/services/price-service";
 import { reverseResolve } from "@/services/basename-service";
+import { verifyTrade } from "@/services/tx-verify-service";
 import { b20AssetAbi } from "@/lib/b20/abi";
 import { BSTOCKS_X_HANDLE, xIntentUrl, xProfileUrl } from "@/content/social";
 import { isHttpUrl, prettyHost } from "@/lib/url";
+import { formatShares } from "@/lib/gift/format";
 import { formatUsd } from "@/lib/format";
+import { USDC_DECIMALS } from "@/config/chain";
 
 /**
  * Quest verification for gift pools. Everything here runs on the server and gates a claim ticket;
@@ -17,7 +20,9 @@ import { formatUsd } from "@/lib/format";
  * Two grades of quest, kept apart everywhere:
  *
  * - **Checked** — proven from the chain or a signature. App-side records (`trade_records`) are a
- *   lookup index, never evidence: every purchase they point at is re-read from its receipt.
+ *   lookup index, never evidence: every purchase they point at is re-read from its receipt, through
+ *   the same cached, stored path the trade verifier uses, and counts only when USDC left the buyer.
+ *   A stock arriving in a wallet is not a purchase; a transfer from a friend looks the same.
  * - **Self-declared** — X steps and link visits. Nobody can prove a follow, a repost, a like or a
  *   page view from outside, so the claimant confirms these about themselves and the app stores who
  *   declared what, with the timestamp. Nothing in the copy calls that "verified", because it is not.
@@ -88,10 +93,14 @@ export function questActionUrl(q: Quest): string | undefined {
   }
 }
 
-async function symbolFor(asset?: Address): Promise<string | undefined> {
-  if (!asset) return undefined;
+async function assetFor(address?: Address): Promise<B20Asset | undefined> {
+  if (!address) return undefined;
   const assets = await getAssets().catch(() => []);
-  return assets.find((a) => a.canonicalId === asset.toLowerCase())?.underlying;
+  return assets.find((a) => a.canonicalId === address.toLowerCase());
+}
+
+async function symbolFor(asset?: Address): Promise<string | undefined> {
+  return (await assetFor(asset))?.underlying;
 }
 
 /* ------------------------------- verifiers ------------------------------- */
@@ -109,7 +118,8 @@ async function verifyHoldBasename(index: number, claimant: Address): Promise<Que
 }
 
 async function verifyHoldAsset(index: number, q: Quest, claimant: Address): Promise<QuestResult> {
-  const symbol = await symbolFor(q.assetAddress);
+  const asset = await assetFor(q.assetAddress);
+  const symbol = asset?.underlying;
   const base: QuestResult = { index, type: "hold-asset", label: label(q, symbol), done: false, actionUrl: questActionUrl(q) };
   if (!q.assetAddress) return { ...base, detail: "This step is misconfigured; ask the creator to fix it." };
   const min = BigInt(q.minRawAmount ?? "1");
@@ -118,18 +128,23 @@ async function verifyHoldAsset(index: number, q: Quest, claimant: Address): Prom
     .catch(() => null);
   if (balance === null) return { ...base, detail: "We could not read your balance just now. Try again in a moment." };
   const done = balance >= min;
+  // The minimum is stored raw; the claimant reads shares, so it is scaled by the stock's multiplier like every other amount.
+  const minLabel = asset ? formatShares(min, asset) : formatUnits(min, 8);
   return {
     ...base,
     done,
-    detail: done ? undefined : `You need at least ${formatUnits(min, 8)} ${symbol ?? "of this stock"} in this wallet.`,
+    detail: done ? undefined : `You need at least ${minLabel} ${symbol ?? "of this stock"} in this wallet.`,
     proof: done ? { balance: balance.toString() } : undefined,
   };
 }
 
 /**
- * "Bought at least $X of this stock recently." The app's own trade rows only say which
- * transactions to look at; the proof is the receipt — a successful transaction carrying an ERC-20
- * `Transfer` of that exact asset into the claimant's wallet.
+ * "Bought at least $X of this stock on BaseStocks recently." The app's own trade rows only say
+ * which transactions to look at; the proof is the receipt, read by `verifyTrade` (cached, and
+ * stored once mined, so a ticket request never re-asks the RPC for a hash already seen). A
+ * purchase is the stock arriving AND USDC leaving this wallet in the same transaction: the stock
+ * arriving alone is what a transfer from any other wallet looks like, and that is not a purchase.
+ * The dollar figure is the USDC that actually settled, not today's price times the amount.
  */
 async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promise<QuestResult> {
   const symbol = await symbolFor(q.assetAddress);
@@ -140,68 +155,46 @@ async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promi
   const since = Date.now() - withinDays * 24 * 3600 * 1000;
   const trades = await getRepos().trades.listByOwner(claimant).catch(() => []);
   const candidates = trades
-    .filter((t) => t.side === "buy" && t.assetAddress.toLowerCase() === q.assetAddress!.toLowerCase() && t.createdAt >= since && !!t.txHash)
+    .filter((t) => t.side === "buy" && t.assetAddress.toLowerCase() === q.assetAddress!.toLowerCase() && t.createdAt >= since && !!t.txHash && t.status !== "failed")
     .slice(0, MAX_RECEIPTS_PER_CHECK);
   if (candidates.length === 0) {
-    return { ...base, detail: `No ${symbol ?? "purchase"} found in this wallet in the last ${withinDays} days.` };
+    return { ...base, detail: `No ${symbol ?? "stock"} bought on BaseStocks from this wallet in the last ${withinDays} days.` };
   }
-
-  const client = getServerPublicClient();
-  const assets = await getAssets().catch(() => []);
-  const asset = assets.find((a) => a.canonicalId === q.assetAddress!.toLowerCase());
-  const decimals = asset?.decimals ?? 8;
-  const price = asset ? ((await getPriceViews([asset]).catch(() => null))?.get(asset.canonicalId)?.displayUsd ?? null) : null;
 
   let boughtRaw = 0n;
+  let paidUsdc = 0n;
+  let pending = false;
   const verifiedTxs: Hash[] = [];
   for (const t of candidates) {
-    const received = await receivedFromReceipt(client, t.txHash!, q.assetAddress, claimant);
-    if (received > 0n) {
-      boughtRaw += received;
-      verifiedTxs.push(t.txHash!);
+    const v = await verifyTrade({ txHash: t.txHash!, owner: claimant, assetAddress: q.assetAddress, side: "buy" });
+    if (!v.ok) {
+      if (v.state === "pending") pending = true;
+      continue;
     }
+    // No USDC out of this wallet means a transfer in, a gift, or a buy paid some other way; none of those is this step.
+    if (v.usdcAmount === null || v.usdcAmount <= 0n) continue;
+    boughtRaw += v.assetAmount;
+    paidUsdc += v.usdcAmount;
+    verifiedTxs.push(t.txHash!);
   }
-  if (boughtRaw === 0n) {
-    return { ...base, detail: "We could not confirm that purchase onchain yet. If it just went through, wait for the confirmation and retry." };
+  if (verifiedTxs.length === 0) {
+    return {
+      ...base,
+      detail: pending
+        ? "We could not confirm that purchase onchain yet. If it just went through, wait for the confirmation and retry."
+        : `Only ${symbol ?? "stock"} bought on BaseStocks and paid in USDC from this wallet counts; a transfer in does not.`,
+    };
   }
 
+  const usd = Number(formatUnits(paidUsdc, USDC_DECIMALS));
   const minUsd = q.minUsd ?? 0;
-  if (minUsd <= 0) return { ...base, done: true, proof: { txs: verifiedTxs, rawAmount: boughtRaw.toString() } };
-  if (price === null) {
-    return { ...base, detail: "We cannot price this stock right now, so the amount cannot be checked. Try again shortly." };
-  }
-  const usd = Number(formatUnits(boughtRaw, decimals)) * price;
-  const done = usd + 1e-9 >= minUsd;
+  const done = minUsd <= 0 || usd + 1e-9 >= minUsd;
   return {
     ...base,
     done,
-    detail: done ? undefined : `Confirmed ${formatUsd(usd)} so far — this pool asks for ${formatUsd(minUsd)}.`,
+    detail: done ? undefined : `${formatUsd(usd)} bought on BaseStocks so far; this pool asks for ${formatUsd(minUsd)}.`,
     proof: done ? { txs: verifiedTxs, rawAmount: boughtRaw.toString(), usd } : undefined,
   };
-}
-
-/** Sum of ERC-20 `Transfer` events moving `token` into `to` in a successful transaction. */
-async function receivedFromReceipt(
-  client: ReturnType<typeof getServerPublicClient>,
-  hash: Hash,
-  token: Address,
-  to: Address,
-): Promise<bigint> {
-  const receipt = await client.getTransactionReceipt({ hash }).catch(() => null);
-  if (!receipt || receipt.status !== "success") return 0n;
-  let total = 0n;
-  for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== token.toLowerCase()) continue;
-    try {
-      const decoded = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics });
-      if (decoded.eventName !== "Transfer") continue;
-      const args = decoded.args as unknown as { to: Address; value: bigint };
-      if (args.to.toLowerCase() === to.toLowerCase()) total += args.value;
-    } catch {
-      // Not a Transfer we understand; ignore it rather than failing the whole check.
-    }
-  }
-  return total;
 }
 
 /** A self-declared X step: done once the claimant has confirmed it for this pool. */
@@ -215,11 +208,12 @@ function readDeclared(index: number, q: Quest, attested: Attestations): QuestRes
     done,
     selfDeclared: true,
     actionUrl,
+    // A link step always names where it goes; a creator's label alone could call any page anything.
     detail: done
       ? undefined
       : actionUrl
         ? q.type === "visit-url"
-          ? "Open the link, then confirm here."
+          ? `Opens ${prettyHost(actionUrl)}. Then confirm here.`
           : "Open X, do it, then confirm here."
         : "This step has no destination; ask the creator to fix it.",
     proof: done ? { declaredAt: attested[String(index)] } : undefined,

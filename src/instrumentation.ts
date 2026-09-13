@@ -5,6 +5,14 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // Validate the environment once, here, where a failure is a boot log line and not a 500 on every
+  // route. A malformed optional value is dropped with a warning; a broken required one still throws.
+  try {
+    const { serverEnvWarnings } = await import("@/config/env");
+    for (const w of serverEnvWarnings()) console.warn(`[env] ${w}`);
+  } catch (err) {
+    console.error("[env]", err instanceof Error ? err.message : err);
+  }
   if (process.env.MARKET_WARMUP === "false") return;
   const { getAssets } = await import("@/services/b20-asset-service");
   const { getPriceViews } = await import("@/services/price-service");

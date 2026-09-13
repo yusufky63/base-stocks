@@ -2,11 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/cron/refresh",
+      "path": "/api/cron/refresh?job=discovery",
       "schedule": "0 5 * * *"
     },
     {
-      "path": "/api/cron/automation",
+      "path": "/api/cron/refresh?job=sweep",
       "schedule": "30 5 * * *"
     }
   ]

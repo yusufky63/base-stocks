@@ -65,13 +65,15 @@ export function MiniAppProvider({ children }: { children: ReactNode }) {
         if (!inside) return outside();
         const context = await sdk.context.catch(() => null);
         if (cancelled) return;
-        // The host wallet's connector joins the config only now, inside a confirmed host.
-        await registerMiniAppConnector().catch(() => undefined);
         applySafeArea(context?.client.safeAreaInsets);
         document.documentElement.dataset.miniapp = "true";
         setState({ status: "inside", isMiniApp: true, context });
-        // Last, and unconditionally: the splash comes down even if the context read went wrong.
+        // The splash comes down as soon as the page knows where it is, even if the context read went
+        // wrong. The wallet connector is fetched after, not before: it is a separate ~400 KB import,
+        // and holding the splash for it made the app look slow for something the user cannot see.
         await sdk.actions.ready();
+        // `MiniAppAutoConnect` watches the connector list and connects once this lands.
+        await registerMiniAppConnector().catch(() => undefined);
       } catch {
         outside();
       }
@@ -101,6 +103,8 @@ function MiniAppAutoConnect({ inside }: { inside: boolean }) {
     if (!inside || tried.current) return;
     // "connecting"/"reconnecting" means wagmi is already restoring a session; let it finish.
     if (isConnected || status !== "disconnected") return;
+    // The host connector registers after the splash comes down; until then it is simply not in the
+    // list, and this effect runs again when wagmi's connector store changes.
     const connector = connectors.find((c) => c.id === MINI_APP_CONNECTOR_ID);
     if (!connector) return;
     tried.current = true;

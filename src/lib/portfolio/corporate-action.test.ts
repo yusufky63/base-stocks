@@ -63,7 +63,7 @@ describe("a 2-for-1 split, through the app's arithmetic", () => {
     const values = feedHistory.map((p) => rawValueUsd(raw, DECIMALS, p));
     expect(new Set(values.map((v) => v.toFixed(6))).size).toBe(1);
     const idx = equalWeightIndex([feedHistory], feedHistory.length);
-    expect(idx!.points.every((p) => Math.abs(p - 1) < 1e-12)).toBe(true);
+    expect(idx!.points.every((p) => p !== null && Math.abs(p - 1) < 1e-12)).toBe(true);
   });
 });
 

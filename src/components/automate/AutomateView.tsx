@@ -6,8 +6,9 @@ import type { PortfolioTemplate } from "@/lib/client-api";
 import type { AutomationDraft } from "@/lib/client-api";
 import { useTemplates } from "@/hooks/queries";
 import { useAutomation } from "@/hooks/useAutomation";
+import { useNow } from "@/hooks/useNow";
 import { parseAutomateLegs } from "@/lib/automate-link";
-import { formatUsd, timeAgo } from "@/lib/format";
+import { formatDuration, formatUsd } from "@/lib/format";
 import { Module, PageTitle, cx } from "@/components/ui/primitives";
 import { PlanList } from "./PlanList";
 import { PlanWizard, type WizardSeed } from "./PlanWizard";
@@ -24,6 +25,7 @@ type Pane = "plan" | "assistant";
 export function AutomateView({ initialTemplates, embedded = false }: { initialTemplates?: PortfolioTemplate[]; embedded?: boolean }) {
   const { data: templates } = useTemplates(initialTemplates);
   const automation = useAutomation();
+  const now = useNow();
   const search = useSearchParams();
   const [pane, setPane] = useState<Pane>("plan");
   const [draft, setDraft] = useState<AutomationDraft | null>(null);
@@ -63,7 +65,7 @@ export function AutomateView({ initialTemplates, embedded = false }: { initialTe
           <Cell label="Active plans" value={String(active.length)} sub={`${active.filter((p) => p.config.mode === "auto").length} automatic`} />
           <Cell label="Monthly pace" value={formatUsd(perMonth)} sub="across active plans" />
           <Cell label="Invested by plans" value={formatUsd(invested)} sub="recorded runs" />
-          <Cell label="Next run" value={automation.due.length > 0 ? "due now" : next ? timeAgo(next.nextRunAt!).replace(/ ago$/, "") : "—"} sub={automation.due.length > 0 ? `${automation.due.length} waiting` : next ? "from now" : "nothing scheduled"} />
+          <Cell label="Next run" value={automation.due.length > 0 ? "due now" : next ? formatDuration(next.nextRunAt! - now) : "—"} sub={automation.due.length > 0 ? `${automation.due.length} waiting` : next ? "from now" : "nothing scheduled"} />
         </div>
       )}
 

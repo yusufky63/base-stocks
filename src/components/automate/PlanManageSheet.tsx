@@ -12,7 +12,7 @@ import { useAutoInvest } from "@/hooks/useAutoInvest";
 import { useNow } from "@/hooks/useNow";
 import type { ManualRun } from "@/hooks/useManualRun";
 import { CADENCES, cadenceLabel, usdcToUsd } from "@/lib/auto-invest";
-import { formatUsd, timeAgo } from "@/lib/format";
+import { formatUsd, timeAgo, timeUntil } from "@/lib/format";
 import { BASE_EXPLORER_URL, MIN_TRADE_USD } from "@/config/chain";
 import { AssetLogo, ErrorBanner, InfoBanner, TxLink } from "@/components/common/display";
 import { Button, Badge, KeyValue, cx } from "@/components/ui/primitives";
@@ -144,7 +144,7 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
                 <AlertTriangle size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
                 <span>
                   {rule.config.lastError.message}
-                  {rule.config.lastError.retryAt && rule.config.lastError.retryAt > now ? ` Keeper retries ${timeAgo(rule.config.lastError.retryAt).replace(/ ago$/, "")} from now.` : ""}
+                  {rule.config.lastError.retryAt && rule.config.lastError.retryAt > now ? ` Keeper retries ${timeUntil(rule.config.lastError.retryAt, now)}.` : ""}
                 </span>
               </div>
             )}

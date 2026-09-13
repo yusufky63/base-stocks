@@ -16,7 +16,7 @@ const MAX_BUTTON_TITLE = 32;
 export interface MiniAppEmbed {
   /** Where the launch button lands. Defaults to the home page. */
   url?: string;
-  /** 3:2 card image above the button. Defaults to the site's share card. */
+  /** 3:2 card image above the button. Defaults to the site's share card drawn at that ratio. */
   imageUrl?: string;
   /** Label on the launch button, 32 characters at most. */
   buttonTitle?: string;
@@ -25,7 +25,7 @@ export interface MiniAppEmbed {
 function embedJson(type: "launch_miniapp" | "launch_frame", { url, imageUrl, buttonTitle }: MiniAppEmbed): string {
   return JSON.stringify({
     version: "1",
-    imageUrl: imageUrl ?? `${APP_URL}/opengraph-image`,
+    imageUrl: imageUrl ?? `${APP_URL}/miniapp-image`,
     button: {
       title: (buttonTitle ?? "Open BaseStocks").slice(0, MAX_BUTTON_TITLE),
       action: {

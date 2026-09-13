@@ -20,7 +20,8 @@ export interface BasketRepo {
   /** Toggle vote; returns the new state. */
   vote(id: string, voter: Address): Promise<{ voted: boolean; votes: number }>;
   hasVoted(id: string, voter: Address): Promise<boolean>;
-  incrementClones(id: string): Promise<void>;
+  /** Count one clone per wallet: `counted` is false when this wallet already cloned the basket. */
+  incrementClones(id: string, cloner: Address): Promise<{ counted: boolean; clones: number }>;
 }
 export interface SnapshotRepo {
   record(row: PortfolioSnapshotRow): Promise<void>;
@@ -31,12 +32,21 @@ export interface SnapshotRepo {
 }
 export interface AutomationRepo {
   list(owner: Address): Promise<AutomationRule[]>;
-  /** Every wallet's plans that live in the AutoInvest contract (`config.mode === "auto"`), for the keeper. */
-  listAuto(limit?: number): Promise<AutomationRule[]>;
+  /**
+   * Every wallet's active plans that live in the AutoInvest contract (`config.mode === "auto"`),
+   * oldest first, one page at a time: the keeper walks `offset` forward until a page comes back short.
+   */
+  listAuto(limit?: number, offset?: number): Promise<AutomationRule[]>;
   /** Every rule of every wallet, for platform statistics. */
   listAll(limit?: number): Promise<AutomationRule[]>;
   create(rule: AutomationRule): Promise<AutomationRule>;
   update(id: string, owner: Address, patch: Partial<AutomationRule>): Promise<AutomationRule | null>;
+  /**
+   * Write `config` only while the rule's `runningSince` still reads `expected` (null = not running).
+   * One statement, so two keeper ticks that read the same rule cannot both believe they hold it.
+   * Returns false when someone else got there first.
+   */
+  claimRun(id: string, owner: Address, config: AutomationRule["config"], expected: number | null): Promise<boolean>;
   remove(id: string, owner: Address): Promise<void>;
 }
 
@@ -98,9 +108,16 @@ export class MemoryBasketRepo implements BasketRepo {
   async hasVoted(id: string, voter: Address) {
     return this.votes.get(id)?.has(lower(voter)) ?? false;
   }
-  async incrementClones(id: string) {
+  private cloners = new Map<string, Set<string>>();
+  async incrementClones(id: string, cloner: Address) {
     const b = this.items.get(id);
-    if (b) b.clones += 1;
+    if (!b) return { counted: false, clones: 0 };
+    const set = this.cloners.get(id) ?? new Set<string>();
+    if (set.has(lower(cloner))) return { counted: false, clones: b.clones };
+    set.add(lower(cloner));
+    this.cloners.set(id, set);
+    b.clones += 1;
+    return { counted: true, clones: b.clones };
   }
 }
 
@@ -128,11 +145,11 @@ export class MemoryAutomationRepo implements AutomationRepo {
   async list(owner: Address) {
     return [...this.items.values()].filter((r) => lower(r.owner) === lower(owner)).sort((a, b) => b.createdAt - a.createdAt);
   }
-  async listAuto(limit = 200) {
+  async listAuto(limit = 200, offset = 0) {
     return [...this.items.values()]
       .filter((r) => r.config.mode === "auto" && r.status === "active")
       .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(0, limit);
+      .slice(offset, offset + limit);
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
@@ -147,6 +164,13 @@ export class MemoryAutomationRepo implements AutomationRepo {
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.items.set(id, next);
     return next;
+  }
+  async claimRun(id: string, owner: Address, config: AutomationRule["config"], expected: number | null) {
+    const cur = this.items.get(id);
+    if (!cur || lower(cur.owner) !== lower(owner)) return false;
+    if ((cur.config.runningSince ?? null) !== expected) return false;
+    this.items.set(id, { ...cur, config, updatedAt: Date.now() });
+    return true;
   }
   async remove(id: string, owner: Address) {
     const cur = this.items.get(id);
@@ -182,7 +206,9 @@ export class SupabaseProfileRepo implements ProfileRepo {
     return data ? this.fromRow(data as Row) : null;
   }
   async getByHandle(handle: string) {
-    const { data, error } = await sb().from("profiles").select("*").ilike("handle", handle).maybeSingle();
+    // Exact match on the lowercased handle the server stores. `ilike` treated `%` and `_` in the
+    // segment as wildcards, so `/u/_` resolved to somebody's profile.
+    const { data, error } = await sb().from("profiles").select("*").eq("handle", handle.toLowerCase()).maybeSingle();
     if (error) throw error;
     return data ? this.fromRow(data as Row) : null;
   }
@@ -252,27 +278,63 @@ export class SupabaseBasketRepo implements BasketRepo {
     if (error) throw error;
     return !!data;
   }
+  /**
+   * Move a counter by `delta` in one statement (`increment_basket_counter`, migration
+   * 2026-09-13-infra.sql). Until that function exists the read-modify-write stays as the fallback:
+   * it can lose a race, but it cannot refuse a vote. Returns the new value.
+   */
+  private async bump(id: string, column: "votes" | "clones", delta: number, fallback: () => Promise<number>): Promise<number> {
+    const { data, error } = await sb().rpc("increment_basket_counter", { p_id: id, p_column: column, p_delta: delta });
+    if (!error && typeof data === "number") return data;
+    if (error && !/function|does not exist|PGRST202|schema cache/i.test(error.message)) throw error;
+    return fallback();
+  }
   async vote(id: string, voter: Address) {
-    const voted = !(await this.hasVoted(id, voter));
-    if (voted) {
-      const { error } = await sb().from("basket_votes").insert({ basket_id: id, voter: lower(voter) });
+    // The row is the vote; the insert's primary key is what makes a double click one vote. Without
+    // `ignoreDuplicates` two racing inserts would raise on the second and the toggle would flip
+    // back; with it, the row count tells us which of the two actually counted.
+    const already = await this.hasVoted(id, voter);
+    let changed = false;
+    if (!already) {
+      const { data, error } = await sb().from("basket_votes").upsert({ basket_id: id, voter: lower(voter) }, { onConflict: "basket_id,voter", ignoreDuplicates: true }).select("basket_id");
       if (error) throw error;
+      changed = ((data ?? []) as Row[]).length > 0;
     } else {
-      const { error } = await sb().from("basket_votes").delete().eq("basket_id", id).eq("voter", lower(voter));
+      const { data, error } = await sb().from("basket_votes").delete().eq("basket_id", id).eq("voter", lower(voter)).select("basket_id");
       if (error) throw error;
+      changed = ((data ?? []) as Row[]).length > 0;
     }
-    const { count, error: e2 } = await sb().from("basket_votes").select("*", { count: "exact", head: true }).eq("basket_id", id);
-    if (e2) throw e2;
-    const votes = count ?? 0;
-    const { error: e3 } = await sb().from("baskets").update({ votes, updated_at: new Date().toISOString() }).eq("id", id);
-    if (e3) throw e3;
+    const voted = !already;
+    const recount = async () => {
+      const { count, error: e2 } = await sb().from("basket_votes").select("*", { count: "exact", head: true }).eq("basket_id", id);
+      if (e2) throw e2;
+      const votes = count ?? 0;
+      const { error: e3 } = await sb().from("baskets").update({ votes, updated_at: new Date().toISOString() }).eq("id", id);
+      if (e3) throw e3;
+      return votes;
+    };
+    const votes = changed ? await this.bump(id, "votes", voted ? 1 : -1, recount) : ((await this.get(id))?.votes ?? 0);
     return { voted, votes };
   }
-  async incrementClones(id: string) {
-    const cur = await this.get(id);
-    if (!cur) return;
-    const { error } = await sb().from("baskets").update({ clones: cur.clones + 1 }).eq("id", id);
-    if (error) throw error;
+  async incrementClones(id: string, cloner: Address) {
+    // One row per (basket, wallet): the second clone by the same wallet is not a second clone.
+    // A deployment without the `basket_clones` table yet counts every call, as before.
+    let counted = true;
+    const { data, error } = await sb().from("basket_clones").upsert({ basket_id: id, cloner: lower(cloner) }, { onConflict: "basket_id,cloner", ignoreDuplicates: true }).select("basket_id");
+    if (error) {
+      if (!/does not exist|PGRST205|schema cache/i.test(error.message)) throw error;
+    } else {
+      counted = ((data ?? []) as Row[]).length > 0;
+    }
+    if (!counted) return { counted, clones: (await this.get(id))?.clones ?? 0 };
+    const clones = await this.bump(id, "clones", 1, async () => {
+      const cur = await this.get(id);
+      if (!cur) return 0;
+      const { error: e } = await sb().from("baskets").update({ clones: cur.clones + 1 }).eq("id", id);
+      if (e) throw e;
+      return cur.clones + 1;
+    });
+    return { counted, clones };
   }
 }
 
@@ -323,8 +385,8 @@ export class SupabaseAutomationRepo implements AutomationRepo {
     if (error) throw error;
     return (data ?? []).map((r) => this.fromRow(r as Row));
   }
-  async listAuto(limit = 200) {
-    const { data, error } = await sb().from("automation_rules").select("*").eq("status", "active").eq("config_json->>mode", "auto").order("created_at", { ascending: true }).limit(limit);
+  async listAuto(limit = 200, offset = 0) {
+    const { data, error } = await sb().from("automation_rules").select("*").eq("status", "active").eq("config_json->>mode", "auto").order("created_at", { ascending: true }).order("id", { ascending: true }).range(offset, offset + limit - 1);
     if (error) throw error;
     return (data ?? []).map((r) => this.fromRow(r as Row));
   }
@@ -362,6 +424,15 @@ export class SupabaseAutomationRepo implements AutomationRepo {
     const { data, error } = await sb().from("automation_rules").update(row).eq("id", id).eq("wallet_address", lower(owner)).select("*").maybeSingle();
     if (error) throw error;
     return data ? this.fromRow(data as Row) : null;
+  }
+  async claimRun(id: string, owner: Address, config: AutomationRule["config"], expected: number | null) {
+    // The filter and the write are one statement: PostgREST compares the JSON field as text, and
+    // a lock taken in between reads as a different value, so the update matches nothing.
+    let q = sb().from("automation_rules").update({ config_json: config, updated_at: new Date().toISOString() }).eq("id", id).eq("wallet_address", lower(owner));
+    q = expected === null ? q.is("config_json->>runningSince", null) : q.eq("config_json->>runningSince", String(expected));
+    const { data, error } = await q.select("id");
+    if (error) throw error;
+    return ((data ?? []) as Row[]).length > 0;
   }
   async remove(id: string, owner: Address) {
     const { error } = await sb().from("automation_rules").delete().eq("id", id).eq("wallet_address", lower(owner));

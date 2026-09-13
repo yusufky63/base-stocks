@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Building2, Check, ChevronDown, Copy, CreditCard, ExternalLink, Fuel, Globe, QrCode, Wallet, type LucideIcon } from "lucide-react";
 import { useAccount } from "wagmi";
-import QRCode from "qrcode";
 import { hasReown } from "@/config/wagmi";
 import { useConfigFlags } from "@/hooks/queries";
 import { useAuth } from "@/hooks/useAuth";
@@ -183,7 +182,10 @@ function ReceivePanel({ address, onClose }: { address: string; onClose: () => vo
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     let alive = true;
-    QRCode.toDataURL(address, { margin: 1, width: 176, errorCorrectionLevel: "M", color: { dark: "#0a0b0d", light: "#ffffff" } })
+    // The encoder is loaded here, when the panel opens: most visitors fund nothing, and the module
+    // was otherwise in every page's bundle for a QR code nobody asked to see.
+    import("qrcode")
+      .then((QRCode) => QRCode.toDataURL(address, { margin: 1, width: 176, errorCorrectionLevel: "M", color: { dark: "#0a0b0d", light: "#ffffff" } }))
       .then((url) => alive && setQr(url))
       .catch(() => alive && setQr(null));
     return () => {

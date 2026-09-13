@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { AppShell } from "@/components/layout/AppShell";
 import { appMeta } from "@/lib/miniapp";
+import { BSTOCKS_X_URL } from "@/content/social";
 
 const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["400", "500", "600"], display: "swap" });
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", weight: ["500", "700"], display: "swap" });
@@ -17,12 +18,15 @@ export const metadata: Metadata = {
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   applicationName: "BaseStocks",
   appleWebApp: { capable: true, title: "BaseStocks", statusBarStyle: "default" },
+  // The fallback for pages that do not call `pageMeta()`. Next replaces a nested block whole, but a
+  // page without its own `openGraph` inherits this one, and Next fills a missing og:title from the
+  // page's own <title>. So no `url` and no `title` here: with them, every such page previewed as
+  // the home page; without them, it previews as itself (og:url is simply omitted, which crawlers
+  // treat as "this page").
   openGraph: {
     type: "website",
     siteName: "BaseStocks",
-    url: "/",
     locale: "en_US",
-    title: "BaseStocks — Stocks, built for onchain",
     description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   },
   twitter: { card: "summary_large_image", creator: "@codexsha" },
@@ -47,11 +51,13 @@ const jsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@graph": [
     { "@type": "WebSite", name: "BaseStocks", url: APP_URL, description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put supported assets to work on Base." },
-    { "@type": "Organization", name: "BaseStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png` },
+    { "@type": "Organization", name: "BaseStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png`, sameAs: [BSTOCKS_X_URL] },
   ],
 });
 
-const themeScript = `(function(){try{var t=localStorage.getItem('bstocks:theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}var m=localStorage.getItem('bstocks:motion');document.documentElement.setAttribute('data-motion',(m==='off'||m==='system')?m:'on');}catch(e){document.documentElement.setAttribute('data-motion','on');}})();`;
+// Runs before paint so the first frame already has the stored theme and motion choice. Motion
+// defaults to "system": the CSS honours prefers-reduced-motion for anything but an explicit "on".
+const themeScript = `(function(){try{var t=localStorage.getItem('bstocks:theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}var m=localStorage.getItem('bstocks:motion');document.documentElement.setAttribute('data-motion',(m==='off'||m==='on')?m:'system');}catch(e){document.documentElement.setAttribute('data-motion','system');}})();`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

@@ -185,7 +185,7 @@ export function poolSalt(appId: string): Hex {
   return keccak256(stringToHex(`bstocks:pool:salt:${appId}`));
 }
 
-/** Compact bytes32 reconciliation memo (never a human message). */
+/** Compact bytes32 memo (never a human message), emitted in `PoolCreated` for chain readers. The app matches pools by id and hash, not by reading it back. */
 export function poolMemo(appId: string): Hex {
   return keccak256(stringToHex(`bstocks:pool:${appId}`));
 }

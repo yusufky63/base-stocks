@@ -1,6 +1,5 @@
-import { route, json } from "@/lib/api";
+import { route, json, requireCron } from "@/lib/api";
 import { serverEnv } from "@/config/env";
-import { AppError } from "@/lib/errors";
 import { runDuePlans } from "@/services/auto-invest-keeper";
 
 export const maxDuration = 60;
@@ -12,9 +11,7 @@ export const maxDuration = 60;
  * runs, and the contract refuses a second run inside the cadence regardless.
  */
 async function tick(req: Request): Promise<Response> {
-  const secret = serverEnv().CRON_SECRET;
-  const auth = req.headers.get("authorization") ?? "";
-  if (!secret || auth !== `Bearer ${secret}`) throw new AppError("UNAUTHORIZED", "Cron secret required", 401);
+  requireCron(req, serverEnv().CRON_SECRET);
   const report = await runDuePlans();
   return json({ ok: true, ...report });
 }

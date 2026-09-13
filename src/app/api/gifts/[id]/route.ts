@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { route, json, parseBody, hashSchema } from "@/lib/api";
 import { getRepos } from "@/db/repositories";
-import { getGiftReceipt } from "@/services/gift-service";
-import { verdictError, verifyGift, verifyGiftClaim, verifyGiftReclaim } from "@/services/tx-verify-service";
+import { claimPatch, fundingPatch, getGiftReceipt } from "@/services/gift-service";
+import { verifyGift, verifyGiftClaim, verifyGiftReclaim } from "@/services/tx-verify-service";
 import { AppError } from "@/lib/errors";
+import { sessionAddress } from "@/lib/auth/session";
 import type { Hash } from "viem";
 import type { GiftRecord } from "@/domain/gift";
 
@@ -34,10 +35,17 @@ export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { k
   const repos = getRepos();
   const current = await repos.gifts.get(id);
   if (!current) throw new AppError("NOT_FOUND", "Gift not found", 404);
+  // The sender's session, when there is one. Gift ids sit in every receipt URL, so a record the
+  // chain has already proven may only be pointed at another transaction by the wallet that sent it.
+  const signedIn = sessionAddress(req);
+  if (signedIn && signedIn.toLowerCase() !== current.sender.toLowerCase() && signedIn.toLowerCase() !== current.recipient.toLowerCase()) throw new AppError("UNAUTHORIZED", "This action is only allowed for the signed-in wallet.", 403);
+  const isSender = !!signedIn && signedIn.toLowerCase() === current.sender.toLowerCase();
+  const claimSettled = (current.status === "claimed" || current.status === "reclaimed") && !!current.verifiedAt && !current.verifyNote?.startsWith("pending:");
 
   // The claim or the refund of a claim-link gift.
   if (body.claimTx && (body.status === "claimed" || body.status === "reclaimed")) {
     if (current.kind !== "claim-link") throw new AppError("BAD_REQUEST", "Only claim-link gifts are claimed.", 400);
+    if (claimSettled) return json({ gift: current });
     const patch = await settleGiftClaim(current, body.claimTx as Hash, body.status);
     const updated = await repos.gifts.update(id, patch);
     return json({ gift: updated ?? { ...current, ...patch } });
@@ -47,49 +55,28 @@ export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { k
   const hash = (body.txHash ?? current.txHash) as Hash | undefined;
   if (body.txHash || body.status === "submitted" || body.status === "confirmed" || body.status === "failed") {
     if (!hash) throw new AppError("BAD_REQUEST", "A gift status needs its transaction hash.", 400);
-    if (current.verifiedAt && current.txHash?.toLowerCase() === hash.toLowerCase() && body.status !== "failed") return json({ gift: current });
+    const sameHash = current.txHash?.toLowerCase() === hash.toLowerCase();
+    if (current.verifiedAt && sameHash && body.status !== "failed") return json({ gift: current });
+    if (current.verifiedAt && !sameHash && !isSender) throw new AppError("UNAUTHORIZED", "This gift is already matched to its transaction. Sign in with the sending wallet to change it.", 401);
     const patch = await settleGiftFunding(current, hash, body.status);
+    // A receipt that is not in yet must not unseat one that is.
+    if (current.verifiedAt && !patch.verifiedAt) return json({ gift: current });
     const updated = await repos.gifts.update(id, patch);
     return json({ gift: updated ?? { ...current, ...patch } });
   }
   return json({ gift: current });
 });
 
-/** Match a funding/sending hash to the record; the amount the chain shows replaces the draft's. */
+/**
+ * Match a funding/sending hash to the record; the amount (and, for a claim link, the expiry) the
+ * chain shows replace the draft's. The transition table lives in `fundingPatch`; this is the
+ * signature the sweep and the create route import.
+ */
 export async function settleGiftFunding(gift: GiftRecord, txHash: Hash, requested?: GiftRecord["status"]): Promise<Partial<GiftRecord>> {
-  const v = await verifyGift(gift, txHash);
-  if (v.ok) {
-    // A direct send is done once it is mined; a claim link stays "submitted" until it is claimed or taken back.
-    const status: GiftRecord["status"] = gift.kind === "claim-link" ? (gift.status === "claimed" || gift.status === "reclaimed" ? gift.status : "submitted") : "confirmed";
-    return { txHash, status, rawAmount: v.amount.toString(), verifiedAt: Date.now(), verifyNote: undefined };
-  }
-  if (v.state === "mismatch") {
-    const e = verdictError(v);
-    throw new AppError(e.code, e.message, e.status);
-  }
-  if (v.state === "reverted") return { txHash, status: "failed", verifyNote: "reverted" };
-  // Not mined yet: keep the hash, keep the record unproven, and let the sweep finish the job.
-  return { txHash, status: requested === "failed" ? "failed" : gift.status === "draft" ? "submitted" : gift.status };
+  return fundingPatch(gift, txHash, await verifyGift(gift, txHash), requested);
 }
 
 /** Match a claim or reclaim hash to the escrow's own log; the recipient comes from the log. */
 export async function settleGiftClaim(gift: GiftRecord, claimTx: Hash, kind: "claimed" | "reclaimed"): Promise<Partial<GiftRecord>> {
-  if (kind === "claimed") {
-    const v = await verifyGiftClaim(gift, claimTx);
-    if (v.ok) return { status: "claimed", claimTx, recipient: v.recipient, verifiedAt: Date.now(), verifyNote: undefined };
-    return pendingOrThrow(v, claimTx, kind);
-  }
-  const v = await verifyGiftReclaim(gift, claimTx);
-  if (v.ok) return { status: "reclaimed", claimTx, verifiedAt: Date.now(), verifyNote: undefined };
-  return pendingOrThrow(v, claimTx, kind);
-}
-
-function pendingOrThrow(v: { ok: false; state: "pending" | "reverted" | "mismatch"; reason: string }, claimTx: Hash, kind: "claimed" | "reclaimed"): Partial<GiftRecord> {
-  if (v.state === "mismatch") {
-    const e = verdictError(v);
-    throw new AppError(e.code, e.message, e.status);
-  }
-  if (v.state === "reverted") throw new AppError("TX_REVERTED", v.reason, 409);
-  // Not mined yet: remember the hash and what it is for; the sweep verifies it.
-  return { claimTx, verifyNote: `pending:${kind}` };
+  return claimPatch(claimTx, kind, kind === "claimed" ? await verifyGiftClaim(gift, claimTx) : await verifyGiftReclaim(gift, claimTx));
 }

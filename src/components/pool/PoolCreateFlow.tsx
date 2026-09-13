@@ -5,16 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, erc20Abi, formatUnits, type Address, type Hash } from "viem";
-import { base } from "viem/chains";
 import { Check, Layers, Link2, TriangleAlert, Users } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { PoolGateMode, PoolRecord, Quest } from "@/domain/pool";
 import type { PortfolioHolding } from "@/domain/portfolio";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
-import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
-import { attributionCapabilities, withAttribution } from "@/lib/attribution";
+import { apiPost, ApiError } from "@/lib/client-api";
 import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, giftPoolAbi, makePoolLinkSecret, poolPath, poolSalt, sharesForUsd, splitIntoShares } from "@/lib/pool";
+import { patchWithRetry } from "@/lib/gift/record";
+import { probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { callAfterApproval } from "@/lib/trade/execute";
 import { useAuth } from "@/hooks/useAuth";
@@ -37,7 +36,7 @@ const EXPIRY_DAYS: Array<[number, string]> = [
 ];
 const SLOT_PRESETS = [5, 10, 25, 100];
 
-type Phase = "form" | "signing" | "submitted" | "ready";
+type Phase = "form" | "signing" | "submitted" | "recording" | "ready";
 
 interface LegDraft {
   /** Human amount of the TOTAL to give away for this stock, always in share units. */
@@ -59,11 +58,6 @@ interface LegDraft {
   portion?: number | null;
 }
 
-/**
- * Creates a gift pool: one deposit, many equal shares. The creator names the total per stock and
- * how many people it is for; the split is computed here and sent to the contract as an exact
- * per-claim amount, so nothing rounds onchain and no dust is left behind.
- */
 /** A basket handed over from Build: the stocks to pre-pick (lowercase), the number of shares, a title. */
 export interface PoolPreset {
   assets: string[];
@@ -71,11 +65,16 @@ export interface PoolPreset {
   title?: string;
 }
 
+/**
+ * Creates a gift pool: one deposit, many equal shares. The creator names the total per stock and
+ * how many people it is for; the split is computed here and sent to the contract as an exact
+ * per-claim amount, so nothing rounds onchain and no dust is left behind.
+ */
 export function PoolCreateFlow({ holdings, assets, preset }: { holdings: PortfolioHolding[]; assets: B20AssetDTO[]; preset?: PoolPreset }) {
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
-  const { isSignedIn, ensureSignedIn } = useAuth();
+  const { ensureSignedIn } = useAuth();
   const questsEnabled = useConfigFlags().data?.poolQuestsEnabled ?? false;
 
   // Defaults come from the hand-off preset (when there is one) until the user touches a field;
@@ -107,7 +106,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
         : null
     : null;
   const [error, setError] = useState<HumanError | null>(null);
-  const [created, setCreated] = useState<{ pool: PoolRecord; link: string } | null>(null);
+  const [created, setCreated] = useState<{ pool: PoolRecord; link: string; recorded: boolean } | null>(null);
   const [txHash, setTxHash] = useState<Hash | undefined>();
 
   const assetFor = (addr: string) => assets.find((a) => a.canonicalId === addr.toLowerCase()) ?? null;
@@ -201,7 +200,6 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
 
   const setWindow = (d: number) => setDays(d);
 
-
   const qr = useQuery({
     queryKey: ["pool-qr", created?.pool.id ?? ""],
     queryFn: () => QRCode.toDataURL(created!.link, { margin: 1, width: 320, color: { dark: "#0a0b0d", light: "#ffffff" } }),
@@ -218,7 +216,9 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
     setError(null);
     setPhase("signing");
     try {
-      if (isPublic && !isSignedIn) await ensureSignedIn();
+      // The draft is written under this wallet and the creator's own list is served by session,
+      // so the one signature happens here, public or not.
+      await ensureSignedIn();
 
       const secret = gateMode === "link" ? makePoolLinkSecret() : null;
       const expiry = Date.now() + days * 24 * 3600 * 1000;
@@ -269,51 +269,34 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
         })
         .map((l) => ({
           to: l.asset.address as Address,
-          data: withAttribution(encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_POOL_ADDRESS as Address, l.funded] })),
+          data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_POOL_ADDRESS as Address, l.funded] }),
         }));
+      const calls = [...approvals, { to: GIFT_POOL_ADDRESS as Address, data: createData }];
 
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
-
-      let hash: Hash | undefined;
-      if (atomic) {
-        const { id } = await walletClient.sendCalls({
-          account: address,
-          chain: base,
-          forceAtomic: true,
-          calls: [...approvals, { to: GIFT_POOL_ADDRESS as Address, data: withAttribution(createData) }],
-          capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
-        });
-        setPhase("submitted");
-        const result = await walletClient.waitForCallsStatus({ id, timeout: 240_000 });
-        if (result.status === "failure") throw new Error("The batched transaction failed onchain.");
-        hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
-      } else {
-        for (const a of approvals) {
-          const ah = await walletClient.sendTransaction({ account: address, chain: base, to: a.to, data: a.data });
-          await publicClient.waitForTransactionReceipt({ hash: ah });
-        }
+      const caps = await probeWalletCapabilities(walletClient, address);
+      const { last: hash } = await sendCallsOrSequential({
+        walletClient,
+        publicClient,
+        address,
+        caps,
+        sponsor: true,
+        calls,
+        timeoutMs: 240_000,
         // Dry run before spending gas on the real thing. `callAfterApproval`, not a plain `call`:
         // the fallback transport spreads reads across RPCs, so the node that answers this one can
         // still be a block behind the approvals we just mined and report InsufficientAllowance for
         // an allowance that exists. A pool approves one token per leg, so there is more of that
         // lag to absorb here than on a single-token trade — hence the longer retry budget.
-        await callAfterApproval(publicClient, address, { to: GIFT_POOL_ADDRESS as Address, data: createData }, approvals.length > 0 ? 6 : 2);
-        hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_POOL_ADDRESS as Address, data: withAttribution(createData) });
-        setPhase("submitted");
-        await publicClient.waitForTransactionReceipt({ hash });
-      }
-
+        preflight: (call, i) => (i === calls.length - 1 ? callAfterApproval(publicClient, address, call, approvals.length > 0 ? 6 : 2) : Promise.resolve()),
+        onSubmitted: () => setPhase("submitted"),
+      });
       setTxHash(hash);
-      void apiPatch(`/api/pools/${pool.id}`, { txHash: hash, status: "submitted" }).catch(() => undefined);
-      setCreated({ pool, link: `${window.location.origin}${poolPath(pool.id, secret?.privateKey)}` });
+
+      // Until the hash is on the record the pool page is a 404 and the funds look stuck; this is
+      // awaited and retried, and the link is shown only once it is written (or we say that it was not).
+      setPhase("recording");
+      const written = hash ? await patchWithRetry(`/api/pools/${pool.id}`, { txHash: hash, status: "submitted" }) : null;
+      setCreated({ pool, link: `${window.location.origin}${poolPath(pool.id, secret?.privateKey)}`, recorded: !!written });
       setPhase("ready");
     } catch (err) {
       const humanized = err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message } : humanizeError(err);
@@ -345,6 +328,11 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
             <p className="text-[13px] text-ink-secondary">{`Each person gets ${perLabels.join(" + ")}. One share per wallet.`}</p>
           </div>
         </div>
+        {!created.recorded && (
+          <InfoBanner tone="warning">
+            The pool is funded onchain, but we could not record the transaction just now. The page starts working once our next check finds it (a few minutes); keep the link.
+          </InfoBanner>
+        )}
         {gateMode === "link" && (
           <InfoBanner tone="warning">
             <span className="inline-flex items-start gap-2">
@@ -363,7 +351,8 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
 
   /* --------------------------------- form ---------------------------------- */
 
-  const busy = phase === "signing" || phase === "submitted";
+  const busy = phase === "signing" || phase === "submitted" || phase === "recording";
+  const busyLabel = phase === "recording" ? "Recording the pool…" : phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…";
 
   return (
     <div className="flex flex-col gap-5">
@@ -512,7 +501,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
           {gateMode === "link"
             ? "Whoever holds the share link can take one share. The key lives in the link only — never on a server."
             : gateMode === "open"
-              ? "Anyone can claim a share directly, one per wallet. Best for a public giveaway you want people to find."
+              ? "Anyone can claim a share directly, one per wallet, paying their own gas. Best for a public giveaway you want people to find."
               : "Claimers must finish a task first. BaseStocks verifies it and signs a one-off ticket; the pool cannot be claimed without one."}
         </p>
       </div>
@@ -535,7 +524,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="mt-0.5 accent-[var(--primary)] w-4 h-4" />
           <span>
             List in the public pool directory
-            <span className="block text-[12px] text-ink-muted">Needs a one-time sign-in to prove the wallet is yours. Unlisted pools are reachable only through your link.</span>
+            <span className="block text-[12px] text-ink-muted">Unlisted pools are reachable only through your link.</span>
           </span>
         </label>
       </div>
@@ -560,7 +549,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
 
       {error && <ErrorBanner message={error.message} detail={error.detail} />}
       <Button full size="lg" loading={busy} disabled={!ready} onClick={() => setConfirming(true)}>
-        {busy ? (phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…") : `Review and create · ${slots} shares`}
+        {busy ? busyLabel : `Review and create · ${slots} shares`}
       </Button>
 
       {/*
@@ -571,8 +560,8 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
       {confirming && (
         <Sheet open={confirming} onClose={() => setConfirming(false)} title="Before you create it" wide>
           <div className="flex flex-col gap-4">
-      {presetNote && <InfoBanner tone="warning">{presetNote}</InfoBanner>}
-      {preset && !presetNote && <InfoBanner>A package for one person: every stock of the basket, one share, claimable with a link. Set the amount per stock below.</InfoBanner>}
+            {presetNote && <InfoBanner tone="warning">{presetNote}</InfoBanner>}
+            {preset && !presetNote && <InfoBanner>A package for one person: every stock of the basket, one share, claimable with a link. Set the amount per stock below.</InfoBanner>}
             <div className="border border-line rounded-[8px] overflow-hidden">
               <div className="px-4 py-2 border-b border-line bg-surface font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">What each person sees</div>
               <div className="p-4 flex flex-col gap-1">
@@ -598,14 +587,14 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
               </span>
             </InfoBanner>
 
-            <p className="text-[12px] text-ink-muted">The number of shares, the amount each one pays out and the claim window are fixed when the pool is created. Nothing here can be edited afterwards.</p>
+            <p className="text-[12px] text-ink-muted">The number of shares, the amount each one pays out and the claim window are fixed when the pool is created. Nothing here can be edited afterwards. Creating needs a one-time sign-in to prove the wallet is yours.</p>
 
             <div className="flex gap-2">
               <Button variant="secondary" full onClick={() => setConfirming(false)}>
                 Back
               </Button>
               <Button full loading={busy} onClick={() => void create()}>
-                {busy ? (phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…") : "Create pool"}
+                {busy ? busyLabel : "Create pool"}
               </Button>
             </div>
           </div>

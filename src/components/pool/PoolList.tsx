@@ -22,6 +22,15 @@ export function remainingShares(v: PoolView): number {
   return v.onchain?.remainingSlots ?? Math.max(0, v.pool.slots - v.claimCount);
 }
 
+/**
+ * Shares actually taken. Not `slots - remaining`: the contract's `remainingSlots` is zero the
+ * moment a pool is cancelled or expires, which made every closed pool read "N of N claimed".
+ * The chain's `claimed` counter is the figure; `claimCount` (itself the chain's when read) is the fallback.
+ */
+export function claimedShares(v: PoolView): number {
+  return v.onchain?.exists ? v.onchain.claimed : Math.min(v.pool.slots, v.claimCount);
+}
+
 /** One shared query so the directory, the Gifts tab and the home card never disagree. */
 export function usePublicPools() {
   return useQuery({
@@ -38,7 +47,7 @@ export function usePublicPools() {
 export function PoolCard({ view }: { view: PoolView }) {
   const [loadedAt] = useState(() => Date.now());
   const remaining = remainingShares(view);
-  const taken = view.pool.slots - remaining;
+  const taken = claimedShares(view);
   const pct = view.pool.slots > 0 ? Math.round((taken / view.pool.slots) * 100) : 0;
   const locked = view.pool.lockedUntil > loadedAt;
 
@@ -141,7 +150,7 @@ export function PoolList({ columns = 2, showFinished = true }: { columns?: 2 | 3
           <div className="px-4 py-3 border-b border-line font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Finished</div>
           <ul>
             {finished.slice(0, 12).map((v) => {
-              const taken = v.pool.slots - remainingShares(v);
+              const taken = claimedShares(v);
               return (
                 <li key={v.pool.id}>
                   <Link href={`/pools/${v.pool.id}`} className="flex items-center gap-3 px-4 py-2.5 border-b border-line last:border-b-0 hover:bg-surface transition-fast min-w-0">
@@ -159,7 +168,7 @@ export function PoolList({ columns = 2, showFinished = true }: { columns?: 2 | 3
                         <TimeAgo value={v.pool.createdAt} />
                       </span>
                     </span>
-                    <Badge>{v.pool.status === "cancelled" ? "Closed" : remainingShares(v) === 0 ? "All claimed" : "Ended"}</Badge>
+                    <Badge>{v.pool.status === "cancelled" ? "Closed" : taken >= v.pool.slots ? "All claimed" : "Ended"}</Badge>
                   </Link>
                 </li>
               );

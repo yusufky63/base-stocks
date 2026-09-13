@@ -1,10 +1,12 @@
-import { decodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
-import { z } from "zod";
+import { decodeFunctionData, erc20Abi, zeroAddress, type Address, type Hex } from "viem";
+import type { z } from "zod";
 import { serverEnv } from "@/config/env";
-import { EXECUTABLE_QUOTE_TTL_MS } from "@/config/chain";
+import { EXECUTABLE_QUOTE_TTL_MS, isNativeEth } from "@/config/chain";
 import type { ExecutableQuote, IndicativeQuote, TradeIntent, TradeProvider } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { CircuitBreaker, fetchJson } from "@/lib/http";
+import { INDICATIVE_TIMEOUT_MS } from "../budget";
+import { uniswapApprovalResponseSchema, uniswapErrorSchema, uniswapQuoteResponseSchema, uniswapSwapResponseSchema, type UniswapQuoteResponse } from "./schemas";
 
 /**
  * Uniswap Trading API (Base) — proxy-approval flow, no Permit2 signatures.
@@ -20,36 +22,28 @@ import { CircuitBreaker, fetchJson } from "@/lib/http";
 const BASE_URL = "https://trade-api.gateway.uniswap.org/v1";
 const breaker = new CircuitBreaker("uniswap", 3, 20_000);
 
-const amountSchema = z.object({ amount: z.string(), token: z.string().optional(), minimumAmount: z.string().optional(), maximumAmount: z.string().optional() });
-const quoteResponseSchema = z.object({
-  requestId: z.string().optional(),
-  routing: z.string(),
-  permitData: z.unknown().nullable().optional(),
-  isTokenApprovalApplicable: z.boolean().optional(),
-  quote: z
-    .object({
-      input: amountSchema,
-      output: amountSchema,
-      gasFee: z.string().optional(),
-      gasFeeUSD: z.union([z.string(), z.number()]).optional(),
-      gasUseEstimate: z.union([z.string(), z.number()]).optional(),
-      priceImpact: z.number().optional(),
-      quoteId: z.string().optional(),
-      routeString: z.string().optional(),
-      route: z.array(z.array(z.object({ type: z.string().optional(), fee: z.union([z.string(), z.number()]).optional() }).passthrough())).optional(),
-    })
-    .passthrough(),
-});
-const swapResponseSchema = z.object({
-  requestId: z.string().optional(),
-  gasFee: z.string().optional(),
-  swap: z.object({ to: z.string(), from: z.string().optional(), data: z.string(), value: z.string().optional(), gasLimit: z.string().optional(), chainId: z.number().optional(), maxFeePerGas: z.string().optional() }),
-});
-const approvalResponseSchema = z.object({ approval: z.object({ to: z.string(), data: z.string() }).nullable().optional() });
-const errorSchema = z.object({ errorCode: z.string().optional(), detail: z.string().optional() });
+/**
+ * The approval proxy the no-Permit2 flow routes through: both the swap's `to` and the spender the
+ * API asks the wallet to approve. Observed in live quote + swap responses on 2026-09-02 (see
+ * above); the spender is still decoded from each response's own approve calldata, and the router
+ * refuses a quote that names anything else.
+ */
+export const UNISWAP_SWAP_PROXY: Address = "0x02E5be68D46DAc0B524905bfF209cf47EE6dB2a9";
+/** Contracts a Uniswap quote may send the wallet to or ask it to approve. */
+export const EXPECTED_TARGETS: readonly Address[] = [UNISWAP_SWAP_PROXY];
 
 function headers(): Record<string, string> {
   return { "x-api-key": serverEnv().UNISWAP_API_KEY ?? "", "x-permit2-disabled": "true" };
+}
+
+/**
+ * The API's spelling of native ETH. The app (and Kyber, Velora, 0x, OKX) write it as
+ * `0xeeee…eeee`; Uniswap's docs say "To swap native tokens, use the address
+ * 0x0000000000000000000000000000000000000000" (supported-chains page, read 2026-09-13), and the
+ * `0xeeee…` form was being sent as if it were an ERC-20 the API had never heard of.
+ */
+export function uniswapTokenAddress(token: Address): Address {
+  return isNativeEth(token) ? zeroAddress : token;
 }
 
 function toBig(v: string | number | null | undefined): bigint | null {
@@ -67,7 +61,7 @@ async function post<T>(path: string, body: unknown, schema: z.ZodType<T>, timeou
     if (status === 429) throw new AppError("PROVIDER_UNAVAILABLE", "uniswap: rate limited", 503);
     if (status >= 500) throw new AppError("PROVIDER_UNAVAILABLE", `uniswap: http ${status}`, 502);
     if (status >= 400) {
-      const err = errorSchema.safeParse(data);
+      const err = uniswapErrorSchema.safeParse(data);
       const detail = err.success ? `${err.data.errorCode ?? ""} ${err.data.detail ?? ""}`.trim() : `http ${status}`;
       // Validation errors and "no route" both mean this provider cannot serve the intent; not an outage.
       throw new AppError("ROUTE_UNAVAILABLE", `uniswap: ${detail}`, 409);
@@ -79,9 +73,11 @@ async function post<T>(path: string, body: unknown, schema: z.ZodType<T>, timeou
 }
 
 /** The proxy the API expects approvals for, decoded from its own approve calldata (never hardcoded). */
-async function approvalSpender(intent: TradeIntent, taker: Address): Promise<Address | null> {
+async function approvalSpender(intent: TradeIntent, taker: Address, timeoutMs: number): Promise<Address | null> {
+  // Native ETH is sent as value; there is nothing to approve and the endpoint has no answer for it.
+  if (isNativeEth(intent.sellToken)) return null;
   try {
-    const r = await post("/check_approval", { walletAddress: taker, token: intent.sellToken, amount: intent.sellAmount.toString(), chainId: intent.chainId }, approvalResponseSchema, 5_000);
+    const r = await post("/check_approval", { walletAddress: taker, token: intent.sellToken, amount: intent.sellAmount.toString(), chainId: intent.chainId }, uniswapApprovalResponseSchema, timeoutMs);
     if (!r.approval?.data) return null;
     const decoded = decodeFunctionData({ abi: erc20Abi, data: r.approval.data as Hex });
     if (decoded.functionName !== "approve") return null;
@@ -91,29 +87,41 @@ async function approvalSpender(intent: TradeIntent, taker: Address): Promise<Add
   }
 }
 
-async function fetchQuote(intent: TradeIntent, taker: Address): Promise<z.infer<typeof quoteResponseSchema>> {
+async function fetchQuote(intent: TradeIntent, taker: Address, timeoutMs: number): Promise<UniswapQuoteResponse> {
   const body = {
     type: "EXACT_INPUT",
     amount: intent.sellAmount.toString(),
     tokenInChainId: intent.chainId,
     tokenOutChainId: intent.chainId,
-    tokenIn: intent.sellToken,
-    tokenOut: intent.buyToken,
+    tokenIn: uniswapTokenAddress(intent.sellToken),
+    tokenOut: uniswapTokenAddress(intent.buyToken),
     swapper: taker,
     routingPreference: "BEST_PRICE",
     slippageTolerance: Math.max(0.01, intent.slippageBps / 100),
   };
-  return post("/quote", body, quoteResponseSchema, 6_000);
+  return post("/quote", body, uniswapQuoteResponseSchema, timeoutMs);
 }
 
 /** The API needs a real-looking swapper for indicative quotes; low addresses are rejected. */
 const PROBE_TAKER: Address = "0x1111111111111111111111111111111111111111";
 
-function normalize(q: z.infer<typeof quoteResponseSchema>, intent: TradeIntent, spender: Address | null): IndicativeQuote {
+/**
+ * The proxy flow delivers to the swapper only; there is no recipient field to fill. Refusing that
+ * at the firm quote alone let Uniswap win a gift's comparison on price and then fail the user at
+ * review, so the indicative quote refuses the same way and the comparison never shows it.
+ */
+function assertNoGiftRecipient(intent: TradeIntent): void {
+  if (intent.recipient && intent.recipient.toLowerCase() !== intent.taker?.toLowerCase()) {
+    throw new AppError("ROUTE_UNAVAILABLE", "uniswap: custom recipients are not supported in the proxy flow", 409);
+  }
+}
+
+function normalize(q: UniswapQuoteResponse, intent: TradeIntent, spender: Address | null): IndicativeQuote {
   const buyAmount = toBig(q.quote.output.amount) ?? 0n;
   const gas = toBig(q.quote.gasUseEstimate);
   const fee = toBig(q.quote.gasFee);
   const route = (q.quote.route ?? []).flat().map((hop) => ({ source: `uniswap-${hop.type ?? "pool"}${hop.fee ? ` ${Number(hop.fee) / 10_000}%` : ""}`, proportionBps: null }));
+  const nativeSell = isNativeEth(intent.sellToken);
   return {
     provider: "uniswap",
     sellToken: intent.sellToken,
@@ -128,7 +136,7 @@ function normalize(q: z.infer<typeof quoteResponseSchema>, intent: TradeIntent, 
     allowanceTarget: spender,
     route: route.length ? route : [{ source: `uniswap ${q.routing.toLowerCase()}`, proportionBps: null }],
     issues: {
-      allowanceRequired: q.isTokenApprovalApplicable ?? true,
+      allowanceRequired: nativeSell ? false : (q.isTokenApprovalApplicable ?? true),
       allowanceSpender: spender,
       balanceInsufficient: false,
       simulationIncomplete: true,
@@ -145,8 +153,9 @@ export class UniswapTradeProvider implements TradeProvider {
   }
 
   async getIndicativeQuote(intent: TradeIntent): Promise<IndicativeQuote> {
+    assertNoGiftRecipient(intent);
     const taker = intent.taker ?? PROBE_TAKER;
-    const [q, spender] = await Promise.all([fetchQuote(intent, taker), approvalSpender(intent, taker)]);
+    const [q, spender] = await Promise.all([fetchQuote(intent, taker, INDICATIVE_TIMEOUT_MS), approvalSpender(intent, taker, INDICATIVE_TIMEOUT_MS)]);
     const out = normalize(q, intent, spender);
     if (!out.liquidityAvailable) throw new AppError("ROUTE_UNAVAILABLE", "uniswap: no route for this amount", 409);
     return out;
@@ -154,13 +163,11 @@ export class UniswapTradeProvider implements TradeProvider {
 
   async getExecutableQuote(intent: TradeIntent): Promise<ExecutableQuote> {
     if (!intent.taker) throw new AppError("BAD_REQUEST", "taker is required for an executable quote", 400);
-    if (intent.recipient && intent.recipient.toLowerCase() !== intent.taker.toLowerCase()) {
-      throw new AppError("ROUTE_UNAVAILABLE", "uniswap: custom recipients are not supported in the proxy flow", 409);
-    }
-    const [q, spender] = await Promise.all([fetchQuote(intent, intent.taker), approvalSpender(intent, intent.taker)]);
+    assertNoGiftRecipient(intent);
+    const [q, spender] = await Promise.all([fetchQuote(intent, intent.taker, 6_000), approvalSpender(intent, intent.taker, 5_000)]);
     const base = normalize(q, intent, spender);
     if (!base.liquidityAvailable) throw new AppError("ROUTE_UNAVAILABLE", "uniswap: no route for this amount", 409);
-    const built = await post("/swap", { quote: q.quote, simulateTransaction: false }, swapResponseSchema, 7_000);
+    const built = await post("/swap", { quote: q.quote, simulateTransaction: false }, uniswapSwapResponseSchema, 7_000);
     const to = built.swap.to as Address;
     return {
       ...base,

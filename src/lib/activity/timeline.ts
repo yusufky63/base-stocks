@@ -6,6 +6,7 @@ import type { PortfolioExecution } from "@/domain/portfolio";
 import type { EarnActionRecord, TradeRecord } from "@/db/repositories";
 import type { ReceiptState } from "@/services/receipt-service";
 import { USDC_DECIMALS } from "@/config/chain";
+import { earnVenueLabel } from "@/lib/earn/labels";
 
 /**
  * The activity timeline, assembled from records the app wrote and transfers the chain shows.
@@ -23,6 +24,9 @@ export interface TimelineAsset {
   address: Address;
   symbol: string;
   decimals: number;
+  /** B20 multiplier and its precision, so raw units can be shown as share-equivalents. */
+  multiplier?: string;
+  wadPrecision?: string;
 }
 
 export interface TimelineTransfer {
@@ -126,7 +130,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
         legHashes.add(lower(s.txHash));
         consumed.add(lower(s.txHash));
       } else if (s.status === "failed") status = "failed";
-      return { assetAddress: s.assetAddress, symbol: asset?.symbol ?? s.symbol, amountUsd: s.targetUsd, txHash: s.txHash, status, provider: s.provider, decimals: asset?.decimals };
+      return { assetAddress: s.assetAddress, symbol: asset?.symbol ?? s.symbol, amountUsd: s.targetUsd, txHash: s.txHash, status, provider: s.provider, decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision };
     });
     const confirmed = legs.filter((l) => l.status === "confirmed");
     const pending = legs.filter((l) => l.status === "pending" && l.txHash);
@@ -198,7 +202,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
         symbol: asset?.symbol,
         amountUsd: t.usdValue ?? undefined,
         rawAmount: t.side === "buy" ? t.buyAmount : t.sellAmount,
-        decimals: asset?.decimals,
+        decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision,
         counterparty: t.recipient,
         provider: t.provider,
         source: "app",
@@ -209,7 +213,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
     }
     const legs: ActivityLeg[] = unique.map((t) => {
       const asset = assetOf(t.assetAddress);
-      return { assetAddress: t.assetAddress, symbol: asset?.symbol ?? t.assetAddress.slice(0, 8), amountUsd: t.usdValue ?? undefined, rawAmount: t.side === "buy" ? t.buyAmount : t.sellAmount, decimals: asset?.decimals, txHash: t.txHash, status: st.verified ? "confirmed" : st.failed ? "failed" : "pending", provider: t.provider };
+      return { assetAddress: t.assetAddress, symbol: asset?.symbol ?? t.assetAddress.slice(0, 8), amountUsd: t.usdValue ?? undefined, rawAmount: t.side === "buy" ? t.buyAmount : t.sellAmount, decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision, txHash: t.txHash, status: st.verified ? "confirmed" : st.failed ? "failed" : "pending", provider: t.provider };
     });
     const auto = unique.every((t) => t.provider === "auto-invest");
     items.push({
@@ -257,7 +261,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       assetAddress: first.assetAddress,
       symbol: asset?.symbol,
       rawAmount: total.toString(),
-      decimals: asset?.decimals,
+      decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision,
       counterparty: single && single.status === "claimed" && lower(single.recipient) !== lower(ZERO_ADDRESS) ? single.recipient : undefined,
       source: "app",
       verified: st.verified,
@@ -298,7 +302,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
         assetAddress: g.assetAddress,
         symbol: asset?.symbol,
         rawAmount: g.rawAmount,
-        decimals: asset?.decimals,
+        decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision,
         counterparty: g.sender,
         source: "app",
         verified: st.verified,
@@ -322,7 +326,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       symbol: asset?.symbol,
       amountUsd: trade?.usd ?? undefined,
       rawAmount: g.rawAmount,
-      decimals: asset?.decimals,
+      decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision,
       counterparty: isSender ? g.recipient : g.sender,
       counterpartyBasename: isSender ? g.recipientBasename : undefined,
       provider: trade?.provider,
@@ -357,7 +361,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
       provider: a.provider,
       source: "app",
       verified: r?.status === "success" && a.verifiedAt !== undefined,
-      metadata: { opportunityId: a.opportunityId, title: EARN_PROVIDER_LABEL[a.provider] ?? a.provider, lp, ...(r?.status === "reverted" ? { failed: true } : {}) },
+      metadata: { opportunityId: a.opportunityId, title: earnVenueLabel(a.provider), lp, ...(r?.status === "reverted" ? { failed: true } : {}) },
     });
   }
 
@@ -432,7 +436,7 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
         assetAddress: t.asset,
         symbol: asset?.symbol,
         rawAmount: t.value.toString(),
-        decimals: asset?.decimals,
+        decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision,
         counterparty: isOut ? t.to : t.from,
         source: "onchain",
         verified: true,
@@ -444,8 +448,6 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
   return items;
 }
 
-const EARN_PROVIDER_LABEL: Record<string, string> = { morpho: "Morpho", aave: "Aave V3", compound: "Compound v3", aerodrome: "Aerodrome Slipstream", uniswap: "Uniswap v3" };
-
 /** Concentrated-liquidity venues: their records carry stock as well as USDC. */
 export function isLpProvider(provider: string): boolean {
   return provider === "uniswap" || provider === "aerodrome";
@@ -454,6 +456,6 @@ export function isLpProvider(provider: string): boolean {
 function poolLegs(p: PoolRecord, assetOf: (a: string) => TimelineAsset | undefined): Array<Omit<ActivityLeg, "status">> {
   return p.legs.map((l) => {
     const asset = assetOf(l.token);
-    return { assetAddress: l.token, symbol: asset?.symbol ?? l.token.slice(0, 8), rawAmount: l.amountPerClaim, decimals: asset?.decimals };
+    return { assetAddress: l.token, symbol: asset?.symbol ?? l.token.slice(0, 8), rawAmount: l.amountPerClaim, decimals: asset?.decimals, multiplier: asset?.multiplier, wadPrecision: asset?.wadPrecision };
   });
 }

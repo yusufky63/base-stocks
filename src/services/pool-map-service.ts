@@ -1,7 +1,7 @@
 import type { Address } from "viem";
 import { getDexPools } from "@/providers/earn/geckoterminal-pools";
 import { getMarketDataMap } from "./price-service";
-import { getAssets } from "./b20-asset-service";
+import { getAsset } from "./b20-asset-service";
 import { discoverEarn } from "./earn-opportunity-service";
 import { AppError } from "@/lib/errors";
 
@@ -39,8 +39,9 @@ export interface PoolMapView {
  * which appear on the Earn tab. Makes "we show 8 pools, GeckoTerminal shows 9" a visible fact.
  */
 export async function getPoolMap(address: Address): Promise<PoolMapView> {
-  const assets = await getAssets();
-  const asset = assets.find((a) => a.canonicalId === address.toLowerCase());
+  // One asset, not the registry: the pool list is per stock, and assembling thirteen assets to
+  // find one was most of this route's latency.
+  const asset = await getAsset(address);
   if (!asset) throw new AppError("NOT_FOUND", "Unknown asset", 404);
   const [pools, md, earn] = await Promise.all([getDexPools(asset.address, { includeUnknown: true }), getMarketDataMap([asset.address]).catch(() => new Map()), discoverEarn(asset.address).catch(() => null)]);
   const primary = md.get(asset.canonicalId)?.primaryPool?.toLowerCase() ?? null;

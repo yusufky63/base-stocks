@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import { formatUnits, type Address } from "viem";
 import type { B20Asset } from "@/domain/asset";
 import type { PriceView, TokenMarketData } from "@/domain/market";
 import { getMarketDataProvider } from "@/providers/market-data";
@@ -60,6 +60,11 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
     (!referenceUsable ||
       (deviationPct !== null && Math.abs(deviationPct) <= MAX_DISPLAY_DEVIATION_PCT && (market?.liquidityUsd ?? 0) >= MIN_DISPLAY_LIQUIDITY_USD));
 
+  // Why the pool price lost the headline, for the page to say so in the right words. Depth first:
+  // a thin pool's deviation is expected, and "deviation" would blame the wrong thing.
+  let displayReason: PriceView["displayReason"] = null;
+  if (marketUsd !== null && !marketTrusted) displayReason = (market?.liquidityUsd ?? 0) < MIN_DISPLAY_LIQUIDITY_USD ? "thin" : "deviation";
+
   let displayUsd: number | null = null;
   let displaySource: PriceView["displaySource"] = "none";
   if (marketUsd !== null && marketTrusted) {
@@ -87,7 +92,9 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
     referenceUpdatedAt: asset.oracle ? Number(asset.oracle.updatedAt) * 1000 : null,
     displayUsd,
     displaySource,
-    deviationPct: referenceUsable ? deviationPct : deviationPct,
+    deviationPct,
+    displayReason,
+    marketCapUsd: market?.marketCapUsd ?? null,
   };
 }
 
@@ -137,6 +144,17 @@ export async function getMarketDataMap(addresses: Address[]): Promise<Map<string
   return merged;
 }
 
+/**
+ * The latest reading for one token without a provider call: whatever the last batch remembered,
+ * if it is younger than the market cache's full window. The chart uses it to validate its candles;
+ * before this, every chart asked DexScreener again for a number the page had just fetched.
+ */
+export async function peekMarketData(address: Address, maxAgeMs = TTL.market.ttlMs + TTL.market.staleMs): Promise<TokenMarketData | null> {
+  const good = await recallGood<Map<string, TokenMarketData>>(MARKET_KEY).catch(() => null);
+  const v = good?.value?.get(address.toLowerCase());
+  return v && Date.now() - v.updatedAt <= maxAgeMs ? v : null;
+}
+
 export async function getPriceViews(assets: B20Asset[]): Promise<Map<string, PriceView>> {
   const md = await getMarketDataMap(assets.map((a) => a.address));
   const out = new Map<string, PriceView>();
@@ -156,6 +174,19 @@ export async function getEthUsd(): Promise<number | null> {
 }
 
 /** Basis for price-impact display: fresh reference first, else market. */
+/**
+ * What `rawAmount` of a stock is worth right now, at the same basis the trade panel measures
+ * impact against; null when neither a live reference nor a trusted market price is known.
+ */
+export async function estimateStockUsd(asset: B20Asset, rawAmount: bigint): Promise<number | null> {
+  if (rawAmount <= 0n) return null;
+  const md = await getMarketDataMap([asset.address]).catch(() => new Map<string, TokenMarketData>());
+  const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
+  const price = impactBasis(view)?.price ?? view.displayUsd ?? asset.oracle?.priceUsd ?? null;
+  if (price === null || !(price > 0)) return null;
+  return Number(formatUnits(rawAmount, asset.decimals)) * price;
+}
+
 export function impactBasis(view: PriceView): { price: number; basis: "reference" | "market" } | null {
   if (view.referenceUsd !== null && !view.referenceStale && !view.referencePaused) return { price: view.referenceUsd, basis: "reference" };
   if (view.marketUsd !== null) return { price: view.marketUsd, basis: "market" };

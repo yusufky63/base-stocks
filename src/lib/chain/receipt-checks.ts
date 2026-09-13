@@ -1,4 +1,4 @@
-import { decodeEventLog, encodeEventTopics, erc20Abi, type Abi, type Address, type Hex } from "viem";
+import { decodeEventLog, encodeEventTopics, erc20Abi, keccak256, toBytes, type Abi, type Address, type Hex } from "viem";
 
 /**
  * What a transaction receipt proves, read from its logs. Pure: hand it the logs and it answers;
@@ -81,6 +81,36 @@ export function findEvent<TArgs extends Record<string, unknown>>(logs: readonly 
 export function touches(logs: readonly ReceiptLog[], addresses: readonly Address[]): boolean {
   const set = new Set(addresses.map(lower));
   return logs.some((l) => set.has(lower(l.address)));
+}
+
+/** ERC-4337 EntryPoint (v0.6 and v0.7): `UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, …)`. */
+const USER_OPERATION_TOPIC = keccak256(toBytes("UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)")).toLowerCase();
+/** CoW GPv2Settlement: `Trade(address indexed owner, address sellToken, address buyToken, uint256 sellAmount, uint256 buyAmount, uint256 feeAmount, bytes orderUid)`. */
+const GPV2_TRADE_TOPIC = keccak256(toBytes("Trade(address,address,address,uint256,uint256,uint256,bytes)")).toLowerCase();
+
+const topicAddress = (topic: Hex | undefined): string => (topic && topic.length === 66 ? `0x${topic.slice(26)}`.toLowerCase() : "");
+
+/**
+ * Whether `wallet` is the account that set this transaction in motion.
+ *
+ * What moved is still the test of what a record is worth; this answers a different question,
+ * who may file it. A record filed without a session used to be accepted for any wallet whose
+ * real transaction it named, which let anyone write another person's trades into their history
+ * and the platform's figures. Three shapes cover the wallets the app serves: an EOA (and an
+ * EIP-7702 delegated one) is the transaction's `from`; a Base Account goes through the
+ * EntryPoint, which names it as the user operation's `sender`; a CoW order is settled by a solver,
+ * and the settlement's `Trade` event names the order's owner. A wallet outside these (a Safe, say)
+ * is not refused, it is asked to sign in.
+ */
+export function initiatedBy(logs: readonly ReceiptLog[], from: Address | undefined, wallet: Address): boolean {
+  const w = lower(wallet);
+  if (from && lower(from) === w) return true;
+  for (const log of logs) {
+    const t0 = lower(log.topics[0] ?? "");
+    if (t0 === USER_OPERATION_TOPIC && log.topics.length === 4 && topicAddress(log.topics[2]) === w) return true;
+    if (t0 === GPV2_TRADE_TOPIC && log.topics.length === 2 && topicAddress(log.topics[1]) === w) return true;
+  }
+  return false;
 }
 
 /**

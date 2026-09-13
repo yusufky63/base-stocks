@@ -5,6 +5,7 @@
  * `mark: null` falls back to a lettered badge.
  */
 import { LAUNCHPAD_URL } from "./ecosystem";
+import type { EarnProviderId } from "@/domain/earn";
 
 export interface Integration {
   name: string;
@@ -101,3 +102,25 @@ export const FOOTER_INTEGRATIONS: Integration[] = (() => {
   }
   return out;
 })();
+
+const BY_NAME = new Map<string, Integration>(INTEGRATIONS.flatMap((g) => g.items).map((i) => [i.name, i]));
+
+/** The listed platform by its display name; throws on a typo so a missing mark is caught at build time, not in the footer. */
+export function integrationNamed(name: string): Integration {
+  const hit = BY_NAME.get(name);
+  if (!hit) throw new Error(`Unknown integration "${name}"`);
+  return hit;
+}
+
+export function integrationsNamed(names: string[]): Integration[] {
+  return names.map(integrationNamed);
+}
+
+/** Which listed platform each Earn venue id belongs to, so venue rows draw the same mark and colour as the docs. */
+export const EARN_PROVIDER_INTEGRATION: Record<EarnProviderId, Integration> = {
+  morpho: integrationNamed("Morpho"),
+  aave: integrationNamed("Aave"),
+  compound: integrationNamed("Compound"),
+  aerodrome: integrationNamed("Aerodrome"),
+  uniswap: integrationNamed("Uniswap"),
+};

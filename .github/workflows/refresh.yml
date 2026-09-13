@@ -3,16 +3,27 @@ name: Refresh
 # The time-sensitive maintenance jobs, every fifteen minutes. Vercel's Hobby cron runs at most
 # once a day, which is fine for discovery and cache sweeps but not for the index of stock
 # transfers, the verification of records filed while their receipt was pending, the Earn and
-# pool reconciliations, or the shared statistics. Each job is its own request so none of them
-# can eat another's serverless budget; a failing job fails this run (and GitHub tells you).
+# pool reconciliations, or the shared statistics. Since 2026-09-13 Supabase pg_cron runs this
+# cadence; the workflow is the fallback, switched off with the repository variable
+# REFRESH_ENABLED=false. Each job is its own request so none of them can eat another's
+# serverless budget; a failing job fails this run (and GitHub tells you).
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
+# The job calls URLs with a secret and writes nothing back: no token scopes at all.
+permissions: {}
+
+# One pass at a time; a run that is still going when the next tick arrives should not be doubled.
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ vars.REFRESH_ENABLED != 'false' }}
     steps:
       - name: Run maintenance jobs
@@ -24,7 +35,7 @@ jobs:
           failed=0
           for job in index verify earn pools rollup stats status; do
             echo "== $job"
-            if curl -fsS "$APP_URL/api/cron/refresh?job=$job" -H "Authorization: Bearer $CRON_SECRET" -o out.json; then
+            if curl -fsS --max-time 90 "$APP_URL/api/cron/refresh?job=$job" -H "Authorization: Bearer $CRON_SECRET" -o out.json; then
               node -e "const r=require('./out.json'); for (const x of r.results) console.log(x.job, x.ms+'ms', x.error ? 'ERROR '+x.error : JSON.stringify(x.result));"
               if node -e "const r=require('./out.json'); process.exit(r.ok ? 0 : 1)"; then :; else failed=1; fi
             else

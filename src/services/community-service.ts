@@ -88,10 +88,12 @@ export async function updateProfile(address: Address, patch: { handle?: string; 
   return repos.profiles.upsert(next);
 }
 
-/** Resolve `/u/<handle-or-address>` to an address. */
+/** Resolve `/u/<handle-or-address>` to an address. A segment that is neither is nobody, not a query. */
 export async function resolveProfileRef(ref: string): Promise<Address | null> {
   if (/^0x[0-9a-fA-F]{40}$/.test(ref)) return ref as Address;
-  const p = await getRepos().profiles.getByHandle(ref.toLowerCase());
+  const handle = ref.trim().toLowerCase();
+  if (!HANDLE_RE.test(handle)) return null;
+  const p = await getRepos().profiles.getByHandle(handle);
   return p?.address ?? null;
 }
 

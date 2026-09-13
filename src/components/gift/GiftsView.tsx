@@ -6,6 +6,7 @@ import { useAccount } from "wagmi";
 import { Gift as GiftIcon, Send } from "lucide-react";
 import type { PortfolioHolding } from "@/domain/portfolio";
 import { useAssets, usePortfolio, useRegion } from "@/hooks/queries";
+import { useAuth } from "@/hooks/useAuth";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { ConnectButton } from "@/components/layout/ConnectButton";
@@ -45,6 +46,7 @@ function parseBasketPreset(search: string): { assets: string[]; slots: number; t
  */
 export function GiftsView() {
   const { address, isConnected } = useAccount();
+  const { isSignedIn, ensureSignedIn, signingIn } = useAuth();
   // A basket handed over from Build (`/gifts?basket=0x…,0x…&title=`) opens the pool creator with
   // its stocks picked and one share. The URL is read as an external store — empty on the server,
   // the real one after hydration — so the page stays static and nothing is set from an effect.
@@ -97,10 +99,32 @@ export function GiftsView() {
           <PoolList columns={2} />
         </div>
       ) : tab === "history" ? (
-        <div className="flex flex-col gap-6">
-          {poolsEnabled && address && <PoolHistory owner={address} />}
-          <Module>{address ? <GiftHistory owner={address} /> : <div className="p-6 flex flex-col items-start gap-3"><p className="text-[14px] text-ink-secondary">Connect a wallet to see your gifts.</p><ConnectButton /></div>}</Module>
-        </div>
+        // The wallet's own gifts and pools (drafts, messages, unlisted pools) are served by session
+        // only, so this tab asks for the one signature before it lists anything.
+        !address ? (
+          <Module>
+            <div className="p-6 flex flex-col items-start gap-3">
+              <p className="text-[14px] text-ink-secondary">Connect a wallet to see your gifts.</p>
+              <ConnectButton />
+            </div>
+          </Module>
+        ) : !isSignedIn ? (
+          <Module>
+            <div className="p-6 flex flex-col items-start gap-3">
+              <p className="text-[14px] text-ink-secondary">Sign in to see what you sent, received and pooled. One signature, costs nothing, approves no transaction.</p>
+              <Button size="lg" loading={signingIn} onClick={() => void ensureSignedIn().catch(() => undefined)}>
+                Sign in to see your gifts
+              </Button>
+            </div>
+          </Module>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {poolsEnabled && <PoolHistory owner={address} />}
+            <Module>
+              <GiftHistory owner={address} />
+            </Module>
+          </div>
+        )
       ) : restricted && region.data ? (
         <RegionNotice region={region.data} />
       ) : !isConnected ? (

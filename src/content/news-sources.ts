@@ -21,5 +21,3 @@ export const NEWS_SOURCES: NewsSource[] = [
   { id: "wsj", label: "WSJ Markets", scope: "market", homepage: "https://www.wsj.com/news/markets", note: "Markets desk." },
   { id: "investing", label: "Investing.com", scope: "market", homepage: "https://www.investing.com", note: "Stock market news." },
 ];
-
-export const NEWS_SOURCE_LABEL: Record<NewsVia, string> = Object.fromEntries(NEWS_SOURCES.map((s) => [s.id, s.label])) as Record<NewsVia, string>;

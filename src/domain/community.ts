@@ -115,6 +115,8 @@ export interface AutomationRule {
     lastError?: { at: number; message: string; retryAt?: number };
     /** Set while a keeper tick is executing this plan; stale after a few minutes. */
     runningSince?: number;
+    /** A run the keeper sent whose receipt had not arrived when its tick ran out; the next tick records it from the chain. */
+    pendingRun?: { txHash: Hash; at: number };
   };
   status: "proposed" | "active" | "paused" | "cancelled";
   nextRunAt?: number;

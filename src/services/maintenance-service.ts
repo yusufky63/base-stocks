@@ -8,6 +8,7 @@ import { getPlatformStats, rollupStats } from "@/services/stats-service";
 import { getSharedStore } from "@/lib/shared-store";
 import { invalidate } from "@/lib/cache";
 import { getSupabaseAdmin } from "@/db/supabase";
+import { pruneErrors } from "@/lib/error-sink";
 
 /**
  * The maintenance jobs, in one place because two callers need them.
@@ -87,7 +88,20 @@ const runners: Record<Job, (o: JobOpts) => Promise<unknown>> = {
       if (error) console.warn("[cron] rl sweep:", error.message);
       rateWindows = (data ?? []).length;
     }
-    return { sharedCache: shared ?? null, rateWindows };
+    // --- Retention (added 2026-09-13): rows nobody reads again. ---
+    // Error rows older than a fortnight, and the daily AI counters (ip:, wallet:, svc:, global)
+    // older than a week; the monthly spend rows carry a first-of-month `day` and a week is enough
+    // to keep the current month's. The `rl:` windows were handled above.
+    let errorRows = 0;
+    let aiRows = 0;
+    if (sb) {
+      errorRows = await pruneErrors(14 * 24 * 3600 * 1000).catch(() => 0);
+      const aiCutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      const { data: aiGone, error: aiErr } = await sb.from("ai_usage").delete().not("key", "like", "rl:%").lt("day", aiCutoff).select("key");
+      if (aiErr) console.warn("[cron] ai_usage sweep:", aiErr.message);
+      aiRows = (aiGone ?? []).length;
+    }
+    return { sharedCache: shared ?? null, rateWindows, errorRows, aiRows };
   },
 };
 

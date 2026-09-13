@@ -22,8 +22,14 @@ export const ELIGIBILITY_COOKIE = "bstocks_eligibility";
 function geoblockMode(): "block" | "attest" {
   return process.env.GEOBLOCK_MODE === "attest" ? "attest" : "block";
 }
-/** Closed to a blocked region whatever the method: these routes exist only to build an execution. */
-const RESTRICTED_API = [/^\/api\/trade\//, /^\/api\/earn\/prepare/, /^\/api\/portfolio\/(plan|quote|execute)/];
+/**
+ * Closed to a blocked region whatever the method: these routes exist only to build an execution.
+ * The list mirrors the handlers that call `assertTradingAllowed` (grep for it): trade quotes and
+ * signed orders, Earn deposits, the basket plan and the AI basket draft, and the owner-side run of
+ * an AutoInvest plan. `/api/portfolio/quote` and `/execute` were listed here for a while and never
+ * existed; a pattern that matches nothing protects nothing.
+ */
+const RESTRICTED_API = [/^\/api\/trade\//, /^\/api\/earn\/prepare/, /^\/api\/portfolio\/(plan|intent)/, /^\/api\/automation\/prepare-run/];
 
 /**
  * Closed for writes only. Reading a gift receipt or the pool directory is browsing and stays open

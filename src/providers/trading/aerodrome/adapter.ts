@@ -10,6 +10,8 @@ import { AERODROME_V2_FACTORY } from "@/providers/earn/aerodrome/adapter";
  * Verified onchain: Router.defaultFactory() == v2 PoolFactory 0x420D…40Da.
  */
 export const AERODROME_ROUTER: Address = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
+/** Contracts an Aerodrome quote may send the wallet to or ask it to approve: the Router, which is also the spender. */
+export const EXPECTED_TARGETS: readonly Address[] = [AERODROME_ROUTER];
 
 const routerAbi = parseAbi([
   "struct Route { address from; address to; bool stable; address factory; }",

@@ -1,64 +1,20 @@
-"use client";
-
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import Link from "next/link";
+import { buttonBaseClass, buttonSizeClass, buttonVariantClass, type ButtonSize, type ButtonVariant } from "./button-styles";
+import { cx } from "./cx";
 
-export function cx(...parts: Array<string | false | null | undefined>): string {
-  return parts.filter(Boolean).join(" ");
-}
+// No "use client" here: nothing below uses a hook or browser state, so a server page can render a
+// Module or a LinkButton without pulling a client bundle for it. `Button` is the exception (it
+// takes handlers) and lives in its own client file; it is re-exported so every existing import of
+// `{ Button } from "@/components/ui/primitives"` keeps working.
+export { Button, type ButtonProps } from "./Button";
+export { cx };
 
-/* ---------- Button ---------- */
+/* ---------- LinkButton ---------- */
 
-type Variant = "primary" | "secondary" | "ghost" | "danger" | "ink";
-type Size = "sm" | "md" | "lg";
-
-/**
- * Button language: honest 1px outline plus a solid 3px "ground" edge below (restrained
- * neo-brutalist step); pressing collapses the edge and the button sits down 2px.
- */
-const variantClass: Record<Variant, string> = {
-  primary: "bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:brightness-[1.08] active:border-b active:translate-y-[2px] disabled:opacity-40 disabled:hover:bg-primary",
-  secondary: "bg-canvas text-ink border border-line-strong border-b-[3px] hover:bg-surface active:border-b active:translate-y-[2px] disabled:opacity-40",
-  ghost: "bg-transparent text-ink-secondary border border-transparent hover:bg-surface hover:text-ink disabled:opacity-40",
-  danger: "bg-canvas text-danger-fg border border-danger border-b-[3px] hover:bg-surface active:border-b active:translate-y-[2px] disabled:opacity-40",
-  ink: "bg-ink text-canvas border border-ink border-b-[3px] border-b-black/40 hover:opacity-90 active:border-b active:translate-y-[2px] disabled:opacity-40",
-};
-const sizeClass: Record<Size, string> = {
-  sm: "h-9 px-3 text-[13px]",
-  md: "h-11 px-4 text-[15px]",
-  lg: "h-12 px-5 text-[16px]",
-};
-
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant;
-  size?: Size;
-  loading?: boolean;
-  full?: boolean;
-}
-
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = "primary", size = "md", loading, full, className, children, disabled, ...rest }, ref) {
+export function LinkButton({ href, variant = "secondary", size = "md", full, className, children }: { href: string; variant?: ButtonVariant; size?: ButtonSize; full?: boolean; className?: string; children: ReactNode }) {
   return (
-    <button
-      ref={ref}
-      disabled={disabled || loading}
-      className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-fast transition-[background-color,opacity,border-color,transform,box-shadow] select-none min-h-[44px] tracking-[-0.01em] outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 focus-visible:ring-offset-canvas",
-        variantClass[variant],
-        sizeClass[size],
-        full && "w-full",
-        className,
-      )}
-      {...rest}
-    >
-      {loading && <span aria-hidden className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
-      {children}
-    </button>
-  );
-});
-
-export function LinkButton({ href, variant = "secondary", size = "md", full, className, children }: { href: string; variant?: Variant; size?: Size; full?: boolean; className?: string; children: ReactNode }) {
-  return (
-    <Link href={href} className={cx("inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-fast min-h-[44px] tracking-[-0.01em] outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-1 focus-visible:ring-offset-canvas", variantClass[variant], sizeClass[size], full && "w-full", className)}>
+    <Link href={href} className={cx(buttonBaseClass, buttonVariantClass[variant], buttonSizeClass[size], full && "w-full", className)}>
       {children}
     </Link>
   );

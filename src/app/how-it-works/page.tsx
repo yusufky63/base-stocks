@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/page-meta";
 import Link from "next/link";
 import { BarChart3, Blocks, Bot, Boxes, Code2, CreditCard, Gift, Landmark, LineChart, Newspaper, PieChart, Repeat, ShieldCheck, Sprout, Users } from "lucide-react";
 import { LinkButton } from "@/components/ui/primitives";
@@ -6,11 +7,14 @@ import { LegalNotice } from "@/components/common/display";
 import { IntegrationsSection } from "@/components/common/Integrations";
 import { Dither } from "@/components/fx/lazy";
 import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
+import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 
-export const metadata: Metadata = { title: "How it works" };
+const STOCK_COUNT = CURATED_B20_ASSETS.length;
+
+export const metadata: Metadata = pageMeta({ title: "How it works", path: "/how-it-works" });
 
 const FEATURES = [
-  { icon: LineChart, title: "Markets", body: "13 Coinbase Tokenized Stocks with live DEX price, Chainlink reference, candles, volume, liquidity and a Live / Thin / Very thin / No pool / Not issued status.", href: "/markets" },
+  { icon: LineChart, title: "Markets", body: `${STOCK_COUNT} Coinbase Tokenized Stocks with live DEX price, Chainlink reference, candles, volume, liquidity and a Live / Thin / Very thin / No pool / Not issued status.`, href: "/markets" },
   { icon: BarChart3, title: "Trade", body: "Every quote asks KyberSwap, Velora, Uniswap, Aerodrome and, when enabled, 0x and OKX at once; you pick auto (best net) or a provider, including gasless CoW signed orders (0x joins outside the US, where its API serves). Limit orders at your own price. Pay with USDC or ETH.", href: "/markets" },
   { icon: Blocks, title: "Build", body: "Baskets from sliders or templates, previewed with live quotes, executed leg by leg. Not-issued names stay as USDC or spread across live ones.", href: "/build" },
   { icon: Repeat, title: "Automate", body: "A stock or a basket bought on a schedule. Automatic plans run through the AutoInvest contract within limits the chain enforces — amount, cadence, routes, minimum output — and can be paused, cancelled or revoked any time; or keep a plan that waits for your confirmation per run.", href: "/automate" },
@@ -33,7 +37,7 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { n: "01", title: "Find", body: "Thirteen Coinbase Tokenized Stocks live on Base as B20 tokens. BaseStocks identifies each one by its contract address, never by ticker, because names and symbols can change onchain.", detail: "Assets are read straight from the chain: name, decimals, multiplier, transfer policy, pause flags, supply. New B20 tokens from Coinbase's deployer are discovered automatically." },
+  { n: "01", title: "Find", body: `${STOCK_COUNT} Coinbase Tokenized Stocks live on Base as B20 tokens. BaseStocks identifies each one by its contract address, never by ticker, because names and symbols can change onchain.`, detail: "Assets are read straight from the chain: name, decimals, multiplier, transfer policy, pause flags, supply. New B20 tokens from Coinbase's deployer are discovered automatically." },
   { n: "02", title: "Understand", body: "You see one price and trade at it: the pool's. The issuer's Chainlink feed is what that price is checked against: it is priced from traditional market data and cannot be moved by opening a pool, so when a pool disagrees with it the reference is shown instead and labelled. Executable is what a live quote gives you for your exact amount." },
   { n: "03", title: "Buy or sell", body: "Pick an amount, compare providers, review a firm quote (price, impact, network fee), confirm in your wallet. Quotes are fetched server-side; keys never touch your browser.", detail: "Approvals are scoped to the exact amount and granted only to the spender the provider returns. Every transaction is simulated before it is sent." },
   { n: "04", title: "Hold", body: "Tokens sit in your wallet, not with BaseStocks. Issuer policies and pauses are read before every action and explained in plain language if they block a transfer.", detail: "Corporate actions (dividends, splits) show up as multiplier changes and reference-price freezes, never as invented cash events." },
@@ -86,6 +90,16 @@ function faqId(q: string): string {
   return `q-${q.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48)}`;
 }
 
+/**
+ * The FAQ as schema.org FAQPage, so a search result can show the question and answer directly.
+ * Generated from the same array that renders the section; the two cannot disagree.
+ */
+const FAQ_JSON_LD = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+});
+
 /** Everything on this page a reader might search for, indexed from the arrays that render it. */
 const SEARCH_ENTRIES: DocEntry[] = [
   ...FEATURES.map((f) => ({ id: "features", title: f.title, body: f.body })),
@@ -96,6 +110,7 @@ const SEARCH_ENTRIES: DocEntry[] = [
 export default function HowItWorksPage() {
   return (
     <div className="flex flex-col gap-8">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: FAQ_JSON_LD }} />
       <section className="hero-fx border border-line rounded-[8px] ticks bg-canvas overflow-hidden">
         <Dither className="fx-layer" pixelSize={5} opacity={0.22} speed={0.25} mouseRadius={120} />
         {/* Readability scrim, same as the home hero: solid canvas under the copy, dots fading in to the right. */}
@@ -119,7 +134,7 @@ export default function HowItWorksPage() {
         </div>
       </section>
 
-      <section id="features" className="flex flex-col gap-3 scroll-mt-24">
+      <section id="features" className="flex flex-col gap-3 scroll-mt-header">
         <div className="eyebrow">What you can do here</div>
         <div className="module-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ticks">
           {FEATURES.map(({ icon: Icon, title, body, href }) => (
@@ -132,7 +147,7 @@ export default function HowItWorksPage() {
         </div>
       </section>
 
-      <div id="steps" className="module-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 scroll-mt-24">
+      <div id="steps" className="module-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 scroll-mt-header">
         {STEPS.map((s) => (
           <article key={s.n} className="p-5 md:p-6 flex flex-col gap-3 min-h-[240px]">
             <div className="display num text-[40px] text-primary leading-none">{s.n}</div>
@@ -169,12 +184,12 @@ export default function HowItWorksPage() {
         </div>
       </section>
 
-      <section id="faq" className="flex flex-col gap-3 scroll-mt-24">
+      <section id="faq" className="flex flex-col gap-3 scroll-mt-header">
         <div className="eyebrow">Questions &amp; answers</div>
         <DocSearch entries={SEARCH_ENTRIES} placeholder="Search this page: fees, gas, eligibility, gifts…" />
         <div className="border border-line rounded-[8px] bg-canvas divide-y divide-line">
           {FAQ.map((f) => (
-            <details key={f.q} id={faqId(f.q)} className="group px-4 md:px-5 scroll-mt-24">
+            <details key={f.q} id={faqId(f.q)} className="group px-4 md:px-5 scroll-mt-header">
               <summary className="cursor-pointer select-none py-3.5 text-[15px] font-medium list-none flex items-center justify-between gap-3">
                 {f.q}
                 <span aria-hidden className="font-mono text-ink-muted group-open:rotate-45 transition-transform">+</span>

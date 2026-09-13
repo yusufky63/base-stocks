@@ -121,14 +121,14 @@ export function NewsView() {
                 <li key={s.id} className="px-4 py-2.5 border-b border-line last:border-b-0">
                   <a href={s.homepage} target="_blank" rel="noreferrer noopener" className="flex items-center justify-between gap-2 text-[13px] font-medium hover:text-primary transition-fast">
                     {s.label}
-                    <span className={cx("font-mono text-[10px] uppercase tracking-[0.08em]", s.scope === "ticker" || s.scope === "ecosystem" ? "text-primary" : "text-ink-muted")}>{s.scope === "ticker" ? "per stock" : s.scope === "ecosystem" ? "base & coinbase" : "markets"}</span>
+                    <span className={cx("font-mono text-[11px] uppercase tracking-[0.08em]", s.scope === "ticker" || s.scope === "ecosystem" ? "text-primary" : "text-ink-muted")}>{s.scope === "ticker" ? "per stock" : s.scope === "ecosystem" ? "base & coinbase" : "markets"}</span>
                   </a>
                   <p className="text-[12px] text-ink-muted">{s.note}</p>
                 </li>
               ))}
             </ul>
             <p className="px-4 py-2 text-[11px] text-ink-muted border-t border-line inline-flex items-center gap-1">
-              Keyless feeds (RSS and X&apos;s public embed), cached 15 min server-side <ExternalLink size={11} strokeWidth={1.75} />
+              Keyless RSS feeds, cached 15 min server-side <ExternalLink size={11} strokeWidth={1.75} />
             </p>
           </Module>
         </div>

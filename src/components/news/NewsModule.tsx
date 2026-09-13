@@ -51,10 +51,13 @@ export function NewsList({ items, showTicker = false, compact = false }: { items
         <li key={`${n.id}-${n.ticker}-${i}`} className="border-b border-line last:border-b-0">
           <a href={n.url} target="_blank" rel="noreferrer noopener" className={cx("rail flex items-start gap-3 px-4 hover:bg-surface transition-fast", compact ? "py-2.5" : "py-3")}>
             <span className="min-w-0 flex-1">
+              {/* "MARKETS" and "BASE" are feed scopes, not stocks, so they are not printed as tickers. The X
+                  feed that used a third such scope is gone; news-service.ts (not touched here) may still
+                  mention it. */}
               <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted mb-0.5">
-                {showTicker && n.ticker !== "MARKETS" && n.ticker !== "BASE" && n.ticker !== "X" && <span className="text-primary">{n.ticker}</span>}
-                {(n.ticker === "BASE" || n.ticker === "X") && n.tickers && n.tickers.length > 0 && <span className="text-primary">{n.tickers.join(" · ")}</span>}
-                {n.spotlight && n.ticker !== "BASE" && n.ticker !== "X" && <span className="text-primary border border-primary/40 rounded-[3px] px-1 leading-4">Base</span>}
+                {showTicker && n.ticker !== "MARKETS" && n.ticker !== "BASE" && <span className="text-primary">{n.ticker}</span>}
+                {n.ticker === "BASE" && n.tickers && n.tickers.length > 0 && <span className="text-primary">{n.tickers.join(" · ")}</span>}
+                {n.spotlight && n.ticker !== "BASE" && <span className="text-primary border border-primary/40 rounded-[3px] px-1 leading-4">Base</span>}
                 <span className="truncate">{n.source}</span>
                 <span>·</span>
                 <span>{n.publishedAt ? timeAgo(n.publishedAt) : ""}</span>

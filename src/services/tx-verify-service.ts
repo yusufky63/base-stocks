@@ -1,6 +1,6 @@
-import type { Abi, Address, Hash, Hex } from "viem";
+import { decodeEventLog, type Abi, type Address, type Hash, type Hex } from "viem";
 import type { GiftRecord } from "@/domain/gift";
-import type { PoolRecord } from "@/domain/pool";
+import type { PoolLeg, PoolRecord } from "@/domain/pool";
 import { getRepos } from "@/db/repositories";
 import { cached } from "@/lib/cache";
 import { metrics } from "@/lib/http";
@@ -9,7 +9,7 @@ import { USDC_ADDRESS } from "@/config/chain";
 import { GIFT_ESCROW_ADDRESS, giftEscrowAbi } from "@/lib/escrow";
 import { GIFT_POOL_ADDRESS, giftPoolAbi, isPoolDeployed } from "@/lib/pool";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
-import { findEvent, tokenMoves, touches, tradeFacts, type ReceiptLog } from "@/lib/chain/receipt-checks";
+import { findEvent, initiatedBy, tokenMoves, touches, tradeFacts, type ReceiptLog, type TokenMove } from "@/lib/chain/receipt-checks";
 import { AAVE_SUPPLY, AAVE_WITHDRAW, COMET_SUPPLY, COMET_WITHDRAW, ERC4626_DEPOSIT, ERC4626_WITHDRAW, decodeVenueEvent } from "@/lib/earn/venue-events";
 import { earnVenues } from "./earn-reconcile-service";
 import { blockTimes } from "./receipt-service";
@@ -33,6 +33,8 @@ interface Receipt {
   status: "success" | "reverted";
   blockNumber: number;
   logs: ReceiptLog[];
+  /** The account that sent the transaction; absent on receipts cached before it was kept. */
+  from?: Address;
 }
 
 const RECEIPT_ATTEMPTS = 3;
@@ -49,6 +51,7 @@ async function fetchReceipt(hash: Hash): Promise<Receipt | null> {
         return {
           status: r.status === "success" ? ("success" as const) : ("reverted" as const),
           blockNumber: Number(r.blockNumber),
+          from: r.from,
           logs: r.logs.map((l) => ({ address: l.address, topics: l.topics as Hex[], data: l.data, logIndex: l.logIndex })),
         };
       } catch {
@@ -91,6 +94,8 @@ export interface TradeFacts {
   assetAmount: bigint;
   /** USDC that settled, from the receipt; null for a buy paid in ETH. */
   usdcAmount: bigint | null;
+  /** Whether the owner is the account that sent the transaction (see `initiatedBy`). */
+  initiatedByOwner: boolean;
 }
 
 export async function verifyTrade(input: { txHash: Hash; owner: Address; assetAddress: Address; side: "buy" | "sell"; recipient?: Address }): Promise<Verdict<TradeFacts>> {
@@ -98,25 +103,32 @@ export async function verifyTrade(input: { txHash: Hash; owner: Address; assetAd
   if ("verdict" in got) return got.verdict;
   const facts = tradeFacts(got.receipt.logs, { owner: input.owner, assetAddress: input.assetAddress, side: input.side, recipient: input.recipient, usdc: USDC_ADDRESS });
   if (!facts.ok) return refuse(facts.reason);
-  return { ok: true, ...(await settled(input.txHash, got.receipt)), assetAmount: facts.assetAmount, usdcAmount: facts.usdcAmount };
+  return { ok: true, ...(await settled(input.txHash, got.receipt)), assetAmount: facts.assetAmount, usdcAmount: facts.usdcAmount, initiatedByOwner: initiatedBy(got.receipt.logs, got.receipt.from, input.owner) };
 }
 
 /* --------------------------------- gifts ---------------------------------- */
 
 const lower = (s: string) => s.toLowerCase();
 
+export interface GiftFacts {
+  /** Raw units the chain shows moving (or locked in the escrow). */
+  amount: bigint;
+  /** Claim links: the escrow's own expiry (unix ms), read from `GiftCreated`; the draft's figure is never trusted. */
+  expiresAt?: number;
+}
+
 /** The funding or sending transaction of a gift, by kind. Returns the amount the chain shows. */
-export async function verifyGift(gift: Pick<GiftRecord, "kind" | "sender" | "recipient" | "assetAddress" | "escrowId">, txHash: Hash): Promise<Verdict<{ amount: bigint }>> {
+export async function verifyGift(gift: Pick<GiftRecord, "kind" | "sender" | "recipient" | "assetAddress" | "escrowId">, txHash: Hash): Promise<Verdict<GiftFacts>> {
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
   const logs = got.receipt.logs;
   if (gift.kind === "claim-link") {
     if (!gift.escrowId) return refuse("The gift has no escrow id to match.");
-    const ev = findEvent<{ id: Hex; sender: Address; token: Address; amount: bigint }>(logs, giftEscrowAbi as Abi, GIFT_ESCROW_ADDRESS, "GiftCreated", (a) => lower(a.id) === lower(gift.escrowId!));
+    const ev = findEvent<{ id: Hex; sender: Address; token: Address; amount: bigint; expiry: bigint }>(logs, giftEscrowAbi as Abi, GIFT_ESCROW_ADDRESS, "GiftCreated", (a) => lower(a.id) === lower(gift.escrowId!));
     if (!ev) return refuse("No GiftCreated for this escrow id in that transaction.");
     if (lower(ev.sender) !== lower(gift.sender)) return refuse("The escrow names a different sender.");
     if (lower(ev.token) !== lower(gift.assetAddress)) return refuse("The escrow holds a different stock.");
-    return { ok: true, ...(await settled(txHash, got.receipt)), amount: ev.amount };
+    return { ok: true, ...(await settled(txHash, got.receipt)), amount: ev.amount, expiresAt: Number(ev.expiry) * 1000 };
   }
   const moves = tokenMoves(logs, gift.assetAddress);
   if (gift.kind === "send-existing") {
@@ -159,16 +171,26 @@ const LP_PROVIDERS = new Set(["uniswap", "aerodrome"]);
  * A lending deposit or withdrawal is proven by the venue's own event naming the wallet; a
  * liquidity action by the position manager having acted and the wallet's tokens having moved.
  */
-export async function verifyEarn(input: { txHash: Hash; owner: Address; provider: string; action: "deposit" | "withdraw" | "collect" }): Promise<Verdict<{ amount: bigint | null }>> {
+export interface EarnFacts {
+  /** The venue's own figure for a lending action; null for a liquidity action, which the app prices from `moves`. */
+  amount: bigint | null;
+  /** Whether the owner is the account that sent the transaction (see `initiatedBy`). */
+  initiatedByOwner: boolean;
+  /** For a liquidity action: every ERC-20 transfer into or out of the owner's wallet, so the record's value can be bounded. */
+  moves: TokenMove[];
+}
+
+export async function verifyEarn(input: { txHash: Hash; owner: Address; provider: string; action: "deposit" | "withdraw" | "collect" }): Promise<Verdict<EarnFacts>> {
   const got = await receiptOrVerdict(input.txHash);
   if ("verdict" in got) return got.verdict;
   const logs = got.receipt.logs;
+  const initiatedByOwner = initiatedBy(logs, got.receipt.from, input.owner);
   if (LP_PROVIDERS.has(input.provider)) {
     const managers = LP_MANAGER_INFO.filter((m) => m.provider === input.provider).map((m) => m.npm);
     if (!touches(logs, managers)) return refuse("No position manager of that venue acted in that transaction.");
-    const mine = tokenMoves(logs).some((m) => lower(m.from) === lower(input.owner) || lower(m.to) === lower(input.owner));
-    if (!mine) return refuse("None of that wallet's tokens moved in that transaction.");
-    return { ok: true, ...(await settled(input.txHash, got.receipt)), amount: null };
+    const mine = tokenMoves(logs).filter((m) => lower(m.from) === lower(input.owner) || lower(m.to) === lower(input.owner));
+    if (mine.length === 0) return refuse("None of that wallet's tokens moved in that transaction.");
+    return { ok: true, ...(await settled(input.txHash, got.receipt)), amount: null, initiatedByOwner, moves: mine };
   }
   if (input.action === "collect") return refuse("Only liquidity positions collect fees.");
   const venues = (await earnVenues()).filter((v) => v.provider === input.provider);
@@ -181,7 +203,7 @@ export async function verifyEarn(input: { txHash: Hash; owner: Address; provider
     });
     if (args) {
       const ev = decodeVenueEvent(venue.kind, input.action as "deposit" | "withdraw", args, { txHash: input.txHash, blockNumber: BigInt(got.receipt.blockNumber), logIndex: 0 })!;
-      return { ok: true, ...(await settled(input.txHash, got.receipt)), amount: ev.amount };
+      return { ok: true, ...(await settled(input.txHash, got.receipt)), amount: ev.amount, initiatedByOwner, moves: [] };
     }
   }
   return refuse("That venue did not record this wallet in that transaction.");
@@ -189,14 +211,58 @@ export async function verifyEarn(input: { txHash: Hash; owner: Address; provider
 
 /* ---------------------------------- pools --------------------------------- */
 
-export async function verifyPoolCreate(pool: Pick<PoolRecord, "onchainId" | "creator">, txHash: Hash): Promise<Verdict> {
+/**
+ * What the chain says a pool is. The record the browser filed carried the creator's intent; the
+ * contract's events carry what was actually locked, and the record is overwritten with these.
+ */
+export interface PoolCreateFacts {
+  gate: Address;
+  slots: number;
+  /** Unix ms. */
+  expiry: number;
+  /** Unix ms; 0 when the creator kept the right to cancel at once. */
+  lockedUntil: number;
+  /** One `PoolLeg` event per stock, in emission order, which is the contract's leg order. */
+  legs: PoolLeg[];
+}
+
+export async function verifyPoolCreate(pool: Pick<PoolRecord, "onchainId" | "creator">, txHash: Hash): Promise<Verdict<PoolCreateFacts>> {
   if (!isPoolDeployed()) return refuse("Gift pools are not enabled on this deployment.");
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
-  const ev = findEvent<{ id: Hex; creator: Address }>(got.receipt.logs, giftPoolAbi as Abi, GIFT_POOL_ADDRESS as Address, "PoolCreated", (a) => lower(a.id) === lower(pool.onchainId));
+  const ev = findEvent<{ id: Hex; creator: Address; gate: Address; slots: number | bigint; expiry: bigint; lockedUntil: bigint }>(got.receipt.logs, giftPoolAbi as Abi, GIFT_POOL_ADDRESS as Address, "PoolCreated", (a) => lower(a.id) === lower(pool.onchainId));
   if (!ev) return refuse("No PoolCreated for this pool in that transaction.");
   if (lower(ev.creator) !== lower(pool.creator)) return refuse("The pool was created by a different wallet.");
-  return { ok: true, ...(await settled(txHash, got.receipt)) };
+  const legs = poolLegEvents(got.receipt.logs, pool.onchainId);
+  if (legs.length === 0) return refuse("The pool was created without any stock in it.");
+  return {
+    ok: true,
+    ...(await settled(txHash, got.receipt)),
+    gate: ev.gate,
+    slots: Number(ev.slots),
+    expiry: Number(ev.expiry) * 1000,
+    lockedUntil: Number(ev.lockedUntil) * 1000,
+    legs,
+  };
+}
+
+/** Every `PoolLeg` the contract emitted for this pool, in order. `findEvent` stops at the first match, so this walks the logs itself. */
+function poolLegEvents(logs: readonly ReceiptLog[], onchainId: Hex): PoolLeg[] {
+  const at = lower(GIFT_POOL_ADDRESS);
+  const out: PoolLeg[] = [];
+  for (const log of logs) {
+    if (lower(log.address) !== at) continue;
+    try {
+      const d = decodeEventLog({ abi: giftPoolAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+      if (d.eventName !== "PoolLeg") continue;
+      const a = d.args as { id: Hex; token: Address; amountPerClaim: bigint };
+      if (lower(a.id) !== lower(onchainId)) continue;
+      out.push({ token: a.token, amountPerClaim: a.amountPerClaim.toString() });
+    } catch {
+      /* another event of the same contract */
+    }
+  }
+  return out;
 }
 
 export async function verifyPoolClaim(pool: Pick<PoolRecord, "onchainId">, claimant: Address, txHash: Hash): Promise<Verdict> {

@@ -8,7 +8,7 @@ import { b20AssetAbi } from "@/lib/b20/abi";
 import type { TimelineTransfer } from "@/lib/activity/timeline";
 import { getAssets } from "./b20-asset-service";
 import { blockTimes } from "./receipt-service";
-import { reconcileEarn } from "./earn-reconcile-service";
+import { EARN_SCAN_FLOOR_BLOCK, reconcileEarn } from "./earn-reconcile-service";
 
 /**
  * The app's own index of tokenized-stock transfers, so the timeline's cost stops growing with
@@ -21,7 +21,21 @@ import { reconcileEarn } from "./earn-reconcile-service";
  * keeps the rows that touch an indexed wallet (`sweepTransfers`). A timeline read is a table
  * lookup plus one bounded look at the blocks mined since the last sweep, shared by everyone.
  */
-const LOOKBACK_BLOCKS = 120_000n;
+/**
+ * How far back a wallet's own history is read, and how much of it per request.
+ *
+ * The first visit used to read the last 120k blocks (under three days on Base) and stop: a wallet
+ * that bought in week one and opened Activity in week three saw its purchases arrive out of
+ * nowhere as "received" rows with no cost behind them. The floor is now the block before the first
+ * BaseStocks transaction, and the read is paced: each request extends the wallet's `indexedFrom`
+ * backwards by up to `BACKFILL_STEP_BLOCKS` inside `BACKFILL_BUDGET_MS`, stores where it got to,
+ * and the next request (rate-limited per wallet) continues from there until the floor is reached.
+ */
+const INDEX_FLOOR_BLOCK = EARN_SCAN_FLOOR_BLOCK;
+const BACKFILL_STEP_BLOCKS = 120_000n;
+const BACKFILL_BUDGET_MS = 8_000;
+/** How often one wallet's backfill is continued at most; a page that polls every 45 s must not scan every 45 s. */
+const BACKFILL_RETRY_MS = 2 * 60_000;
 const CHUNK = 10_000n;
 const CURSOR_KEY = "index:transfers";
 const DEFAULT_MAX_BLOCKS = 100_000n;
@@ -95,32 +109,80 @@ async function getLogsAdaptive<T>(from: bigint, to: bigint, read: (a: bigint, b:
   }
 }
 
-/** One wallet's transfers over a block range, read from the chain (two calls per chunk, in and out). */
-async function scanWallet(wallet: Address, tokens: Address[], fromBlock: bigint, toBlock: bigint): Promise<IndexedTransfer[]> {
+/**
+ * One wallet's transfers over a block range, read from the chain (two calls per chunk, in and
+ * out), newest chunk first so that what is read inside the budget is the most recent history.
+ * Returns the rows and the oldest block actually covered; a budget that runs out leaves
+ * `coveredFrom` above `fromBlock` and the caller continues from there next time.
+ */
+async function scanWallet(wallet: Address, tokens: Address[], fromBlock: bigint, toBlock: bigint, budgetMs = Number.POSITIVE_INFINITY): Promise<{ rows: IndexedTransfer[]; coveredFrom: bigint }> {
   const client = getLogPublicClient();
   const rows: IndexedTransfer[] = [];
-  for (let start = fromBlock; start <= toBlock; start += CHUNK + 1n) {
-    const end = start + CHUNK > toBlock ? toBlock : start + CHUNK;
+  const startedAt = Date.now();
+  let coveredFrom = toBlock + 1n;
+  for (let end = toBlock; end >= fromBlock; end -= CHUNK + 1n) {
+    // Checked before each chunk, never during: an in-flight request cannot be interrupted.
+    if (Date.now() - startedAt > budgetMs) break;
+    const start = end - CHUNK < fromBlock ? fromBlock : end - CHUNK;
     const [sent, received] = await Promise.all([
       getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, args: { from: wallet }, fromBlock: a, toBlock: b })),
       getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, args: { to: wallet }, fromBlock: a, toBlock: b })),
     ]);
     rows.push(...toRows([...sent, ...received] as RawLog[]));
+    coveredFrom = start;
   }
   // A self-transfer appears in both lists.
   const seen = new Set<string>();
-  return rows.filter((r) => {
-    const k = `${r.txHash.toLowerCase()}:${r.logIndex}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  return {
+    rows: rows.filter((r) => {
+      const k = `${r.txHash.toLowerCase()}:${r.logIndex}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }),
+    coveredFrom,
+  };
 }
 
 /**
- * Makes a wallet part of the index: its recent history is read once from the chain and kept, and
- * its Earn records are reconciled once from the venues' events. Later reads cost a table lookup.
- * Cached per wallet so a page that polls never re-checks the registry.
+ * Extend a wallet's indexed range backwards by one bounded step: scan `[max(floor, from - STEP),
+ * from - 1]` inside the budget, keep the rows, reconcile the Earn records for the same blocks, and
+ * store the new `indexedFrom`. Returns the updated row.
+ */
+async function backfillStep(row: WalletIndexRow, tokens: Address[]): Promise<WalletIndexRow> {
+  const repos = getRepos();
+  const to = BigInt(row.indexedFrom) - 1n;
+  if (to < INDEX_FLOOR_BLOCK) return row;
+  const from = to - BACKFILL_STEP_BLOCKS + 1n < INDEX_FLOOR_BLOCK ? INDEX_FLOOR_BLOCK : to - BACKFILL_STEP_BLOCKS + 1n;
+  let coveredFrom = to + 1n;
+  try {
+    const scan = await scanWallet(row.wallet, tokens, from, to, BACKFILL_BUDGET_MS);
+    coveredFrom = scan.coveredFrom;
+    if (scan.rows.length > 0) await repos.chainTransfers.insertMany(await withTimes(scan.rows)).catch(() => 0);
+    metrics.count("index.backfill", true, `${scan.rows.length} transfers, ${coveredFrom}..${to}`);
+  } catch (err) {
+    // A public RPC's range limit, or a timeout: keep what was read; the next request continues.
+    metrics.count("index.backfill", false, err instanceof Error ? err.message : String(err));
+  }
+  if (coveredFrom > to) return row;
+  // Earn records for the same blocks, so a deposit from the first week is not "pending" in week three.
+  await reconcileEarn([row.wallet], coveredFrom, to).catch((err) => metrics.count("index.earn", false, err instanceof Error ? err.message : String(err)));
+  const next: WalletIndexRow = { ...row, indexedFrom: Number(coveredFrom) };
+  await repos.walletIndex.upsert(next).catch(() => undefined);
+  return next;
+}
+
+/** Whether the wallet's history has been read all the way back to the floor. */
+export function backfillComplete(row: Pick<WalletIndexRow, "indexedFrom">): boolean {
+  return BigInt(row.indexedFrom) <= INDEX_FLOOR_BLOCK;
+}
+
+/**
+ * Makes a wallet part of the index. On first sight the row is created at the head with nothing
+ * covered, then the first backfill step runs inside this same request, so the most recent history
+ * is there before the page renders; the sweep keeps the row current from `indexedTo` on, and later
+ * requests walk `indexedFrom` back to the floor one step at a time. Cached per wallet so a page
+ * that polls never re-checks the registry.
  */
 export async function registerWallet(owner: Address): Promise<WalletIndexRow> {
   const key = owner.toLowerCase();
@@ -128,23 +190,25 @@ export async function registerWallet(owner: Address): Promise<WalletIndexRow> {
     const repos = getRepos();
     const existing = await repos.walletIndex.get(owner).catch(() => null);
     if (existing) return existing;
-    const client = getServerPublicClient();
-    const head = await client.getBlockNumber();
-    const from = head > LOOKBACK_BLOCKS ? head - LOOKBACK_BLOCKS : 0n;
-    const tokens = await stockAddresses();
-    let rows: IndexedTransfer[] = [];
-    try {
-      rows = await withTimes(await scanWallet(owner, tokens, from, head));
-    } catch (err) {
-      // A public RPC's range limit: the wallet is still registered; the sweep covers it from here on.
-      metrics.count("index.backfill", false, err instanceof Error ? err.message : String(err));
-    }
-    if (rows.length > 0) await repos.chainTransfers.insertMany(rows).catch(() => 0);
-    const row: WalletIndexRow = { wallet: key as Address, indexedFrom: Number(from), indexedTo: Number(head), createdAt: Date.now() };
+    const head = await getServerPublicClient().getBlockNumber();
+    // Registered at the head with an empty range; the step below fills the recent past.
+    const row: WalletIndexRow = { wallet: key as Address, indexedFrom: Number(head + 1n), indexedTo: Number(head), createdAt: Date.now() };
     await repos.walletIndex.upsert(row).catch(() => undefined);
-    await reconcileEarn([owner], from, head).catch((err) => metrics.count("index.earn", false, err instanceof Error ? err.message : String(err)));
-    metrics.count("index.backfill", true, `${rows.length} transfers`);
-    return row;
+    return backfillStep(row, await stockAddresses());
+  });
+}
+
+/**
+ * Continue a registered wallet's backfill towards the floor, at most once per `BACKFILL_RETRY_MS`
+ * per wallet on this instance. Nothing to do once the floor is reached.
+ */
+async function continueBackfill(row: WalletIndexRow): Promise<WalletIndexRow> {
+  if (backfillComplete(row)) return row;
+  return cached(`index:backfill:${row.wallet.toLowerCase()}`, { ttlMs: BACKFILL_RETRY_MS }, async () => {
+    // Another instance may have moved the cursor since this one's cached row was read.
+    const fresh = (await getRepos().walletIndex.get(row.wallet).catch(() => null)) ?? row;
+    if (backfillComplete(fresh)) return fresh;
+    return backfillStep(fresh, await stockAddresses());
   });
 }
 
@@ -270,7 +334,11 @@ async function tailTransfers(): Promise<IndexedTransfer[]> {
 /** A wallet's transfers for the timeline: the index plus the unswept tail. */
 export async function transfersForWallet(owner: Address): Promise<TimelineTransfer[]> {
   const repos = getRepos();
-  await registerWallet(owner).catch((err) => metrics.count("index.register", false, err instanceof Error ? err.message : String(err)));
+  const row = await registerWallet(owner).catch((err) => {
+    metrics.count("index.register", false, err instanceof Error ? err.message : String(err));
+    return null;
+  });
+  if (row) await continueBackfill(row).catch((err) => metrics.count("index.backfill", false, err instanceof Error ? err.message : String(err)));
   const w = owner.toLowerCase();
   const [indexed, tail] = await Promise.all([repos.chainTransfers.listByWallet(owner).catch(() => [] as IndexedTransfer[]), tailTransfers().catch(() => [] as IndexedTransfer[])]);
   const seen = new Set<string>();

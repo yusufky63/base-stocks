@@ -69,3 +69,27 @@ export function amountsForOneSide(sqrtPrice: number, tickLower: number, tickUppe
   const amount1 = liquidity * Math.max(0, p - sqrtA);
   return { liquidity, amount0, amount1 };
 }
+/* ---------------- Display helpers ---------------- */
+
+/**
+ * A position's price range in USD per one stock token. The pool prices token0 in token1; when the
+ * stock is token0 the quote's USD price converts directly, when it is token1 the price is inverted
+ * first. Null when neither side is a stock or the quote has no USD price.
+ */
+export function rangeUsd(
+  pos: { tickLower: number; tickUpper: number; currentTick: number },
+  token0: { decimals: number; isStock: boolean; priceUsd: number | null },
+  token1: { decimals: number; isStock: boolean; priceUsd: number | null },
+): { lower: number; upper: number; current: number } | null {
+  if (!token0.isStock && !token1.isStock) return null;
+  const stockIs0 = token0.isStock;
+  const quote = stockIs0 ? token1 : token0;
+  if (quote.priceUsd === null || !Number.isFinite(quote.priceUsd)) return null;
+  const conv = (tick: number) => {
+    const p01 = tickToPrice(tick, token0.decimals, token1.decimals); // token1 per token0
+    return stockIs0 ? p01 * quote.priceUsd! : (1 / p01) * quote.priceUsd!;
+  };
+  const lower = conv(pos.tickLower);
+  const upper = conv(pos.tickUpper);
+  return { lower: Math.min(lower, upper), upper: Math.max(lower, upper), current: conv(pos.currentTick) };
+}

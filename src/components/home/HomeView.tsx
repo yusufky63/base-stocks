@@ -3,10 +3,12 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { hasMeaningfulChange, isIssued, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
+import { liveMarketRows, liveMarketTotals, type MarketRow as Row } from "@/components/markets/live-markets";
+import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 import { GiftsCard } from "@/components/pool/PoolList";
 import { useAccount } from "wagmi";
 import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from "lucide-react";
-import { useAssets, useActivity, useCommunityPulse, usePortfolio, useTemplates, useWatchlist, useSparklines, useStats } from "@/hooks/queries";
+import { useAssets, useActivity, useCommunityPulse, usePortfolio, useRegion, useTemplates, useWatchlist, useSparklines, useStats } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
 import type { PortfolioTemplate } from "@/domain/portfolio";
 import { formatUsd, bpsToPct, formatUsdCompact, timeAgo } from "@/lib/format";
@@ -26,8 +28,11 @@ import { CopilotBanner } from "@/components/assistant/CopilotBanner";
 
 export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: AssetsResponse; initialTemplates?: PortfolioTemplate[] }) {
   const { address, isConnected } = useAccount();
-  // Home opts out of the 30s price poll: the movers list should stay still, not reshuffle under the reader.
-  const { data: assets } = useAssets(initialAssets, { refetchInterval: false });
+  // Home asks for prices once a minute instead of every 30 s, to keep its lists still. The ticker in
+  // the header observes the same query at the same 60 s, so the cache refreshes at that pace and no
+  // faster; an opt-out here alone would not help, the ticker's interval would still win.
+  const { data: assets } = useAssets(initialAssets, { refetchInterval: 60_000 });
+  const restricted = useRegion().data?.restricted === true;
   const { data: portfolio, isLoading: loadingPortfolio } = usePortfolio(address);
   const { data: templates } = useTemplates(initialTemplates);
   const { data: activity } = useActivity(address);
@@ -37,11 +42,16 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
   // Derived once per assets change, so the portfolio's own refetch cannot re-sort or re-animate the lists.
   const priced = useMemo(() => (assets?.assets ?? []).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] })), [assets]);
   const ordered = useMemo(() => sortByTradingStatus(priced, (x) => x), [priced]);
+  // Biggest moves first, in half-point buckets with the ticker symbol breaking ties: two stocks a
+  // few hundredths apart would otherwise swap places on every refresh.
   const movers = useMemo(
     () =>
       ordered
         .filter((x) => hasMeaningfulChange(tradingStatus(x.asset, x.price).status, x.price))
-        .sort((a, b) => Math.abs(b.price?.marketChange24hPct ?? 0) - Math.abs(a.price?.marketChange24hPct ?? 0))
+        .sort((a, b) => {
+          const bucket = (x: Row) => Math.round(Math.abs(x.price?.marketChange24hPct ?? 0) * 2) / 2;
+          return bucket(b) - bucket(a) || a.asset.underlying.localeCompare(b.asset.underlying);
+        })
         .slice(0, 6),
     [ordered],
   );
@@ -97,7 +107,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
               <Stat label="Total value" value={<AnimatedNumber value={portfolio?.totalValueUsd ?? 0} format={(v) => formatUsd(v)} />} size="xl" sub={<PriceChange value={portfolio?.change24hPct} />} />
             )}
             <Stat label="Cash · USDC" value={<AnimatedNumber value={portfolio?.usdcValueUsd ?? 0} format={(v) => formatUsd(v)} />} size="lg" sub={portfolio && portfolio.earnValueUsd > 0 ? `+ ${formatUsd(portfolio.earnValueUsd)} in Earn` : undefined} />
-            <Stat label="Positions" value={portfolio?.holdings.length ?? 0} size="lg" sub="multiplier-aware" />
+            <Stat label="Positions" value={portfolio?.holdings.length ?? 0} size="lg" sub="counted in shares" />
           </div>
           {portfolio && portfolio.holdings.length > 0 && (
             <div className="px-4 py-4 border-t border-line">
@@ -128,7 +138,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             <ModuleHeader index={isConnected ? "03" : "02"} title="Quick buy" action={<Link href="/markets" className="text-[13px] text-primary font-medium">All markets</Link>} />
             <div className="grid grid-cols-2 md:grid-cols-4">
               {quick.map(({ asset, price }) => (
-                <Link key={asset.canonicalId} href={`/stocks/${asset.address}?trade=buy`} className="rail p-4 border-r border-b border-line md:border-b-0 [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:last:border-r-0 hover:bg-surface transition-fast">
+                <Link key={asset.canonicalId} href={restricted ? `/stocks/${asset.address}` : `/stocks/${asset.address}?trade=buy`} className="rail p-4 border-r border-b border-line md:border-b-0 [&:nth-child(2n)]:border-r-0 md:[&:nth-child(2n)]:border-r md:last:border-r-0 hover:bg-surface transition-fast">
                   <div className="flex items-center justify-between">
                     <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={36} />
                     <Sparkline points={sparks?.series[asset.canonicalId] ?? []} width={64} height={22} />
@@ -159,12 +169,16 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
             {movers.map(({ asset, price }) => (
               <MiniRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} />
             ))}
-            {movers.length === 0 && (
-              <div className="p-4 flex flex-col gap-2">
-                <Skeleton className="h-10" />
-                <Skeleton className="h-10" />
-              </div>
-            )}
+            {/* Skeletons only while nothing has loaded; once the list is here, an empty list is an answer. */}
+            {movers.length === 0 &&
+              (priced.length > 0 ? (
+                <p className="px-4 py-4 text-[13px] text-ink-secondary">No live market moved today.</p>
+              ) : (
+                <div className="p-4 flex flex-col gap-2">
+                  <Skeleton className="h-10" />
+                  <Skeleton className="h-10" />
+                </div>
+              ))}
           </Module>
 
           <NewsModule title="Market news" limit={8} showTicker compact />
@@ -231,8 +245,8 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
 }
 
 const HOW_IT_WORKS = [
-  { icon: Search, title: "Find", body: "13 Coinbase Tokenized Stocks on Base, identified by contract address, read live from the chain." },
-  { icon: BookOpen, title: "Understand", body: "One price: the pool's, the one you trade at. The stock's own price is kept only as a check. Shares are multiplier-aware." },
+  { icon: Search, title: "Find", body: `${CURATED_B20_ASSETS.length} Coinbase Tokenized Stocks on Base, identified by contract address, read live from the chain.` },
+  { icon: BookOpen, title: "Understand", body: "One price: the pool's, the one you trade at. The stock's own price is kept only as a check. Share counts already include splits and dividends." },
   { icon: ShoppingCart, title: "Buy & sell", body: "Firm quote, price impact and fee up front. Scoped approvals, simulation, one confirmation." },
   { icon: Wallet, title: "Hold", body: "Assets stay in your wallet. Issuer policies and pauses are explained, never hidden." },
   { icon: Layers, title: "Build", body: "Baskets with sliders or templates; each leg confirmed by you, partial fills shown honestly." },
@@ -266,26 +280,19 @@ function MiniRow({ asset, price, spark }: { asset: AssetsResponse["assets"][numb
 
 
 /** Four live numbers under the headline: markets live, DEX liquidity, 24h volume, issued count. */
-function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }>; total: number }) {
-  const live = items.filter((x) => {
-    const st = tradingStatus(x.asset, x.price).status;
-    return st === "tradable" || st === "thin";
-  });
-  const liquidity = live.reduce((sum, x) => sum + (x.price?.liquidityUsd ?? 0), 0);
-  const volume = live.reduce((sum, x) => sum + (x.price?.volume24hUsd ?? 0), 0);
-  // No market data at all (a bad minute upstream, or the very first render) is "unknown", not "none live".
-  const known = items.some((x) => x.price?.liquidityUsd !== null && x.price?.liquidityUsd !== undefined);
+function HeroStats({ items, total }: { items: Row[]; total: number }) {
+  const t = liveMarketTotals(items);
   const cells = [
-    { label: "Live markets", value: known ? String(live.length) : "—" },
-    { label: "DEX liquidity", value: liquidity > 0 ? formatUsdCompact(liquidity) : "—" },
-    { label: "DEX volume · 24h", value: volume > 0 ? formatUsdCompact(volume) : "—" },
+    { label: "Live markets", value: t.known ? String(t.live.length) : "—" },
+    { label: "DEX liquidity", value: t.liquidityUsd > 0 ? formatUsdCompact(t.liquidityUsd) : "—" },
+    { label: "DEX volume · 24h", value: t.volume24hUsd > 0 ? formatUsdCompact(t.volume24hUsd) : "—" },
     { label: "Issued", value: `${items.filter((x) => isIssued(x.asset)).length} / ${total}` },
   ];
   return (
     <dl className="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-px bg-line border border-line rounded-[8px] overflow-hidden max-w-[640px]">
       {cells.map((c) => (
         <div key={c.label} className="bg-canvas/85 px-3 py-2.5">
-          <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
+          <dt className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
           <dd className="display num text-[20px] leading-none mt-1">{c.value}</dd>
         </div>
       ))}
@@ -298,12 +305,9 @@ function HeroStats({ items, total }: { items: Array<{ asset: AssetsResponse["ass
  * Numbers live in the stats strip and the quick-buy tiles, so the coins only whisper the
  * price on hover instead of repeating a list.
  */
-function CoinCluster({ items }: { items: Array<{ asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] }> }) {
-  const live = items
-    .filter((x) => {
-      const st = tradingStatus(x.asset, x.price).status;
-      return (st === "tradable" || st === "thin") && hasCoin(x.asset.underlying);
-    })
+function CoinCluster({ items }: { items: Row[] }) {
+  const live = liveMarketRows(items)
+    .filter((x) => hasCoin(x.asset.underlying))
     .slice(0, 6);
   if (live.length === 0) return null;
   const layout = [
@@ -362,7 +366,7 @@ function PlatformStatsModule() {
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-line">
           {cells.map((c) => (
             <div key={c.label} className="bg-canvas px-4 py-3 min-w-0">
-              <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
+              <dt className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">{c.label}</dt>
               <dd className="display num text-[22px] leading-none mt-1 truncate">{c.value}</dd>
             </div>
           ))}
@@ -391,7 +395,7 @@ function CommunityPulseModule() {
         <>
           {bought.length > 0 && (
             <div className="px-4 pt-3 pb-1">
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-1.5">Most bought · 7d</div>
+              <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted mb-1.5">Most bought · 7d</div>
               <ul className="flex flex-col">
                 {bought.slice(0, 3).map((b, i) => (
                   <li key={b.assetAddress}>
@@ -410,7 +414,7 @@ function CommunityPulseModule() {
           )}
           {basket && (
             <Link href={`/baskets/${basket.id}`} className="block border-t border-line px-4 py-3 hover:bg-surface transition-fast">
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-1">Top basket</div>
+              <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted mb-1">Top basket</div>
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium text-[14px] truncate">{basket.name}</span>
                 <span className="font-mono num text-[12px] text-ink-secondary shrink-0">{basket.votes} votes · {basket.clones} clones</span>

@@ -1,9 +1,8 @@
 import type { NextRequest, NextResponse } from "next/server";
-import { withX402, type RouteConfig } from "x402-next";
+import { withX402, x402ResourceServer, type RouteConfig } from "@x402/next";
+import { HTTPFacilitatorClient } from "@x402/core/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { PRO_PRICE_USD } from "./catalog";
-
-/** `x402` is a transitive dependency, so the facilitator's shape comes from the function that takes it. */
-type FacilitatorConfig = NonNullable<Parameters<typeof withX402>[3]>;
 
 /**
  * Pay-per-call for the endpoints that cost real work to produce.
@@ -14,13 +13,21 @@ type FacilitatorConfig = NonNullable<Parameters<typeof withX402>[3]>;
  * disappear behind a cache.
  *
  * x402 turns that into an HTTP handshake: an unpaid request gets `402 Payment Required` with the
- * amount and the recipient, the caller signs a USDC authorization, retries, and the facilitator
- * settles. `withX402` (rather than the middleware form) is used deliberately: it settles only
- * after the handler succeeds, so a failed request never costs the caller anything.
+ * requirements (v2 carries them base64-encoded in the `PAYMENT-REQUIRED` header), the caller signs
+ * a USDC authorization, retries with `PAYMENT-SIGNATURE`, and the facilitator settles. `withX402`
+ * (rather than the proxy form) is used deliberately: it settles only after the handler answers
+ * with a status below 400, so a failed request never costs the caller anything.
+ *
+ * Protocol v2 (`@x402/next`, `@x402/core`, `@x402/evm`): networks are CAIP-2 ids, the recipient
+ * lives in each route's config, and the scheme (EIP-3009 `exact`) is registered on a resource
+ * server that asks the facilitator once what it supports.
  */
 
 /** Re-exported so the payment surface stays the one import a route or a test needs. */
 export { PRO_PRICE_USD };
+
+/** CAIP-2 ids of the two networks a deployment can price in. */
+export const NETWORKS = { base: "eip155:8453", "base-sepolia": "eip155:84532" } as const;
 
 /** Where payments land. Without it there is nothing to pay to, and the pro routes stay open. */
 function payTo(): `0x${string}` | null {
@@ -42,10 +49,28 @@ export function x402Enabled(): boolean {
   return payTo() !== null;
 }
 
-async function facilitator(): Promise<FacilitatorConfig | undefined> {
-  if (paymentNetwork() !== "base") return undefined; // x402-next defaults to the x402.org testnet facilitator
-  const { facilitator: cdp } = await import("@coinbase/x402");
-  return cdp as FacilitatorConfig;
+/**
+ * One resource server per process: it learns the facilitator's supported kinds once and every
+ * wrapped route shares the answer. Built lazily so a deployment that never prices anything never
+ * touches the facilitator.
+ */
+let server: Promise<x402ResourceServer> | null = null;
+
+async function resourceServer(): Promise<x402ResourceServer> {
+  if (server) return server;
+  server = (async () => {
+    // Mainnet goes through Coinbase's facilitator with CDP credentials; the default client points
+    // at x402.org, which serves the testnets.
+    const config = paymentNetwork() === "base" ? (await import("@coinbase/x402")).facilitator : undefined;
+    const facilitator = new HTTPFacilitatorClient(config);
+    return new x402ResourceServer(facilitator).register(NETWORKS[paymentNetwork()], new ExactEvmScheme());
+  })();
+  return server;
+}
+
+/** Tests: forget the shared server so a change of network or credentials is picked up. */
+export function resetPaymentServer(): void {
+  server = null;
 }
 
 /**
@@ -58,11 +83,13 @@ export async function withPayment(handler: (req: NextRequest) => Promise<NextRes
   const to = payTo();
   if (!to) return handler;
   const config: RouteConfig = {
-    price: PRO_PRICE_USD,
-    network: paymentNetwork(),
-    config: { description, mimeType: "application/json" },
+    accepts: { scheme: "exact", price: PRO_PRICE_USD, network: NETWORKS[paymentNetwork()], payTo: to },
+    description,
+    mimeType: "application/json",
   };
-  return withX402(handler as (req: NextRequest) => Promise<NextResponse>, to, config, await facilitator());
+  // The wrapper asks the facilitator what it supports when the route module loads and, if that
+  // call failed, again on the first paid request; a cold start never waits on it to serve.
+  return withX402(handler as (req: NextRequest) => Promise<NextResponse>, config, await resourceServer());
 }
 
 /** What the docs page and `/api/v1` tell callers about the paid tier. */
@@ -70,9 +97,11 @@ export function paymentInfo() {
   return {
     enabled: x402Enabled(),
     scheme: "x402" as const,
+    version: 2,
     price: PRO_PRICE_USD,
     asset: "USDC",
     network: paymentNetwork(),
+    chain: NETWORKS[paymentNetwork()],
     payTo: payTo(),
     docs: "https://docs.base.org/build-on-base/accept-payments/charge-for-an-api",
   };

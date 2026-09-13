@@ -1,24 +1,10 @@
 import { z } from "zod";
-import { route, json, parseBody, parseQuery, addressSchema, hashSchema } from "@/lib/api";
+import { route, json, parseBody, parseQuery, addressSchema } from "@/lib/api";
 import { requireOwner } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
 import type { PortfolioExecution } from "@/domain/portfolio";
-import type { Hash } from "viem";
-
-const stepSchema = z.object({
-  id: z.string().min(4).max(64),
-  assetAddress: addressSchema,
-  symbol: z.string().max(16),
-  side: z.enum(["buy", "sell"]).default("buy"),
-  targetUsd: z.number().nonnegative(),
-  sellAmountUsdc: z.string().regex(/^\d+$/),
-  sellAmount: z.string().regex(/^\d+$/).optional(),
-  provider: z.string().max(32).optional(),
-  status: z.enum(["pending", "quoted", "submitted", "confirmed", "failed"]),
-  txHash: hashSchema.optional(),
-  errorCode: z.string().max(64).optional(),
-  errorMessage: z.string().max(300).optional(),
-});
+import { settleSteps } from "./settle";
+import { stepSchema } from "./schema";
 
 const createSchema = z.object({
   id: z.string().min(8).max(64),
@@ -40,7 +26,8 @@ export const POST = route({ rateLimit: { key: "exec.write", limit: 30, windowMs:
     owner: body.owner,
     status: "READY",
     totalUsd: body.totalUsd,
-    steps: body.steps.map((s) => ({ ...s, txHash: s.txHash as Hash | undefined })),
+    // A record is normally created before anything is sent; a leg already filed as confirmed is checked like a patch.
+    steps: await settleSteps(body.owner, [], body.steps),
     createdAt: now,
     updatedAt: now,
   };
@@ -54,4 +41,3 @@ export const GET = route({ rateLimit: { key: "exec.read", limit: 120, windowMs: 
   return json({ executions: await getRepos().executions.listByOwner(owner) });
 });
 
-export { stepSchema };

@@ -46,9 +46,13 @@ export function HistoryModule({ address }: { address: Address }) {
 
   const loading = range === "ALL" ? snapshots.isLoading : curve.isLoading;
   const series = range === "ALL" ? (snapshots.data?.points ?? []).map((p) => p.totalUsd) : (curve.data?.points ?? []).map((p) => p.usd);
-  const first = series[0] ?? null;
   const last = series[series.length - 1] ?? null;
-  const changePct = range === "ALL" ? (first && last ? ((last - first) / first) * 100 : null) : (curve.data?.changePct ?? null);
+  // "All" carries no percentage: the line moves with deposits, withdrawals and trades as much as
+  // with prices, so (last - first) / first is not a return on anything, and colouring it green
+  // told people they had made money they had in fact deposited.
+  const changePct = range === "ALL" ? null : (curve.data?.changePct ?? null);
+  // The reference history does not always reach the start of the window asked for; say where it begins.
+  const shortCoverage = range !== "ALL" && curve.data?.coverageFrom != null && curve.data.coverageFrom > curve.data.windowFrom + 60 * 60_000 ? new Date(curve.data.coverageFrom) : null;
   const bench = range !== "ALL" ? (curve.data?.benchmark ?? null) : null;
   const versus = bench && bench.changePct !== null && changePct !== null ? changePct - bench.changePct : null;
 
@@ -91,9 +95,13 @@ export function HistoryModule({ address }: { address: Address }) {
         <Sparkline points={series} compare={bench?.points} width={260} height={72} />
         <div className="text-right">
           <div className="display num text-[22px]">{formatUsd(last)}</div>
-          <div className={cx("text-[12px] font-mono num", (changePct ?? 0) > 0 ? "text-positive-fg" : (changePct ?? 0) < 0 ? "text-danger-fg" : "text-ink-secondary")}>
-            {formatPct(changePct, { sign: true })}
-          </div>
+          {range === "ALL" ? (
+            <div className="text-[12px] font-mono num text-ink-secondary">account value</div>
+          ) : (
+            <div className={cx("text-[12px] font-mono num", (changePct ?? 0) > 0 ? "text-positive-fg" : (changePct ?? 0) < 0 ? "text-danger-fg" : "text-ink-secondary")}>
+              {formatPct(changePct, { sign: true })}
+            </div>
+          )}
           {bench && (
             <div className="text-[11px] font-mono num text-ink-muted mt-0.5" title={`${bench.name}: every listed stock with a reference feed, equal-weighted, over the same window`}>
               <span className="inline-block w-3 border-t border-dashed border-ink-muted align-middle mr-1" aria-hidden />
@@ -105,9 +113,10 @@ export function HistoryModule({ address }: { address: Address }) {
       </div>
       <p className="px-4 py-2.5 text-[11px] text-ink-muted border-t border-line">
         {range === "ALL"
-          ? `What the account was worth, from ${snapshots.data?.points[0]?.day ?? "the first visit"} — deposits and trades included.`
+          ? `What the account was worth, from ${snapshots.data?.points[0]?.day ?? "the first visit"} — deposits and trades included, so the change is not a return.`
           : "What you hold today, priced back through the Chainlink reference. Buys, sells and gifts do not appear; pick All for the account's own record."}
         {range !== "ALL" && bench && ` The dashed line is the ${bench.name.toLowerCase()} index of the listed stocks over the same window, started at your value: a comparison, not a target.`}
+        {shortCoverage && ` Reference history covers from ${shortCoverage.toISOString().slice(0, 10)}; the line starts there.`}
         {range !== "ALL" && curve.data?.flat && " The reference has not moved in this window — stock feeds are 24/5."}
         {range !== "ALL" && (curve.data?.missing.length ?? 0) > 0 && ` ${curve.data!.missing.join(", ")} left out: no reference feed to price ${curve.data!.missing.length > 1 ? "them" : "it"} back.`}
       </p>

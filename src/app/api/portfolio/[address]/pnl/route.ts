@@ -11,5 +11,6 @@ import { getPortfolioPnl } from "@/services/pnl-service";
  */
 export const GET = route<{ params: Promise<{ address: string }> }>({ rateLimit: { key: "portfolio.pnl", limit: 60, windowMs: 60_000 } }, async (_req, { params }) => {
   const address = await addressParam(params);
-  return json({ pnl: await getPortfolioPnl(address) }, { cacheSeconds: 15, staleSeconds: 60 });
+  // `no-store`: a CDN copy outlived the trade that changed it, so a buy showed no effect for a minute.
+  return json({ pnl: await getPortfolioPnl(address) });
 });

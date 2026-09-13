@@ -2,10 +2,10 @@ import { isNativeEth } from "@/config/chain";
 import { encodeFunctionData, erc20Abi, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
 import { base } from "viem/chains";
 import { apiDelete, apiGet, apiPost, ApiError, type ExecutableQuoteDTO, type SignedOrderRequest, type TxStatusResponse } from "@/lib/client-api";
-import type { TradeSide, TradeState } from "@/domain/trade";
+import type { TradeProviderId, TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY } from "@/lib/errors";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
-import { BASE_CHAIN_ID } from "@/config/chain";
+import { BASE_CHAIN_ID, DEFAULT_SLIPPAGE_BPS } from "@/config/chain";
 import { publicEnv } from "@/config/env";
 import { newId } from "@/lib/execution/portfolio-execution";
 
@@ -16,7 +16,7 @@ export interface ExecuteTradeParams {
   /** Buys: pay with USDC (default) or native ETH. */
   payWith?: "USDC" | "ETH";
   /** Provider that won the indicative comparison. */
-  provider?: import("@/domain/trade").TradeProviderId;
+  provider?: TradeProviderId;
   /** True when the user picked the provider manually (no fallback to others). */
   strictProvider?: boolean;
   recipient?: Address;
@@ -55,6 +55,74 @@ export interface ExecuteTradeResult {
   orderUid?: string;
 }
 
+/** A quote that carries calldata; the sequential and batched paths only work with these. */
+type TxQuote = ExecutableQuoteDTO & { transaction: NonNullable<ExecutableQuoteDTO["transaction"]> };
+
+function asTxQuote(q: ExecutableQuoteDTO): TxQuote {
+  if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
+  return q as TxQuote;
+}
+
+/* ---------- re-quotes ---------- */
+
+/** Marker in `ApiError.details`: the sheet should go back to READY with the refreshed quote, not to FAILED. */
+export const REVIEW_AGAIN = "reviewAgain";
+
+/**
+ * The refreshed quote is not what the user reviewed. Nothing was sent; the sheet shows the new
+ * numbers and asks for another look instead of opening the wallet on a trade nobody approved.
+ */
+export function reviewAgainError(message: string, fresh: ExecutableQuoteDTO): ApiError {
+  return new ApiError("QUOTE_EXPIRED", `${message} Review the refreshed quote before confirming.`, 409, { [REVIEW_AGAIN]: true, provider: fresh.provider });
+}
+
+export function isReviewAgain(err: unknown): boolean {
+  return err instanceof ApiError && err.details?.[REVIEW_AGAIN] === true;
+}
+
+/**
+ * Whether a quote fetched after the review still describes the trade the user approved.
+ *
+ * A re-quote used to be a fresh call to the router with the original parameters, so the route it
+ * came back from could differ from the one on screen, and its output could be anything the new
+ * route offered. The wallet then opened on a trade the user had never seen. A refetch now has to
+ * come from the same provider and pay out at least what was reviewed less half the slippage
+ * allowance; within that band it is the same trade a moment later, beyond it a different one.
+ */
+export function refetchedQuoteAcceptable(reviewed: ExecutableQuoteDTO, fresh: ExecutableQuoteDTO, slippageBps: number): { ok: true } | { ok: false; reason: string } {
+  if (fresh.provider !== reviewed.provider) return { ok: false, reason: `The route changed from ${reviewed.provider} to ${fresh.provider}.` };
+  // reviewed × (1 − slippage / 2), in basis points: (20 000 − bps) / 20 000.
+  const floor = (BigInt(reviewed.buyAmount) * BigInt(20_000 - Math.max(0, Math.min(10_000, Math.round(slippageBps))))) / 20_000n;
+  if (BigInt(fresh.buyAmount) < floor) return { ok: false, reason: "The price moved against you since you reviewed this quote." };
+  return { ok: true };
+}
+
+/* ---------- trade record ---------- */
+
+/** Waits between retries of a record the server could not yet match to a transaction; about ten seconds in all. */
+const RECORD_RETRY_DELAYS_MS: readonly number[] = [2_500, 7_000];
+
+/**
+ * File the trade record, retrying while the server's RPC has not seen the hash yet.
+ *
+ * The record is posted the moment the wallet hands back a hash. The server matches it to a receipt
+ * and, when its node is a block behind the wallet's, answers TX_PENDING; the post was fire-and-forget
+ * and swallowed that, so a real trade left no record and the verification sweep had nothing to
+ * finish. Anything other than "not seen yet" is final: the first answer stands.
+ */
+export async function postTradeRecord(body: unknown, delays: readonly number[] = RECORD_RETRY_DELAYS_MS): Promise<boolean> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await apiPost("/api/trades", body);
+      return true;
+    } catch (err) {
+      const notSeenYet = err instanceof ApiError && err.code === "TX_PENDING";
+      if (!notSeenYet || attempt >= delays.length) return false;
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+  }
+}
+
 /**
  * Wallet capabilities that change how we submit. `supported`: the wallet answers EIP-5792 at all,
  * so it can take a batch of calls in one confirmation; `atomic`: that batch is all-or-nothing
@@ -74,38 +142,70 @@ export async function walletCapabilities(walletClient: WalletClient, address: Ad
  * Fresh executable quote → allowance (scoped approval of the provider's spender only) →
  * simulation → submit with Builder Code suffix. Base Account batches approve + swap atomically.
  * A CoW quote has no transaction: the wallet signs the order instead (see executeSignedOrder).
+ *
+ * Every re-quote is pinned to the provider the user reviewed and checked against the reviewed
+ * amounts, and no calldata reaches the wallet without passing the simulation first, re-quoted or not.
  */
 export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTradeParams, hooks: ExecuteTradeHooks = {}): Promise<ExecuteTradeResult> {
   const { address, walletClient, publicClient } = ctx;
   if (ctx.chainId !== BASE_CHAIN_ID) throw new ApiError("WRONG_NETWORK", TRADE_ERROR_COPY.WRONG_NETWORK, 400);
+  const slippageBps = params.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
 
-  const fetchQuote = async (): Promise<ExecutableQuoteDTO> => {
-    hooks.onState?.("GETTING_FIRM_QUOTE");
-    const q = await apiPost<ExecutableQuoteDTO>("/api/trade/quote", {
+  const ask = (provider: TradeProviderId | undefined, strictProvider: boolean | undefined) =>
+    apiPost<ExecutableQuoteDTO>("/api/trade/quote", {
       side: params.side,
       assetAddress: params.assetAddress,
       sellAmount: params.sellAmount.toString(),
       payWith: params.payWith,
-      provider: params.provider,
-      strictProvider: params.strictProvider,
+      provider,
+      strictProvider,
       orders: params.orders,
       taker: address,
       recipient: params.recipient,
       slippageBps: params.slippageBps,
       chainId: BASE_CHAIN_ID,
     });
+
+  /** The first quote: the comparison's winner, or the user's pick. */
+  const fetchQuote = async (): Promise<ExecutableQuoteDTO> => {
+    hooks.onState?.("GETTING_FIRM_QUOTE");
+    const q = await ask(params.provider, params.strictProvider);
     hooks.onQuote?.(q);
     return q;
   };
 
-  let q = params.prefetchedQuote && Date.now() < params.prefetchedQuote.expiresAt ? params.prefetchedQuote : await fetchQuote();
+  /**
+   * A later quote, after the reviewed one went stale: asked of the reviewed route alone, falling
+   * back to the automatic choice only if that route will not answer, and refused (back to review)
+   * unless it still describes the reviewed trade.
+   */
+  const refresh = async (reviewed: ExecutableQuoteDTO): Promise<ExecutableQuoteDTO> => {
+    hooks.onState?.("GETTING_FIRM_QUOTE");
+    let fresh: ExecutableQuoteDTO;
+    try {
+      fresh = await ask(reviewed.provider, true);
+    } catch {
+      fresh = await ask(params.provider, params.strictProvider);
+    }
+    hooks.onQuote?.(fresh);
+    const check = refetchedQuoteAcceptable(reviewed, fresh, slippageBps);
+    if (!check.ok) throw reviewAgainError(check.reason, fresh);
+    return fresh;
+  };
+
+  // A reviewed quote that has since expired is still the trade the user approved: it is refreshed
+  // from its own route and held to its own numbers, not replaced by whatever the router picks now.
+  const reviewed = params.prefetchedQuote;
+  const q = reviewed ? (Date.now() < reviewed.expiresAt ? reviewed : await refresh(reviewed)) : await fetchQuote();
   if (q.balanceInsufficient) throw new ApiError("INSUFFICIENT_BALANCE", TRADE_ERROR_COPY.INSUFFICIENT_BALANCE, 400);
 
   // The activity record is created only once something was actually submitted to the wallet,
   // so a cancelled review never shows up in Activity.
   const recordId = newId("trade");
-  const record = (quote: ExecutableQuoteDTO, txHash?: Hash) =>
-    apiPost("/api/trades", {
+  // A signed order has no hash yet; its uid lets the server check with the order book that this
+  // wallet is the order's owner, so the record needs no session to be filed.
+  const record = (quote: ExecutableQuoteDTO, txHash?: Hash, orderUid?: string) =>
+    postTradeRecord({
       id: recordId,
       owner: address,
       side: params.side,
@@ -116,7 +216,8 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
       provider: quote.provider,
       recipient: params.recipient,
       txHash,
-    }).catch(() => undefined);
+      orderUid,
+    });
 
   if (q.order) {
     const { orderUid } = await executeSignedOrder(ctx, q.order, {
@@ -125,31 +226,52 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
       onMode: hooks.onMode,
     });
     hooks.onSubmitted?.(undefined, recordId, orderUid);
-    void record(q);
+    void record(q, undefined, orderUid);
     return { txHash: undefined, recordId, quote: q, mode: "order", orderUid };
   }
   if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The provider returned neither a transaction nor an order.", 502);
+  let tx: TxQuote = q as TxQuote;
 
   // Native ETH is sent as tx value: no ERC-20 allowance step.
   const nativeSell = isNativeEth(q.sellToken);
-  const spender = nativeSell ? null : q.allowanceSpender;
+  const spenderOf = (quote: ExecutableQuoteDTO): Address | null => (nativeSell ? null : quote.allowanceSpender);
+  const allowanceShort = async (quote: ExecutableQuoteDTO, spender: Address): Promise<boolean> => {
+    const current = await publicClient.readContract({ address: quote.sellToken, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
+    return current < BigInt(quote.sellAmount);
+  };
+  /**
+   * After a refetch the route may name another spender, or the approval just granted may be
+   * short for the new amounts. Either way the wallet is not opened on it: the sheet goes back to
+   * review, and the next run approves what the new quote actually needs.
+   */
+  const assertSpendable = async (fresh: TxQuote): Promise<void> => {
+    if (nativeSell) return;
+    const spender = spenderOf(fresh);
+    if (!spender) throw new ApiError("ROUTE_UNAVAILABLE", "The provider did not return an approval target.", 502);
+    if (await allowanceShort(fresh, spender)) throw reviewAgainError("The refreshed route needs a new approval.", fresh);
+  };
+
+  let spender = spenderOf(q);
   let needsApproval = !nativeSell && q.allowanceRequired;
-  if (spender && !needsApproval) {
-    const current = await publicClient.readContract({ address: q.sellToken, abi: erc20Abi, functionName: "allowance", args: [address, spender] });
-    needsApproval = current < BigInt(q.sellAmount);
-  }
+  if (spender && !needsApproval) needsApproval = await allowanceShort(q, spender);
   if (needsApproval && !spender) throw new ApiError("ROUTE_UNAVAILABLE", "The provider did not return an approval target.", 502);
-  const approveData = spender ? encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, BigInt(q.sellAmount)] }) : null;
 
   const { atomic, paymaster } = await walletCapabilities(walletClient, address);
 
-  if (needsApproval && atomic && approveData) {
+  if (needsApproval && atomic && spender) {
     hooks.onMode?.("batched", paymaster);
+    if (Date.now() > tx.expiresAt) {
+      // The approval is part of the same bundle, so a new spender just means a new approve call.
+      tx = asTxQuote(await refresh(tx));
+      spender = spenderOf(tx);
+      if (!spender) throw new ApiError("ROUTE_UNAVAILABLE", "The provider did not return an approval target.", 502);
+    }
+    const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, BigInt(tx.sellAmount)] });
     // Simulate approve + swap as one bundle (eth_simulateV1) so a revert surfaces before the wallet
     // opens; RPCs without the method skip silently — the wallet itself still simulates.
     await simulateBundle(publicClient, address, [
-      { to: q.sellToken, data: approveData },
-      { to: q.transaction.to, data: q.transaction.data, value: BigInt(q.transaction.value) },
+      { to: tx.sellToken, data: approveData },
+      { to: tx.transaction.to, data: tx.transaction.data, value: BigInt(tx.transaction.value) },
     ]);
     hooks.onState?.("AWAITING_WALLET");
     const { id } = await walletClient.sendCalls({
@@ -157,8 +279,8 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
       chain: base,
       forceAtomic: true,
       calls: [
-        { to: q.sellToken, data: withAttribution(approveData) },
-        { to: q.transaction.to, data: withAttribution(q.transaction.data), value: BigInt(q.transaction.value) },
+        { to: tx.sellToken, data: withAttribution(approveData) },
+        { to: tx.transaction.to, data: withAttribution(tx.transaction.data), value: BigInt(tx.transaction.value) },
       ],
       capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
     });
@@ -167,50 +289,59 @@ export async function executeTrade(ctx: ExecuteTradeContext, params: ExecuteTrad
     const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
     const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
     if (result.status === "failure") throw new Error("Batched transaction failed");
-    if (hash) void record(q, hash);
-    return { txHash: hash, recordId, quote: q, mode: "batched" };
+    if (hash) void record(tx, hash);
+    return { txHash: hash, recordId, quote: tx, mode: "batched" };
   }
 
   hooks.onMode?.("sequential", false);
-  if (needsApproval && approveData) {
+  if (needsApproval && spender) {
+    const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, BigInt(tx.sellAmount)] });
     hooks.onState?.("APPROVAL_REQUIRED");
     hooks.onState?.("AWAITING_WALLET");
-    const ah = await walletClient.sendTransaction({ account: address, chain: base, to: q.sellToken, data: withAttribution(approveData) });
+    const ah = await walletClient.sendTransaction({ account: address, chain: base, to: tx.sellToken, data: withAttribution(approveData) });
     hooks.onApproval?.(ah);
     await publicClient.waitForTransactionReceipt({ hash: ah });
-    q = await fetchQuote(); // spec §19.4: refresh after approval
-    if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
+    tx = asTxQuote(await refresh(tx)); // spec §19.4: refresh after approval
+    await assertSpendable(tx);
   }
-  if (Date.now() > q.expiresAt) {
-    q = await fetchQuote();
-    if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
+  if (Date.now() > tx.expiresAt) {
+    tx = asTxQuote(await refresh(tx));
+    await assertSpendable(tx);
   }
 
-  try {
-    // `needsApproval`: when we just sent the approval this run, tolerate a stale-allowance revert
-    // from an RPC that lags our own approve receipt — that is the "fails on the first try, works on
-    // the next" case. Without a fresh approval, a revert is real and surfaces immediately.
-    await callAfterApproval(publicClient, address, { to: q.transaction.to, data: q.transaction.data as Hex, value: BigInt(q.transaction.value) }, 4, needsApproval);
-  } catch (simErr) {
-    const h = humanizeError(simErr);
-    if (h.code === "QUOTE_EXPIRED" || h.code === "SLIPPAGE") {
-      q = await fetchQuote();
-      if (!q.transaction) throw new ApiError("PROVIDER_UNAVAILABLE", "The refreshed quote is not a transaction.", 502);
-    } else throw simErr;
+  // Simulate before the wallet opens. A stale-price revert earns one refresh, and the refreshed
+  // calldata goes through the same simulation; the earlier shape of this re-quoted and fell
+  // straight through to the wallet with calldata nothing had checked.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      // `needsApproval`: when we just sent the approval this run, tolerate a stale-allowance revert
+      // from an RPC that lags our own approve receipt — that is the "fails on the first try, works on
+      // the next" case. Without a fresh approval, a revert is real and surfaces immediately.
+      await callAfterApproval(publicClient, address, { to: tx.transaction.to, data: tx.transaction.data as Hex, value: BigInt(tx.transaction.value) }, 4, needsApproval);
+      break;
+    } catch (simErr) {
+      const h = humanizeError(simErr);
+      if (attempt === 0 && (h.code === "QUOTE_EXPIRED" || h.code === "SLIPPAGE")) {
+        tx = asTxQuote(await refresh(tx));
+        await assertSpendable(tx);
+        continue;
+      }
+      throw simErr;
+    }
   }
 
   hooks.onState?.("AWAITING_WALLET");
   const hash = await walletClient.sendTransaction({
     account: address,
     chain: base,
-    to: q.transaction.to,
-    data: withAttribution(q.transaction.data),
-    value: BigInt(q.transaction.value),
+    to: tx.transaction.to,
+    data: withAttribution(tx.transaction.data),
+    value: BigInt(tx.transaction.value),
   });
   hooks.onState?.("SUBMITTED");
   hooks.onSubmitted?.(hash, recordId);
-  void record(q, hash);
-  return { txHash: hash, recordId, quote: q, mode: "sequential" };
+  void record(tx, hash);
+  return { txHash: hash, recordId, quote: tx, mode: "sequential" };
 }
 
 /**

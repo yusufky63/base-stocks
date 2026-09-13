@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowUpRight, Gift, X } from "lucide-react";
 import type { Address } from "viem";
-import { useActivity } from "@/hooks/queries";
+import { useActivity, useAssets } from "@/hooks/queries";
 import { coinSrc } from "@/lib/coins";
+import { formatShares } from "@/lib/gift/format";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { counterpartyLabel } from "@/components/activity/ActivityList";
 import { Avatar } from "@/components/common/RecipientCard";
@@ -38,6 +39,7 @@ function writeSeen(seen: Set<string>) {
  */
 export function GiftInbox({ address }: { address: Address }) {
   const { data } = useActivity(address);
+  const assets = useAssets();
   const [seen, setSeen] = useState<Set<string>>(() => readSeen());
   if (!data) return null;
   const received = data.filter((it) => it.type === "receive" && typeof it.metadata?.giftId === "string" && !seen.has(String(it.metadata.giftId)) && !it.metadata?.failed);
@@ -78,7 +80,9 @@ export function GiftInbox({ address }: { address: Address }) {
         {received.slice(0, 4).map((it) => {
           const giftId = String(it.metadata!.giftId);
           const symbol = it.symbol?.replace(/c$/, "") ?? "";
-          const amount = it.rawAmount && it.decimals !== undefined ? `${formatTokenAmount(it.rawAmount, it.decimals)} ${symbol}` : symbol;
+          // Activity rows carry raw units; the receipt shows share-equivalents, so the multiplier is applied here too.
+          const asset = it.assetAddress ? assets.data?.assets.find((a) => a.canonicalId === it.assetAddress!.toLowerCase()) : undefined;
+          const amount = it.rawAmount ? `${asset ? formatShares(it.rawAmount, asset) : it.decimals !== undefined ? formatTokenAmount(it.rawAmount, it.decimals) : ""} ${symbol}`.trim() : symbol;
           const who = counterpartyLabel(it);
           const message = typeof it.metadata?.message === "string" && it.metadata.message ? it.metadata.message : null;
           const coin = coinSrc(symbol, "small");

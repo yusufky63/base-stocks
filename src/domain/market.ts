@@ -42,7 +42,8 @@ export interface MarketDataProvider {
   id: string;
   getTokenMarkets(addresses: Address[]): Promise<Map<string, TokenMarketData>>;
   getTokenMarket(address: Address): Promise<TokenMarketData | null>;
-  getTokenOhlcv(address: Address, timeframe: Timeframe): Promise<Candle[]>;
+  /** `hint` is a reading the caller already holds, so the adapter need not fetch one to validate the series. */
+  getTokenOhlcv(address: Address, timeframe: Timeframe, hint?: TokenMarketData | null): Promise<Candle[]>;
   getTokenMetadata(address: Address): Promise<TokenMetadata | null>;
 }
 
@@ -69,4 +70,8 @@ export interface PriceView {
   displaySource: "market" | "reference" | "none";
   /** Deviation of market vs reference, in percent, when both exist. */
   deviationPct: number | null;
+  /** Why the market price is not the headline while a pool exists: too little depth, or too far from the reference. */
+  displayReason?: "thin" | "deviation" | null;
+  /** Market cap (or FDV) the market-data provider reports for the token, when it does. */
+  marketCapUsd?: number | null;
 }

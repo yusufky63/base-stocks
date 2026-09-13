@@ -3,6 +3,7 @@ import { MIN_TRADE_USD } from "@/config/chain";
 import { route, json, parseBody, addressSchema } from "@/lib/api";
 import { aiConfigFromEnv, generateStructured } from "@/lib/ai-provider";
 import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
+import { sessionAddress } from "@/lib/auth/session";
 import { cached } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
@@ -30,6 +31,7 @@ const CADENCES = [1, 7, 14, 30];
 
 const bodySchema = z.object({
   prompt: z.string().min(3).max(MAX_PROMPT_CHARS * 2),
+  /** Kept for older clients; the quota is keyed on the session, never on an address the body names. */
   owner: addressSchema.optional(),
 });
 
@@ -81,7 +83,10 @@ export const POST = route({ rateLimit: { key: "automation.intent", limit: 12, wi
 
   const limits = quotaLimitsFromEnv();
   const ip = clientIp(req);
-  const [quota, spent] = await Promise.all([checkQuota(ip, body.owner, limits), monthlySpendUsd()]);
+  // Only a signed-in wallet spends its own daily allowance; an unauthenticated `owner` would let
+  // anyone exhaust any address's drafts by typing it.
+  const quotaWallet = sessionAddress(req)?.toLowerCase();
+  const [quota, spent] = await Promise.all([checkQuota(ip, quotaWallet, limits), monthlySpendUsd()]);
   const budget = monthlyBudgetUsd();
   if (budget > 0 && spent >= budget) return json({ ok: false, errors: ["The AI helper reached this month's budget. Plans can still be created manually."], quota: { remainingForWallet: 0, remainingForIp: 0 } }, { status: 429 });
   if (!quota.allowed) {
@@ -111,7 +116,7 @@ export const POST = route({ rateLimit: { key: "automation.intent", limit: 12, wi
   let charged = false;
   // Only successful drafts are cached; a null answer must not be replayed for ten minutes.
   const out = await cached(cacheKey, { ttlMs: 10 * 60_000 }, async () => {
-    await consumeQuota(ip, body.owner);
+    await consumeQuota(ip, quotaWallet);
     charged = true;
     const result = await generateStructured(cfg, { system: systemPrompt(universe), user: `Plan request (untrusted user text): """${prompt}"""${context ? `\n\n${context}` : ""}`, schema: Output, timeoutMs: 40_000, maxTokens: 800 });
     void addSpend(result.costUsd);

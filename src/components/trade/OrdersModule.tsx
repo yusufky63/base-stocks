@@ -9,7 +9,8 @@ import { BASE_CHAIN_ID, USDC_DECIMALS } from "@/config/chain";
 import { useAssets, useOrders } from "@/hooks/queries";
 import { cancelSignedOrder } from "@/lib/trade/execute";
 import { humanizeError } from "@/lib/errors";
-import { formatTokenAmount, formatUsd } from "@/lib/format";
+import { formatTokenAmount, formatUsd, timeUntil } from "@/lib/format";
+import { useNow } from "@/hooks/useNow";
 import { Badge, Button, ModuleHeader } from "@/components/ui/primitives";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { TxLink } from "@/components/common/display";
@@ -22,6 +23,8 @@ import { COW_DOMAIN_CLIENT } from "./cow-domain";
 const PAGE = 5;
 
 export function OrdersModule({ owner, assetAddress, title = "Your orders", showEmpty = false }: { owner?: Address; assetAddress?: Address; title?: string; showEmpty?: boolean }) {
+  // Ticks every 30 s so "expires in 2h" stays true while the module is open.
+  const now = useNow();
   const orders = useOrders(owner);
   const assets = useAssets();
   const qc = useQueryClient();
@@ -87,7 +90,7 @@ export function OrdersModule({ owner, assetAddress, title = "Your orders", showE
           <span className="num">{buy ? "for" : "at least"} {formatUsd(Number(formatUnits(BigInt(usdcAmount), USDC_DECIMALS)))}</span>
           <span className="num">· {formatUsd(perToken, { precise: true })} / token</span>
           <span>
-            · {o.status === "open" ? "expires" : "placed"} <TimeAgo value={o.status === "open" ? o.validTo * 1000 : o.createdAt} />
+            · {o.status === "open" ? <>expires {now ? timeUntil(o.validTo * 1000, now) : "…"}</> : <>placed <TimeAgo value={o.createdAt} /></>}
           </span>
           {o.txHash ? <TxLink hash={o.txHash}>Settlement ↗</TxLink> : null}
           <a href={o.explorerUrl} target="_blank" rel="noreferrer" className="text-primary font-medium">

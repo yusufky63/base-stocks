@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cx } from "./primitives";
 
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "prefix"> {
@@ -12,7 +12,9 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ label, hint, error, prefix, suffix, className, id, ...rest }, ref) {
-  const inputId = id ?? (typeof label === "string" ? `in-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined);
+  // A generated id rather than one derived from the label: two "Amount" fields on one page used to share an id.
+  const generated = useId();
+  const inputId = id ?? generated;
   return (
     <label className="block" htmlFor={inputId}>
       {label && <span className="block mb-1.5 text-[12px] font-mono uppercase tracking-[0.08em] text-ink-muted">{label}</span>}

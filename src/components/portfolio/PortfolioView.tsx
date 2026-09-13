@@ -7,6 +7,8 @@ import { useAccount } from "wagmi";
 import type { PortfolioTemplate } from "@/domain/portfolio";
 import { usePortfolio, useTemplates, useSparklines, useAssets, useActivity } from "@/hooks/queries";
 import { formatTokenAmount, formatUsd, formatPct } from "@/lib/format";
+import { equityPricePerShare } from "@/lib/b20/math";
+import { earnProviderLabel } from "@/lib/earn/labels";
 import { maxDriftBps } from "@/lib/portfolio/drift";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { AllocationBar, ColorDot } from "@/components/common/AllocationBar";
@@ -36,8 +38,6 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "profile", label: "Profile", hint: "Your page and badges" },
 ];
 const isTab = (v: string | null): v is Tab => TABS.some((t) => t.id === v);
-
-const PROVIDER_LABEL: Record<string, string> = { morpho: "Morpho", aave: "Aave", compound: "Compound", aerodrome: "Aerodrome", uniswap: "Uniswap" };
 
 /**
  * Portfolio (spec §45) as four tabs. The tab lives in the URL (`?tab=rebalance`) so a link from
@@ -107,6 +107,14 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
       ]
     : [];
   const venuePositions = data ? data.earnPositions.length + data.lpPositions.length : 0;
+  // A scheduled multiplier change on something held: the share count will move on a known date, and
+  // the holder should hear it here, before the stock page, because this is where the count is printed.
+  const pendingChanges = (data?.holdings ?? [])
+    .map((h) => {
+      const asset = assets?.assets.find((a) => a.canonicalId === h.assetAddress.toLowerCase());
+      return asset?.pendingMultiplier ? { underlying: h.underlying, effectiveAt: asset.pendingMultiplier.effectiveAt } : null;
+    })
+    .filter((x): x is { underlying: string; effectiveAt: number } => x !== null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -172,6 +180,14 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
         </button>
       )}
 
+      {tab === "overview" && pendingChanges.length > 0 && (
+        <p className="border border-warning-fg/50 rounded-[8px] px-4 py-3 text-[13px]">
+          <span className="font-medium">Multiplier change scheduled: </span>
+          <span className="text-ink-secondary">
+            {pendingChanges.map((c) => `${c.underlying} on ${new Date(c.effectiveAt * 1000).toISOString().slice(0, 10)}`).join(", ")}. The issuer announced a corporate action onchain; the share count shown below moves on that date, the value does not.
+          </span>
+        </p>
+      )}
       {tab === "overview" && <GiftInbox address={address} />}
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-6 items-start">
@@ -227,8 +243,9 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                     </span>
                   </span>
                   <span className="hidden md:block text-right font-mono num text-[13px] text-ink-secondary">
-                    {formatUsd(h.priceUsd)}
-                    {h.priceSource === "reference" && <span className="block text-[10px] uppercase text-ink-muted">reference</span>}
+                    {/* The count on the left is share-equivalents, so the price beside it is per share: the per-raw-token price divided by the multiplier. */}
+                    {formatUsd(h.priceUsd !== null ? equityPricePerShare(h.priceUsd, BigInt(h.multiplier)) : null)}
+                    <span className="block text-[10px] uppercase text-ink-muted">{h.priceSource === "reference" ? "reference · per share" : "per share"}</span>
                   </span>
                   <span className="hidden md:block text-right">
                     <PriceChange value={h.change24hPct} />
@@ -256,7 +273,8 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
               )}
             </Module>
 
-            {data && data.holdings.length > 0 && <PnlModule address={address} />}
+            {/* Mounted whenever the snapshot is in: a position sold down to nothing still has a realised line to show. */}
+            {data && <PnlModule address={address} hasHoldings={data.holdings.length > 0} />}
 
             <Module>
               <ModuleHeader title="Earn" action={<Link href="/earn" className="text-[13px] text-primary font-medium">Manage →</Link>} />
@@ -267,7 +285,7 @@ export function PortfolioView({ initialTemplates }: { initialTemplates?: Portfol
                       <span className="min-w-0">
                         <span className="block text-[14px] font-medium truncate">{p.title}</span>
                         <span className="block text-[12px] text-ink-secondary">
-                          {PROVIDER_LABEL[p.provider] ?? p.provider}
+                          {earnProviderLabel(p.provider)}
                           {p.variableApy !== undefined ? ` · ${formatPct(p.variableApy, { sign: false })} variable` : ""}
                         </span>
                       </span>

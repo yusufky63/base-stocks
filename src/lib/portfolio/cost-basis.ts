@@ -50,12 +50,35 @@ function counts(t: TradeRecord): boolean {
 }
 
 /**
+ * A buy made for somebody else is that person's stock, not the buyer's. The record is filed under
+ * the buyer (they paid, it is their trade in Activity), but the units landed in the recipient's
+ * wallet, so they never belong in the buyer's position or its average cost.
+ */
+function ownUnits(t: TradeRecord): boolean {
+  return !t.recipient || t.recipient.toLowerCase() === t.owner.toLowerCase();
+}
+
+/**
  * Walks a wallet's trades oldest-first and returns the position it built per asset.
  * Order matters: a sell can only realise against what was bought before it.
+ *
+ * One transaction, one stock, one side is one trade, whatever the table holds: a record the
+ * browser filed twice (a retried request, a PATCH that raced the sweep) counts once, on the
+ * same key the statistics and the timeline fold on.
  */
 export function computeCostBasis(trades: TradeRecord[]): Map<string, AssetCostBasis> {
   const out = new Map<string, AssetCostBasis>();
-  const ordered = [...trades].filter(counts).sort((a, b) => a.createdAt - b.createdAt);
+  const seen = new Set<string>();
+  const ordered = [...trades]
+    .filter(counts)
+    .filter(ownUnits)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .filter((t) => {
+      const key = `${t.txHash!.toLowerCase()}:${t.assetAddress.toLowerCase()}:${t.side}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
   for (const t of ordered) {
     const key = t.assetAddress.toLowerCase();

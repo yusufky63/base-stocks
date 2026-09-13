@@ -4,7 +4,8 @@ import { metrics } from "@/lib/http";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { CURATED_B20_ASSETS, canonicalId } from "@/lib/b20/registry";
 import { USDC_ADDRESS, USDC_DECIMALS, WETH_ADDRESS } from "@/config/chain";
-import { amountsForLiquidity, inRange, sqrtPriceX96ToSqrtPrice, tickToPrice } from "@/lib/earn/lp-math";
+import { amountsForLiquidity, inRange, rangeUsd, sqrtPriceX96ToSqrtPrice } from "@/lib/earn/lp-math";
+import { bumpWalletVersion, walletVersion } from "@/lib/portfolio/wallet-version";
 import { MAX_UINT128, positionManagerCommonAbi, slipstreamFactoryAbi, slipstreamPoolSlot0Abi, slipstreamPositionsAbi, uniswapV3FactoryAbi, uniswapV3PoolSlot0Abi, uniswapV3PositionsAbi } from "@/lib/earn/abis";
 import { getAssets } from "./b20-asset-service";
 import { getEthUsd, getPriceViews } from "./price-service";
@@ -65,8 +66,19 @@ interface TokenInfo {
   isStock: boolean;
 }
 
+/**
+ * Drop every instance's cached positions for a wallet after a mint, a burn or a collect. The key
+ * carries the wallet's shared version (see `lib/portfolio/wallet-version`), so one bump reaches
+ * every instance; the portfolio snapshot shares the version and goes with it, as it should, since
+ * the LP value is part of the total. Exposed for the record route to call.
+ */
+export function invalidateLpPositions(owner: Address): Promise<void> {
+  return bumpWalletVersion(owner).then(() => undefined);
+}
+
 export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
-  return cached(`lp:positions:${owner.toLowerCase()}`, { ttlMs: 30_000, staleMs: 5 * 60_000 }, async () => {
+  const version = await walletVersion(owner);
+  return cached(`lp:positions:${owner.toLowerCase()}:v${version}`, { ttlMs: 30_000, staleMs: 5 * 60_000 }, async () => {
     const client = getServerPublicClient();
     const assets = await getAssets();
     const [views, ethUsd] = await Promise.all([getPriceViews(assets), getEthUsd().catch(() => null)]);
@@ -76,15 +88,17 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
     tokenInfo.set(WETH_ADDRESS.toLowerCase(), { address: WETH_ADDRESS, symbol: "WETH", decimals: 18, priceUsd: ethUsd, isStock: false });
     const stockAddresses = new Set(CURATED_B20_ASSETS.map((a) => canonicalId(a.address)));
 
-    const out: LpPosition[] = [];
-    for (const m of LP_MANAGERS) {
+    // The three managers are independent; read them side by side rather than one after another.
+    // Within a manager the reads stay staged (ids, then positions, then pools), each stage one multicall.
+    const perManager = await Promise.all(LP_MANAGERS.map(async (m): Promise<LpPosition[]> => {
+      const out: LpPosition[] = [];
       try {
         const count = await client.readContract({ address: m.npm, abi: positionManagerCommonAbi, functionName: "balanceOf", args: [owner] });
         const n = Number(count > BigInt(MAX_POSITIONS_PER_MANAGER) ? BigInt(MAX_POSITIONS_PER_MANAGER) : count);
-        if (n === 0) continue;
+        if (n === 0) return out;
         const idRes = await client.multicall({ contracts: Array.from({ length: n }, (_, i) => ({ address: m.npm, abi: positionManagerCommonAbi, functionName: "tokenOfOwnerByIndex" as const, args: [owner, BigInt(i)] as const })), allowFailure: true });
         const ids = idRes.filter((r) => r.status === "success").map((r) => r.result as bigint);
-        if (ids.length === 0) continue;
+        if (ids.length === 0) return out;
         const posAbi = m.kind === "v3" ? uniswapV3PositionsAbi : slipstreamPositionsAbi;
         const posRes = await client.multicall({ contracts: ids.map((id) => ({ address: m.npm, abi: posAbi, functionName: "positions" as const, args: [id] as const })), allowFailure: true });
         type Pos = readonly [bigint, Address, Address, Address, number, number, number, bigint, bigint, bigint, bigint, bigint];
@@ -92,7 +106,7 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
           .map((id, i) => ({ id, p: posRes[i]?.status === "success" ? (posRes[i]!.result as unknown as Pos) : null }))
           .filter((x): x is { id: bigint; p: Pos } => !!x.p)
           .filter(({ p }) => (stockAddresses.has(p[2].toLowerCase()) || stockAddresses.has(p[3].toLowerCase())) && (p[7] > 0n || p[10] > 0n || p[11] > 0n));
-        if (candidates.length === 0) continue;
+        if (candidates.length === 0) return out;
 
         // Unknown tokens (rare): read symbol/decimals on the fly so nothing is mislabelled.
         const unknown = Array.from(new Set(candidates.flatMap(({ p }) => [p[2], p[3]]).map((a) => a.toLowerCase()).filter((a) => !tokenInfo.has(a))));
@@ -106,6 +120,10 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
         const pools = poolRes.map((r) => (r.status === "success" ? (r.result as Address) : null));
         const slotAbi = m.kind === "v3" ? uniswapV3PoolSlot0Abi : slipstreamPoolSlot0Abi;
         const slotRes = await client.multicall({ contracts: pools.map((pool) => ({ address: pool ?? m.factory, abi: slotAbi, functionName: "slot0" as const })), allowFailure: true });
+        // Uncollected fees come from simulating `collect` as the owner. Multicall3 cannot do this:
+        // the manager checks `msg.sender` against the position's owner, and inside an aggregate call
+        // that sender is Multicall3. The simulations run in parallel and the HTTP transport batches
+        // them into one JSON-RPC request, which is as close to one call as the check allows.
         const feeRes = await Promise.all(
           candidates.map(({ id }) =>
             client
@@ -131,19 +149,6 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
           const fee0 = fees ? Number(fees[0]) / 10 ** t0.decimals : Number(p[10]) / 10 ** t0.decimals;
           const fee1 = fees ? Number(fees[1]) / 10 ** t1.decimals : Number(p[11]) / 10 ** t1.decimals;
           const feesUsd = t0.priceUsd !== null && t1.priceUsd !== null ? fee0 * t0.priceUsd + fee1 * t1.priceUsd : null;
-          // Range in USD per stock token: price(token0 in token1) converted with the quote token's USD price.
-          let rangeUsd: LpPosition["rangeUsd"] = null;
-          const stockIs0 = t0.isStock;
-          const quote = stockIs0 ? t1 : t0;
-          if ((t0.isStock || t1.isStock) && quote.priceUsd !== null) {
-            const conv = (tk: number) => {
-              const p01 = tickToPrice(tk, t0.decimals, t1.decimals); // token1 per token0
-              return stockIs0 ? p01 * quote.priceUsd! : (1 / p01) * quote.priceUsd!;
-            };
-            const lower = conv(Number(p[5]));
-            const upper = conv(Number(p[6]));
-            rangeUsd = { lower: Math.min(lower, upper), upper: Math.max(lower, upper), current: conv(tick) };
-          }
           out.push({
             manager: m.id,
             managerLabel: m.label,
@@ -158,7 +163,8 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
             tickUpper: Number(p[6]),
             currentTick: tick,
             inRange: inRange(tick, Number(p[5]), Number(p[6])),
-            rangeUsd,
+            // Range in USD per stock token: price(token0 in token1) converted with the quote token's USD price.
+            rangeUsd: rangeUsd({ tickLower: Number(p[5]), tickUpper: Number(p[6]), currentTick: tick }, t0, t1),
             amount0,
             amount1,
             valueUsd,
@@ -169,7 +175,8 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
       } catch (err) {
         metrics.count(`lp.${m.id}`, false, err instanceof Error ? err.message : String(err));
       }
-    }
-    return out.sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
+      return out;
+    }));
+    return perManager.flat().sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
   });
 }

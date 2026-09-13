@@ -7,7 +7,7 @@ import { base } from "viem/chains";
 import type { EarnOpportunity } from "@/domain/earn";
 import { apiPost, ApiError } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
-import { waitForConfirmation } from "@/lib/trade/execute";
+import { waitForConfirmation, walletCapabilities } from "@/lib/trade/execute";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { parseAmountSafe } from "@/lib/b20/math";
 import { formatUsd, formatPct } from "@/lib/format";
@@ -31,7 +31,7 @@ interface Prepared {
   underlyingDecimals: number;
 }
 
-const PROVIDER_LABEL: Record<EarnOpportunity["provider"], string> = { morpho: "Morpho", aave: "Aave", aerodrome: "Aerodrome", compound: "Compound", uniswap: "Uniswap" };
+import { EARN_PROVIDER_LABEL as PROVIDER_LABEL } from "@/lib/earn/labels";
 
 interface Props {
   open: boolean;
@@ -100,13 +100,7 @@ export function EarnDepositSheet({ open, onClose, opportunity, action, available
       if (!calls.some((c) => c.kind === "approve")) {
         await publicClient.call({ account: address, to: main.to, data: main.data, value: BigInt(main.value) });
       }
-      let atomic = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-      } catch {
-        atomic = false;
-      }
+      const { atomic } = await walletCapabilities(walletClient, address);
       setState("wallet");
       let hash: Hash | undefined;
       if (calls.length > 1 && atomic) {

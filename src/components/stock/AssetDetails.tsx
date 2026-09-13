@@ -1,12 +1,12 @@
 "use client";
 
-import { formatUnits } from "viem";
 import { ExternalLink } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
 import { KeyValue, Badge } from "@/components/ui/primitives";
 import { AddressLabel } from "@/components/common/display";
-import { formatUsd, formatTokenAmount } from "@/lib/format";
+import { formatUsd, formatUsdCompact, formatTokenAmount } from "@/lib/format";
+import { multiplierToNumber } from "@/lib/b20/math";
 import { Collapsible } from "@/components/ui/Collapsible";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { isNotIssued } from "@/lib/trading-status";
@@ -14,6 +14,13 @@ import { isNotIssued } from "@/lib/trading-status";
 /** Deterministic (SSR-safe) timestamp: locale formatting would differ between server and browser. */
 const utcStamp = (unixSeconds: number) => `${new Date(unixSeconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
+/** The status enum, in words. "active" on a badge read as a database column, not a fact about the stock. */
+const STATUS_LABEL: Record<B20AssetDTO["status"], string> = {
+  active: "Verified and active",
+  paused: "Transfers paused",
+  restricted: "Restricted by the issuer",
+  unknown: "Status unknown",
+};
 
 /** CoinGecko lists only the liquid tokenized stocks; slugs follow {company}-coinbase-tokenized-stock (verified 2026-09-03). */
 const COINGECKO_SLUGS: Record<string, string> = {
@@ -26,14 +33,15 @@ const COINGECKO_SLUGS: Record<string, string> = {
 /** Asset details / B20 / Oracle / Contract — advanced, collapsed by default on mobile. */
 export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: PriceView | null }) {
   const oracle = asset.oracle;
-  const multiplier = Number(formatUnits(BigInt(asset.multiplier), 18));
+  const multiplier = multiplierToNumber(BigInt(asset.multiplier));
   const notIssued = isNotIssued(asset);
   const pending = asset.pendingMultiplier;
   const freshness = oracle?.freshness ?? "stale";
+  const marketCap = price?.marketCapUsd ?? null;
   return (
     <div className="p-4 flex flex-col gap-2">
       <div className="flex flex-wrap gap-2 mb-1">
-        <Badge tone={asset.status === "active" ? "positive" : asset.status === "paused" ? "danger" : "neutral"}>{asset.status}</Badge>
+        <Badge tone={asset.status === "active" ? "positive" : asset.status === "paused" ? "danger" : "neutral"}>{STATUS_LABEL[asset.status] ?? asset.status}</Badge>
         <Badge tone="primary">B20 · Coinbase Tokenized Stock</Badge>
         {notIssued && <Badge tone="warning">Not issued onchain yet</Badge>}
         {freshness === "frozen" && <Badge tone="danger">Corporate action · feed frozen</Badge>}
@@ -62,8 +70,10 @@ export function AssetDetails({ asset, price }: { asset: B20AssetDTO; price: Pric
       <KeyValue k="Underlying" v={asset.underlying} />
       {asset.isin && <KeyValue k="ISIN" v={asset.isin} />}
       <KeyValue k="Onchain supply" v={notIssued ? "0 · the issuer has not minted this stock on Base yet" : `${formatTokenAmount(asset.totalSupply, asset.decimals)} tokens`} />
-      <KeyValue k="Multiplier (WAD)" v={`${multiplier.toFixed(6)} × (1 token = ${multiplier.toFixed(4)} share-equivalents)`} />
-      {pending && <KeyValue k="Scheduled multiplier" v={`${Number(formatUnits(BigInt(pending.multiplier), 18)).toFixed(6)} × effective ${utcStamp(pending.effectiveAt)}`} />}
+      {/* Market cap of the onchain token (its supply at the pool price, as the provider reports it), not of the company. */}
+      <KeyValue k="Token market cap / FDV" v={marketCap !== null && marketCap > 0 ? `${formatUsdCompact(marketCap)} · onchain supply at the pool price` : notIssued ? "No supply yet" : "Not reported"} />
+      <KeyValue k="Multiplier" v={`${multiplier.toFixed(6)} × (1 token = ${multiplier.toFixed(4)} share-equivalents)`} />
+      {pending && <KeyValue k="Scheduled multiplier" v={`${multiplierToNumber(BigInt(pending.multiplier)).toFixed(6)} × effective ${utcStamp(pending.effectiveAt)}`} />}
       <KeyValue k="Transfers" v={asset.transferPaused ? "Paused by issuer" : "Active"} />
       <KeyValue k="Transfer policy ids" v={`sender ${asset.transferSenderPolicyId} · receiver ${asset.transferReceiverPolicyId}`} />
 

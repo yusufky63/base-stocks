@@ -16,7 +16,7 @@ import { getPriceViews } from "./price-service";
 import { tradeRouter } from "./trade-router";
 import { invalidatePortfolioSnapshot } from "./portfolio-service";
 import { HISTORY_CAP, RUN_LOCK_MS, invalidateRules, mirrorPatch } from "./automation-service";
-import { readFloor, readFunding, readOnchainPlan, readRouteAllowed } from "./auto-invest-chain";
+import { readFloor, readFunding, readOnchainPlan, readOnchainPlans, readRouteAllowed } from "./auto-invest-chain";
 
 /**
  * The keeper: finds auto plans that are due, builds one swap per leg from live quotes with the
@@ -35,6 +35,8 @@ const MIN_KEEPER_ETH = 0.0003;
 /** Wait before retrying a plan whose run failed for a reason that will not clear in a minute. */
 const RETRY_AFTER_MS = 60 * 60_000;
 const FUNDING_RETRY_MS = 6 * 60 * 60_000;
+/** Rules read per page by the keeper; small enough that one page's plan reads fit in a multicall. */
+const KEEPER_PAGE = 100;
 
 export interface PlannedLeg {
   index: number;
@@ -105,6 +107,15 @@ export async function buildRunSwaps(plan: OnchainPlan, opts: { skipIndexes?: Set
       continue;
     }
     const floor = await readFloor(leg.asset, amountIn, plan.maxSlippageBps).catch(() => 0n);
+    // The contract answers 0 when the leg has no usable feed (none registered, or the answer is
+    // older than its four-day limit) and then enforces only the route's own minOut. For a stock
+    // that *has* a reference feed that is not a price check, it is the absence of one: a keeper
+    // key in the wrong hands could route through an allow-listed router at minOut 1 and take the
+    // difference. Such a leg waits for the feed rather than running without it.
+    if (floor === 0n && asset.oracle) {
+      skip("the contract's reference floor is unavailable (feed stale or not registered); the leg waits rather than run unchecked");
+      continue;
+    }
     if (floor > 0n && quote.buyAmount < floor) {
       skip("pool price is further from the Chainlink reference than the plan allows");
       continue;
@@ -165,10 +176,23 @@ export interface RunOutcome {
   retryAfterMs?: number;
   /** The leg the contract rejected in simulation for delivering too little (`TooLittleReceived`). */
   failingLeg?: number;
+  /** Sent, not yet mined when the tick ran out: not a failure, and not to be recorded as one. */
+  pending?: boolean;
 }
 
-/** Simulate, send and confirm one run. Never throws: every outcome is a record. */
-export async function executeRun(plan: OnchainPlan, prepared: RunPlanResult): Promise<RunOutcome> {
+/** How long a sent run may stay unmined before it is written off; Base includes a paid transaction within seconds, so this is generous. */
+const PENDING_RUN_GRACE_MS = 2 * 60 * 60_000;
+
+/**
+ * Simulate, send and confirm one run. Never throws: every outcome is a record.
+ *
+ * `onSent` fires with the hash the moment the transaction leaves the keeper, before the receipt
+ * is awaited: a tick that ran out of time waiting (150 s of waiting inside a 60 s serverless
+ * budget) used to return with nothing written, and a purchase that had in fact gone through showed
+ * up in Activity as an unexplained transfer with no cost behind it. The hash persisted here is what
+ * the next tick reconciles from the chain.
+ */
+export async function executeRun(plan: OnchainPlan, prepared: RunPlanResult, hooks: { onSent?: (txHash: Hash) => Promise<void> } = {}): Promise<RunOutcome> {
   const wallet = getKeeperWalletClient();
   const account = keeperAccount();
   const client = getServerPublicClient();
@@ -194,9 +218,10 @@ export async function executeRun(plan: OnchainPlan, prepared: RunPlanResult): Pr
     metrics.count("automation.send", false, err instanceof Error ? err.message : String(err));
     return { ok: false, legs: legRecords(), error: `Could not send the run: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`, retryAfterMs: RETRY_AFTER_MS };
   }
+  await hooks.onSent?.(hash).catch((err) => metrics.count("automation.pending.write", false, err instanceof Error ? err.message : String(err)));
 
-  const receipt = await client.waitForTransactionReceipt({ hash, timeout: 150_000 }).catch(() => null);
-  if (!receipt) return { ok: false, txHash: hash, legs: legRecords(), error: "The run was sent but its receipt did not arrive in time; it will be reconciled from the chain.", retryAfterMs: RETRY_AFTER_MS };
+  const receipt = await client.waitForTransactionReceipt({ hash, timeout: 40_000 }).catch(() => null);
+  if (!receipt) return { ok: false, pending: true, txHash: hash, legs: legRecords(), error: "The run was sent; its receipt had not arrived when this tick ended. The next tick records it from the chain." };
   if (receipt.status !== "success") {
     metrics.count("automation.run", false, "reverted");
     return { ok: false, txHash: hash, legs: legRecords(), error: "The run reverted onchain; no USDC moved.", retryAfterMs: RETRY_AFTER_MS };
@@ -268,6 +293,7 @@ export async function recordRun(rule: AutomationRule, plan: OnchainPlan, outcome
   const config = { ...(patch.config ?? rule.config) };
   config.history = [record, ...(rule.config.history ?? [])].slice(0, HISTORY_CAP);
   config.runningSince = undefined;
+  config.pendingRun = undefined;
   config.lastError = outcome.ok ? undefined : { at: now, message: outcome.error ?? "The run failed.", retryAt: now + (outcome.retryAfterMs ?? RETRY_AFTER_MS) };
   await repos.automation.update(rule.id, rule.owner, { ...patch, config });
   invalidateRules(rule.owner);
@@ -283,7 +309,27 @@ export interface KeeperReport {
   checked: number;
   executed: Array<{ ruleId: string; planId: string; txHash: Hash; spentUsd: number }>;
   failed: Array<{ ruleId: string; planId: string; error: string }>;
+  /** Runs sent and still unmined when the tick ended, or finished this tick from an earlier one's hash. */
+  pending: Array<{ ruleId: string; planId: string; txHash: Hash; state: "sent" | "waiting" | "recorded" | "dropped" }>;
   ms: number;
+}
+
+/**
+ * Finish a run an earlier tick sent but could not wait for: the receipt is read from the chain
+ * and recorded exactly like a run that confirmed in time. A hash the chain still has not mined
+ * after the grace period is written off, and the plan goes back to its schedule.
+ */
+async function finishPendingRun(rule: AutomationRule, plan: OnchainPlan, now: number): Promise<"waiting" | "recorded" | "dropped"> {
+  const pending = rule.config.pendingRun!;
+  const receipt = await getServerPublicClient().getTransactionReceipt({ hash: pending.txHash }).catch(() => null);
+  if (!receipt) {
+    if (now - pending.at < PENDING_RUN_GRACE_MS) return "waiting";
+    await recordRun(rule, plan, { ok: false, txHash: pending.txHash, legs: [], error: "The run was sent but the network never mined it; nothing was bought.", retryAfterMs: RETRY_AFTER_MS }, "keeper");
+    return "dropped";
+  }
+  const outcome = await outcomeFromReceipt(plan, pending.txHash).catch((err): RunOutcome => ({ ok: false, txHash: pending.txHash, legs: [], error: err instanceof Error ? err.message : String(err), retryAfterMs: RETRY_AFTER_MS }));
+  await recordRun(rule, plan, outcome, "keeper");
+  return "recorded";
 }
 
 /**
@@ -295,7 +341,7 @@ export async function runDuePlans(opts: { limit?: number; now?: number } = {}): 
   const started = Date.now();
   const now = opts.now ?? started;
   const limit = opts.limit ?? serverEnv().AUTOMATION_MAX_RUNS_PER_TICK;
-  const report: KeeperReport = { enabled: true, checked: 0, executed: [], failed: [], ms: 0 };
+  const report: KeeperReport = { enabled: true, checked: 0, executed: [], failed: [], pending: [], ms: 0 };
   if (!isAutoInvestDeployed()) return { ...report, enabled: false, reason: "NEXT_PUBLIC_AUTO_INVEST_ADDRESS is not set", ms: Date.now() - started };
   const account = keeperAccount();
   if (!account) return { ...report, enabled: false, reason: "AUTOMATION_KEEPER_KEY is not set", ms: Date.now() - started };
@@ -310,41 +356,72 @@ export async function runDuePlans(opts: { limit?: number; now?: number } = {}): 
   }
 
   const repos = getRepos();
-  const rules = await repos.automation.listAuto();
-  for (const rule of rules) {
-    if (report.executed.length + report.failed.length >= limit) break;
-    const onchain = rule.config.onchain;
-    if (!onchain) continue;
-    report.checked += 1;
-    const plan = await readOnchainPlan(BigInt(onchain.planId)).catch(() => null);
-    if (!plan) continue;
-    const patch = mirrorPatch(rule, plan);
-    if (patch) await repos.automation.update(rule.id, rule.owner, patch).catch(() => undefined);
-    if (plan.status !== "active") continue;
-    if (plan.expiry !== 0 && plan.expiry * 1000 < now) continue;
-    if (plan.nextRunAt * 1000 > now) continue;
-    if (rule.config.runningSince && now - rule.config.runningSince < RUN_LOCK_MS) continue;
-    if (rule.config.lastError?.retryAt && rule.config.lastError.retryAt > now) continue;
+  // Every active auto plan, a page at a time: a fixed cap of 200 meant plan #201 never ran.
+  for (let offset = 0; ; offset += KEEPER_PAGE) {
+    const rules = await repos.automation.listAuto(KEEPER_PAGE, offset);
+    if (rules.length === 0) break;
+    const withPlan = rules.filter((r) => r.config.onchain);
+    // One multicall for the page's plans instead of one round trip per rule.
+    const plans = await readOnchainPlans(withPlan.map((r) => BigInt(r.config.onchain!.planId))).catch(() => withPlan.map(() => null));
+    const planByRule = new Map(withPlan.map((r, i) => [r.id, plans[i] ?? null]));
+    for (const rule of rules) {
+      if (report.executed.length + report.failed.length >= limit) break;
+      const onchain = rule.config.onchain;
+      if (!onchain) continue;
+      report.checked += 1;
+      const plan = planByRule.get(rule.id) ?? null;
+      if (!plan) continue;
+      const patch = mirrorPatch(rule, plan);
+      if (patch) await repos.automation.update(rule.id, rule.owner, patch).catch(() => undefined);
 
-    const funding = await readFunding(rule.owner, plan.amountPerRun).catch(() => undefined);
-    if (funding && !funding.enough) {
-      const message = BigInt(funding.usdcBalance) < plan.amountPerRun ? "Not enough USDC in the wallet for this run." : "The USDC allowance no longer covers a run; approve more to continue.";
-      await repos.automation.update(rule.id, rule.owner, { config: { ...rule.config, onchain: { ...onchain, funding }, lastError: { at: now, message, retryAt: now + FUNDING_RETRY_MS } } }).catch(() => undefined);
-      report.failed.push({ ruleId: rule.id, planId: onchain.planId, error: message });
-      continue;
-    }
+      // A run an earlier tick sent and could not wait for comes first: until it is recorded, the
+      // plan is neither due nor free.
+      if (rule.config.pendingRun) {
+        const state = await finishPendingRun(rule, plan, now).catch(() => "waiting" as const);
+        report.pending.push({ ruleId: rule.id, planId: onchain.planId, txHash: rule.config.pendingRun.txHash, state });
+        continue;
+      }
+      if (plan.status !== "active") continue;
+      if (plan.expiry !== 0 && plan.expiry * 1000 < now) continue;
+      if (plan.nextRunAt * 1000 > now) continue;
+      if (rule.config.runningSince && now - rule.config.runningSince < RUN_LOCK_MS) continue;
+      if (rule.config.lastError?.retryAt && rule.config.lastError.retryAt > now) continue;
 
-    await repos.automation.update(rule.id, rule.owner, { config: { ...rule.config, runningSince: now } }).catch(() => undefined);
-    let prepared = await buildRunSwaps(plan);
-    let outcome = await executeRun(plan, prepared);
-    // A leg that undercuts the reference floor is dropped once and the rest of the run goes ahead.
-    if (!outcome.ok && outcome.failingLeg !== undefined && prepared.total > 0n) {
-      prepared = await buildRunSwaps(plan, { skipIndexes: new Set([outcome.failingLeg]) });
-      outcome = await executeRun(plan, prepared);
+      const funding = await readFunding(rule.owner, plan.amountPerRun).catch(() => undefined);
+      if (funding && !funding.enough) {
+        const message = BigInt(funding.usdcBalance) < plan.amountPerRun ? "Not enough USDC in the wallet for this run." : "The USDC allowance no longer covers a run; approve more to continue.";
+        await repos.automation.update(rule.id, rule.owner, { config: { ...rule.config, onchain: { ...onchain, funding }, lastError: { at: now, message, retryAt: now + FUNDING_RETRY_MS } } }).catch(() => undefined);
+        report.failed.push({ ruleId: rule.id, planId: onchain.planId, error: message });
+        continue;
+      }
+
+      // Take the lock in one statement. Two ticks can land on the same plan (the fifteen-minute
+      // schedule and the daily cron overlap; a delayed schedule can bunch up), and both used to read
+      // "not running", both simulate, both send, and one paid gas to revert with NotDue.
+      const running = { ...rule.config, runningSince: now };
+      const claimed = await repos.automation.claimRun(rule.id, rule.owner, running, rule.config.runningSince ?? null).catch(() => false);
+      if (!claimed) continue;
+      const locked: AutomationRule = { ...rule, config: running };
+      const onSent = async (txHash: Hash) => {
+        await repos.automation.update(rule.id, rule.owner, { config: { ...running, pendingRun: { txHash, at: Date.now() } } });
+      };
+      let prepared = await buildRunSwaps(plan);
+      let outcome = await executeRun(plan, prepared, { onSent });
+      // A leg that undercuts the reference floor is dropped once and the rest of the run goes ahead.
+      if (!outcome.ok && !outcome.pending && outcome.failingLeg !== undefined && prepared.total > 0n) {
+        prepared = await buildRunSwaps(plan, { skipIndexes: new Set([outcome.failingLeg]) });
+        outcome = await executeRun(plan, prepared, { onSent });
+      }
+      if (outcome.pending && outcome.txHash) {
+        // The hash is already persisted by `onSent`; the plan stays locked until the next tick reads the receipt.
+        report.pending.push({ ruleId: rule.id, planId: onchain.planId, txHash: outcome.txHash, state: "sent" });
+        continue;
+      }
+      await recordRun(locked, plan, outcome, "keeper");
+      if (outcome.ok && outcome.txHash) report.executed.push({ ruleId: rule.id, planId: onchain.planId, txHash: outcome.txHash, spentUsd: outcome.spentUsd ?? 0 });
+      else report.failed.push({ ruleId: rule.id, planId: onchain.planId, error: outcome.error ?? "failed" });
     }
-    await recordRun(rule, plan, outcome, "keeper");
-    if (outcome.ok && outcome.txHash) report.executed.push({ ruleId: rule.id, planId: onchain.planId, txHash: outcome.txHash, spentUsd: outcome.spentUsd ?? 0 });
-    else report.failed.push({ ruleId: rule.id, planId: onchain.planId, error: outcome.error ?? "failed" });
+    if (rules.length < KEEPER_PAGE || report.executed.length + report.failed.length >= limit) break;
   }
   report.ms = Date.now() - started;
   return report;

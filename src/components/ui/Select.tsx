@@ -87,6 +87,7 @@ export function Select<T extends string>({ value, onChange, options, placeholder
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}
+        aria-activedescendant={open && active >= 0 ? `${listId}-opt-${active}` : undefined}
         aria-label={ariaLabel}
         disabled={disabled}
         onClick={() => {
@@ -117,6 +118,7 @@ export function Select<T extends string>({ value, onChange, options, placeholder
             return (
               <li
                 key={o.value}
+                id={`${listId}-opt-${i}`}
                 role="option"
                 aria-selected={isSel}
                 aria-disabled={o.disabled}

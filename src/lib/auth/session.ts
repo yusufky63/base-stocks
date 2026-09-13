@@ -62,18 +62,38 @@ export function readCookie(req: Request, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [k, ...v] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(v.join("="));
+    if (k !== name) continue;
+    // A cookie is whatever the client sent; a stray `%` made decodeURIComponent throw and a
+    // malformed jar answered every request with a 500 instead of "not signed in".
+    try {
+      return decodeURIComponent(v.join("="));
+    } catch {
+      return null;
+    }
   }
   return null;
 }
 
+/**
+ * Cookie attributes for the session, the nonce and the eligibility attestation.
+ *
+ * The site is embedded by the Base app and Farcaster clients (`frame-ancestors` in next.config),
+ * and inside a cross-site iframe a browser leaves `SameSite=Lax` cookies at home: sign-in
+ * answered "Sign-in expired" there and the attestation never stuck. `SameSite=None` sends them,
+ * `Partitioned` (CHIPS) keeps the embedded copy separate from the top-level one, and the
+ * same-origin check in `route()` (lib/api.ts) replaces the CSRF protection Lax used to give.
+ * Both need `Secure`, so development on plain http keeps Lax.
+ */
+export function cookieAttributes(): string {
+  return process.env.NODE_ENV === "production" ? "; HttpOnly; SameSite=None; Secure; Partitioned" : "; HttpOnly; SameSite=Lax";
+}
+
 export function cookieHeader(name: string, value: string, maxAgeSeconds: number): string {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Lax${secure}`;
+  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}${cookieAttributes()}`;
 }
 
 export function clearCookieHeader(name: string): string {
-  return `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`;
+  return `${name}=; Path=/; Max-Age=0${cookieAttributes()}`;
 }
 
 /** Session address or null. */

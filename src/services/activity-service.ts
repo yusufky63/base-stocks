@@ -4,7 +4,7 @@ import type { PoolRecord } from "@/domain/pool";
 import { getRepos } from "@/db/repositories";
 import { getAssets } from "./b20-asset-service";
 import { reverseResolve } from "./basename-service";
-import { getReceiptStates } from "./receipt-service";
+import { getReceiptStates, type ReceiptState } from "./receipt-service";
 import { transfersForWallet } from "./chain-index-service";
 import { buildTimeline, settleRecord, type TimelineTransfer } from "@/lib/activity/timeline";
 import { USDC_DECIMALS } from "@/config/chain";
@@ -20,12 +20,23 @@ export type { ReceiptState } from "./receipt-service";
  * the reading. An app record is "verified" when the chain shows the transfer or the server has
  * matched it to its receipt.
  */
-/** How many app-record hashes one timeline read verifies at most; the rest stay pending until the next look. */
-const MAX_RECEIPTS = 120;
+/**
+ * How many hashes one timeline read may ask the *chain* about; the rest stay pending until the next
+ * look. Receipts already stored in `tx_receipts` cost a table read and are never capped: with the
+ * cap on the whole list, a wallet past 120 hashes had its oldest Earn rows marked "Pending" for good.
+ */
+const MAX_CHAIN_RECEIPTS = 120;
 
-export async function getActivity(owner: Address): Promise<ActivityItem[]> {
+/**
+ * `allowBackfill: false` reads the timeline without making the wallet part of the transfer index.
+ * Registering a wallet scans its recent chain history and reconciles its Earn venues, which is
+ * real work; the activity route lets an unauthenticated request trigger it only for a wallet that
+ * has some footprint here. A wallet already in the index is read as usual either way.
+ */
+export async function getActivity(owner: Address, opts: { allowBackfill?: boolean } = {}): Promise<ActivityItem[]> {
   const repos = getRepos();
   const assets = await getAssets();
+  const indexed = opts.allowBackfill === false ? !!(await repos.walletIndex.get(owner).catch(() => null)) : true;
   const [trades, gifts, executions, earnActions, pools, claims, transfers] = await Promise.all([
     repos.trades.listByOwner(owner),
     repos.gifts.listByOwner(owner),
@@ -33,7 +44,7 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
     repos.earnActions.listByOwner(owner),
     repos.pools.listByCreator(owner).catch(() => [] as PoolRecord[]),
     repos.poolClaims.listByClaimant(owner).catch(() => []),
-    transfersForWallet(owner).catch(() => [] as TimelineTransfer[]),
+    indexed ? transfersForWallet(owner).catch(() => [] as TimelineTransfer[]) : Promise.resolve([] as TimelineTransfer[]),
   ]);
   // The pools behind this wallet's claims (its own pools are already in hand).
   const poolById = new Map(pools.map((p) => [p.id, p]));
@@ -56,11 +67,11 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
   for (const a of earnActions) if (a.txHash) hashes.add(a.txHash);
   for (const p of pools) if (p.txHash) hashes.add(p.txHash);
   for (const c of claims) if (c.txHash) hashes.add(c.txHash);
-  const receipts = await getReceiptStates([...hashes].slice(0, MAX_RECEIPTS) as Hash[]).catch(() => new Map());
+  const receipts = await receiptStates([...hashes] as Hash[]);
 
   const items = buildTimeline({
     owner,
-    assets: assets.map((a) => ({ canonicalId: a.canonicalId, address: a.address, symbol: a.symbol, decimals: a.decimals })),
+    assets: assets.map((a) => ({ canonicalId: a.canonicalId, address: a.address, symbol: a.symbol, decimals: a.decimals, multiplier: a.multiplier.toString(), wadPrecision: a.wadPrecision.toString() })),
     trades,
     gifts,
     executions,
@@ -82,6 +93,20 @@ export async function getActivity(owner: Address): Promise<ActivityItem[]> {
   for (const i of items) if (i.counterparty && !i.counterpartyHandle) i.counterpartyHandle = handleMap.get(i.counterparty.toLowerCase()) ?? undefined;
 
   return items;
+}
+
+/** Stored receipts for every hash, then the chain for at most `MAX_CHAIN_RECEIPTS` of the rest. */
+async function receiptStates(hashes: Hash[]): Promise<Map<string, ReceiptState>> {
+  const out = new Map<string, ReceiptState>();
+  if (hashes.length === 0) return out;
+  const stored = await getRepos().receipts.getMany(hashes).catch(() => []);
+  for (const r of stored) out.set(r.txHash.toLowerCase(), { status: r.status, blockNumber: r.blockNumber, blockTime: r.blockTime });
+  const missing = hashes.filter((h) => !out.has(h.toLowerCase())).slice(0, MAX_CHAIN_RECEIPTS);
+  // `getReceiptStates` re-checks memory and the table first, so a stored hash is never re-fetched;
+  // the slice bounds only the hashes the chain has to be asked about.
+  const fresh = await getReceiptStates(missing).catch(() => new Map<string, ReceiptState>());
+  for (const [k, v] of fresh) out.set(k, v);
+  return out;
 }
 
 export function usdcAmount(raw: string): number {

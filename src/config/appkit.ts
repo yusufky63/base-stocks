@@ -13,9 +13,11 @@ let loading: Promise<AppKitInstance | null> | null = null;
 /**
  * The wallet modal, created on the client and loaded only when it is about to be needed.
  *
- * `@reown/appkit/react` and the modal UI behind it are the heaviest thing in the client bundle,
- * and most visitors never open the modal — they read prices. So the module is imported here on
- * demand: the providers warm it once the page is idle, and a "Connect" tap before that awaits
+ * `@reown/appkit/react` and the modal UI behind it are the heaviest thing in the client bundle
+ * (~686 KB), and most visitors never open the modal — they read prices. So the module is imported
+ * here on demand, and only on a sign of intent: the pointer reaching the Connect button, a first
+ * tap anywhere on the page, or wagmi restoring a stored connection whose account chip opens this
+ * modal (see `AppKitBoot` in providers.tsx). A "Connect" tap before the warm-up finishes awaits
  * this same promise. Base Account is featured first; every other wallet remains available
  * (docs.base.org/sdks/base-account/framework-integrations/reown).
  */
@@ -67,6 +69,19 @@ export function ensureAppKit(themeMode: "light" | "dark" = "light"): Promise<App
       return null;
     });
   return loading;
+}
+
+/**
+ * Loads the modal and its UI bundle in the background so the first open() is instant. Idempotent
+ * and silent: a failure here only means the Connect tap loads it then instead.
+ */
+export function warmAppKit(themeMode: "light" | "dark"): void {
+  void ensureAppKit(themeMode).then((kit) => {
+    if (!kit) return;
+    kit.setThemeMode(themeMode);
+    // The modal's UI is a second bundle AppKit imports on the first open(); fetch it now too.
+    void (kit as unknown as { injectModalUi?: () => Promise<void> }).injectModalUi?.().catch(() => undefined);
+  });
 }
 
 /** The modal, when it has been created; null until then (see `ensureAppKit`). */

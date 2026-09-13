@@ -29,6 +29,13 @@ interface Loaded {
   error: TradePriceState["error"];
 }
 
+/**
+ * How long typing has to pause before the providers are asked. At 350 ms a hand typing "1250"
+ * fired a comparison on "12" and again on "125", seven provider calls each, for numbers nobody
+ * meant; 600 ms is still well inside what feels immediate once the typing stops.
+ */
+const DEBOUNCE_MS = 600;
+
 /** Debounced indicative price with periodic refresh while the sheet is open. */
 export function useTradePrice(input: TradePriceInput | null, opts?: { debounceMs?: number; refreshMs?: number }): TradePriceState {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -58,7 +65,7 @@ export function useTradePrice(input: TradePriceInput | null, opts?: { debounceMs
         if (mySeq !== seq.current) return;
         setLoaded({ key, summary: null, error: err instanceof ApiError ? { code: err.code, message: err.message } : { code: "UNKNOWN", message: "Price unavailable right now." } });
       }
-    }, opts?.debounceMs ?? 350);
+    }, opts?.debounceMs ?? DEBOUNCE_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, tick, active]);
@@ -66,10 +73,32 @@ export function useTradePrice(input: TradePriceInput | null, opts?: { debounceMs
   const ready = active && loaded?.key === key;
   const status: TradePriceState["status"] = !active ? "idle" : !ready ? "loading" : loaded?.error ? "error" : "ready";
 
+  // Refresh only while the tab is visible: a sheet left open in a background tab used to ask
+  // seven providers for a price every twelve seconds for nobody.
   useEffect(() => {
     if (status !== "ready") return;
-    const t = setInterval(() => setTick((x) => x + 1), opts?.refreshMs ?? 12_000);
-    return () => clearInterval(t);
+    const every = opts?.refreshMs ?? 12_000;
+    let t: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (t === null && !document.hidden) t = setInterval(() => setTick((x) => x + 1), every);
+    };
+    const stop = () => {
+      if (t !== null) clearInterval(t);
+      t = null;
+    };
+    const onVisibility = () => {
+      if (document.hidden) stop();
+      else {
+        setTick((x) => x + 1);
+        start();
+      }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [status, opts?.refreshMs]);
 
   // While a new amount is loading, keep showing the previous summary (dimmed by the UI) to avoid flicker.

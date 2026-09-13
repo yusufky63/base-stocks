@@ -16,6 +16,32 @@ export interface ConfirmationProvider {
 }
 
 /**
+ * The latest sealed block, remembered for a second. The client polls a submitted hash every 1.2 s
+ * and each poll read the block number afresh beside the receipt, so watching one transaction cost
+ * three or four RPC calls a tick. Within a second the number cannot have moved by more than the
+ * Flashblocks this exists to tell apart, and one read serves every hash being watched.
+ */
+const BLOCK_NUMBER_TTL_MS = 1_000;
+let latestBlock: { value: bigint; at: number } | null = null;
+let latestBlockInflight: Promise<bigint | null> | null = null;
+
+function latestBlockNumber(client: { getBlockNumber(): Promise<bigint> }): Promise<bigint | null> {
+  if (latestBlock && Date.now() - latestBlock.at < BLOCK_NUMBER_TTL_MS) return Promise.resolve(latestBlock.value);
+  if (latestBlockInflight) return latestBlockInflight;
+  latestBlockInflight = client
+    .getBlockNumber()
+    .then((value) => {
+      latestBlock = { value, at: Date.now() };
+      return value;
+    })
+    .catch(() => null)
+    .finally(() => {
+      latestBlockInflight = null;
+    });
+  return latestBlockInflight;
+}
+
+/**
  * Fast-receipt confirmation with normal receipt fallback (spec §17).
  * - A receipt from the fast RPC whose block is beyond the latest sealed block = preconfirmed
  *   (Flashblocks today; after the Denim hardfork the same call returns canonical 200ms blocks and
@@ -29,10 +55,7 @@ export class FastReceiptConfirmationProvider implements ConfirmationProvider {
     const normal = getServerPublicClient();
     const fast = getFastReceiptClient();
 
-    const [receipt, latest] = await Promise.all([
-      normal.getTransactionReceipt({ hash }).catch(() => null),
-      normal.getBlockNumber().catch(() => null),
-    ]);
+    const [receipt, latest] = await Promise.all([normal.getTransactionReceipt({ hash }).catch(() => null), latestBlockNumber(normal)]);
     if (receipt) {
       if (latest === null || receipt.blockNumber <= latest) {
         return { status: receipt.status === "success" ? "confirmed" : "failed", blockNumber: Number(receipt.blockNumber), via: "receipt" };

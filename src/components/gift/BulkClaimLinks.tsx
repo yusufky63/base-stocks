@@ -3,17 +3,17 @@
 import { useMemo, useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, erc20Abi, formatUnits, type Hash } from "viem";
-import { base } from "viem/chains";
 import { Check, Copy, TriangleAlert } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { GiftRecord } from "@/domain/gift";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
-import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
-import { attributionCapabilities, withAttribution } from "@/lib/attribution";
-import { receiptForLeg } from "@/lib/execution/batch-plan";
+import { apiPost, ApiError } from "@/lib/client-api";
 import { claimPath, GIFT_ESCROW_ADDRESS, giftEscrowAbi, makeClaimSecret } from "@/lib/escrow";
+import { formatShares } from "@/lib/gift/format";
+import { patchWithRetry } from "@/lib/gift/record";
+import { probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
+import { useAuth } from "@/hooks/useAuth";
 import { parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AmountInput, Input } from "@/components/ui/Input";
@@ -33,6 +33,8 @@ interface MadeLink {
   url: string;
 }
 
+type Phase = "form" | "working" | "recording" | "ready";
+
 /**
  * Several claim links in one go — e.g. ten equal gifts for an event. One approval for the total
  * plus one escrow lock per link, batched atomically on Base Account (a plain wallet confirms
@@ -42,16 +44,18 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+  const { ensureSignedIn } = useAuth();
 
   const [count, setCount] = useState(3);
   const [sharesPer, setSharesPer] = useState("");
   const [days, setDays] = useState(7);
   const [message, setMessage] = useState("");
-  const [phase, setPhase] = useState<"form" | "working" | "ready">("form");
+  const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState<HumanError | null>(null);
   const [links, setLinks] = useState<MadeLink[]>([]);
   const [txHash, setTxHash] = useState<Hash | undefined>();
   const [copied, setCopied] = useState<string | null>(null);
+  const [unrecorded, setUnrecorded] = useState(0);
 
   const multiplier = BigInt(asset.multiplier);
   const wad = BigInt(asset.wadPrecision);
@@ -61,7 +65,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
   }, [sharesPer, asset.decimals, multiplier, wad]);
   const totalRaw = rawPer * BigInt(count);
   const insufficient = totalRaw > raw;
-  const perLabel = `${formatTokenAmount((rawPer * multiplier) / wad, asset.decimals)} ${asset.underlying}`;
+  const perLabel = `${formatShares(rawPer, asset)} ${asset.underlying}`;
   const totalUsd = priceUsd !== null ? Number(formatUnits(totalRaw, asset.decimals)) * priceUsd : null;
 
   const copy = async (key: string, text: string) => {
@@ -83,6 +87,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
     setError(null);
     setPhase("working");
     try {
+      await ensureSignedIn();
       const expiresAt = Date.now() + days * 24 * 3600 * 1000;
       const expiry = BigInt(Math.floor(expiresAt / 1000));
       const made: Array<{ record: GiftRecord; createData: `0x${string}`; url: string }> = [];
@@ -105,75 +110,33 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
       }
       const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_ESCROW_ADDRESS, totalRaw] });
 
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
-
-    const calls = [{ to: asset.address, data: withAttribution(approveData) }, ...made.map((m) => ({ to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) }))];
-
       /**
-       * One prompt instead of one per link, wherever the wallet can manage it.
-       *
-       * The check used to insist on atomic batching, which is Base Account and little else, so
-       * every other wallet fell to a signature per link — eleven of them for ten links, which is
-       * the tiring part. A wallet that speaks EIP-5792 without atomic guarantees still bundles the
-       * calls behind a single confirmation and runs them in order, and that is worth having: only
-       * the atomicity is lost, and the sequential fallback never had it either.
-       *
-       * Capability reporting is inconsistent enough that asking is not proof, so this tries and
-       * reads the refusal. A wallet that does not implement the method says so, and we walk.
+       * One prompt instead of one per link, wherever the wallet can manage it. A wallet that
+       * speaks EIP-5792 without atomic guarantees still bundles the calls behind a single
+       * confirmation and runs them in order; only the atomicity is lost, and the sequential
+       * fallback never had it either. Each link remembers its own hash: an atomic batch is one
+       * transaction shared by all, a non-atomic one lands a receipt per call.
        */
-      /**
-       * Resolves to one hash per link. An atomic batch lands as one transaction and every link
-       * shares it; a wallet that batched without atomicity returns one receipt per call — the
-       * approval first, then a deposit per link — and each link must remember its own, or the
-       * timeline and the statistics would see one deposit and nine unexplained transfers.
-       */
-      const sendBatched = async (): Promise<Array<Hash | undefined> | null> => {
-        try {
-          const { id } = await walletClient.sendCalls({
-            account: address,
-            chain: base,
-            ...(atomic ? { forceAtomic: true } : {}),
-            calls,
-            capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
-          });
-          const result = await walletClient.waitForCallsStatus({ id, timeout: 240_000 });
-          if (result.status === "failure") throw new Error("Batched transaction failed");
-          const receipts = result.receipts ?? [];
-          return made.map((_, i) => receiptForLeg(receipts, calls.length - made.length, i, made.length)?.transactionHash);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          // Not implemented: fall through to one transaction at a time. Anything else — a decline,
-          // a revert — is a real answer and belongs to the caller.
-          if (/unsupported|not supported|does not exist|Method not found|4200|5700/i.test(msg)) return null;
-          throw err;
-        }
-      };
-
-      let hashes: Array<Hash | undefined>;
-      const batched = await sendBatched();
-      if (batched !== null) {
-        hashes = batched;
-      } else {
-        const ah = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(approveData) });
-        await publicClient.waitForTransactionReceipt({ hash: ah });
-        hashes = [];
-        for (const m of made) {
-          const h = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(m.createData) });
-          await publicClient.waitForTransactionReceipt({ hash: h });
-          hashes.push(h);
-        }
-      }
-      made.forEach((m, i) => void apiPatch(`/api/gifts/${m.record.id}`, { txHash: hashes[i], status: "submitted" }).catch(() => undefined));
-      const hash = hashes[hashes.length - 1];
+      const caps = await probeWalletCapabilities(walletClient, address);
+      const { hashes } = await sendCallsOrSequential({
+        walletClient,
+        publicClient,
+        address,
+        caps,
+        sponsor: true,
+        batchWithoutAtomic: true,
+        timeoutMs: 240_000,
+        calls: [{ to: asset.address, data: approveData }, ...made.map((m) => ({ to: GIFT_ESCROW_ADDRESS, data: m.createData }))],
+      });
+      // The approval is call 0; link i is call i + 1.
+      const perLink = made.map((_, i) => hashes[i + 1]);
+      const hash = perLink[perLink.length - 1];
       setTxHash(hash);
+
+      // Every link needs its hash on the record before it can be claimed; written and retried, not fired and forgotten.
+      setPhase("recording");
+      const written = await Promise.all(made.map((m, i) => (perLink[i] ? patchWithRetry(`/api/gifts/${m.record.id}`, { txHash: perLink[i], status: "submitted" }) : Promise.resolve(null))));
+      setUnrecorded(written.filter((w) => w === null).length);
       setLinks(made.map((m) => ({ giftId: m.record.id, url: m.url })));
       setPhase("ready");
       onSent?.();
@@ -190,6 +153,11 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
           <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Locked in escrow</div>
           <div className="display num text-[22px]">{`${links.length} links · ${perLabel} each`}</div>
         </div>
+        {unrecorded > 0 && (
+          <InfoBanner tone="warning">
+            {`The stock is locked, but ${unrecorded === links.length ? "the links" : `${unrecorded} of the links`} could not be recorded just now. They start working once our next check finds them onchain (a few minutes); keep them.`}
+          </InfoBanner>
+        )}
         <InfoBanner tone="warning">
           <span className="inline-flex items-start gap-2">
             <TriangleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-0.5 text-warning-fg" />
@@ -219,7 +187,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
     );
   }
 
-  const busy = phase === "working";
+  const busy = phase === "working" || phase === "recording";
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[13px] text-ink-secondary">Equal gifts for a group — every link claimable by whoever opens it, each with its own key.</p>
@@ -231,7 +199,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
       <div className="flex items-center justify-between text-[13px] text-ink-secondary">
         <span>Total</span>
         <span className="font-mono num">
-          {formatTokenAmount((totalRaw * multiplier) / wad, asset.decimals)} {asset.underlying}
+          {formatShares(totalRaw, asset)} {asset.underlying}
           {totalUsd !== null && totalRaw > 0n ? ` · ${formatUsd(totalUsd)}` : ""} · available {formatTokenAmount(scaled, asset.decimals)}
         </span>
       </div>
@@ -243,7 +211,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
       {insufficient && <p className="text-[13px] text-danger-fg">{TRADE_ERROR_COPY.INSUFFICIENT_BALANCE}</p>}
       {error && <ErrorBanner message={error.message} detail={error.detail} />}
       <Button full size="lg" loading={busy} disabled={rawPer === 0n || insufficient} onClick={() => void create()}>
-        {busy ? "Locking in escrow…" : `Create ${count} links${rawPer > 0n ? ` · ${perLabel} each` : ""}`}
+        {phase === "recording" ? "Recording the links…" : busy ? "Locking in escrow…" : `Create ${count} links${rawPer > 0n ? ` · ${perLabel} each` : ""}`}
       </Button>
       <p className="text-[12px] text-ink-muted">{`One confirmation on any wallet that can batch — the approval and all ${count} locks together, atomically on Base Account. A wallet that cannot batch falls back to the approval and then one confirmation per link.`}</p>
     </div>

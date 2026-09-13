@@ -27,8 +27,15 @@ export const giftEscrowAbi = [
   { type: "event", name: "GiftReclaimed", inputs: [{ name: "id", type: "bytes32", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "token", type: "address", indexed: true }, { name: "amount", type: "uint256" }] },
 ] as const;
 
-const CLAIM_DOMAIN = { name: "BaseStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS } as const;
-const CLAIM_TYPES = { Claim: [{ name: "giftId", type: "bytes32" }, { name: "recipient", type: "address" }] } as const;
+/**
+ * The EIP-712 domain the deployed contract fixed in its constructor. The product is called
+ * BaseStocks, but the escrow's `DOMAIN_SEPARATOR` was computed from "BStocks GiftEscrow" on the
+ * day it was deployed and an immutable cannot follow a rename: signing under any other name makes
+ * `ecrecover` return a stranger and every claim revert with BadSignature. `link.test.ts` asserts
+ * the digest against the contract's own formula so this string cannot drift again.
+ */
+export const CLAIM_DOMAIN = { name: "BStocks GiftEscrow", version: "1", chainId: BASE_CHAIN_ID, verifyingContract: GIFT_ESCROW_ADDRESS } as const;
+export const CLAIM_TYPES = { Claim: [{ name: "giftId", type: "bytes32" }, { name: "recipient", type: "address" }] } as const;
 
 /** Onchain gift id for a claim key: keccak256(abi.encode(claimKey)) — matches GiftEscrow.giftId. */
 export function escrowIdFor(claimKey: Address): Hex {

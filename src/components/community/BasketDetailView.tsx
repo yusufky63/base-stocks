@@ -97,11 +97,11 @@ export function BasketDetailView({ id }: { id: string }) {
                 <li key={a.assetAddress} className="flex items-center justify-between px-4 py-3 border-b border-line last:border-b-0 gap-3">
                   <span className="flex items-center gap-3 min-w-0">
                     <ColorDot k={a.assetAddress} />
-                    {asset ? <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={32} /> : <span className="inline-flex items-center justify-center h-8 w-8 rounded-[6px] border border-line font-mono text-[10px]">USDC</span>}
+                    {asset ? <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={32} /> : <span className="inline-flex items-center justify-center h-8 w-8 rounded-[6px] border border-line font-mono text-[11px]">USDC</span>}
                     <span className="min-w-0">
                       <span className="block font-medium text-[14px]">
                         {asset ? asset.underlying : "USDC cash"}
-                        {status && status.status !== "tradable" && <span className="ml-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-warning-fg">{status.label}</span>}
+                        {status && status.status !== "tradable" && <span className="ml-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-warning-fg">{status.label}</span>}
                       </span>
                       <span className="block text-[12px] text-ink-secondary truncate">{asset ? (status && status.status !== "tradable" ? status.detail : asset.name) : "Held as cash"}</span>
                     </span>

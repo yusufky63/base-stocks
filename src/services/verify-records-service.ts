@@ -2,10 +2,15 @@ import type { Hash } from "viem";
 import { getRepos } from "@/db/repositories";
 import { metrics } from "@/lib/http";
 import { invalidate } from "@/lib/cache";
-import { settleTrade } from "@/app/api/trades/route";
+import { FILED_BY_OWNER, settleTrade } from "@/app/api/trades/route";
 import { settleGiftClaim, settleGiftFunding } from "@/app/api/gifts/[id]/route";
 import { settlePoolFunding } from "@/app/api/pools/[id]/route";
+import { rejectedClaimPatch, repairDraftGifts } from "./gift-service";
+import { repairDraftPools } from "./pool-service";
+import { gateSignerAddress, isGateSignerConfigured } from "@/lib/pool/gate";
 import { verifyEarn, verifyPoolClaim } from "./tx-verify-service";
+import { AppError } from "@/lib/errors";
+import { getOrder } from "@/providers/trading/cow/adapter";
 import { formatUnits } from "viem";
 import { USDC_DECIMALS } from "@/config/chain";
 
@@ -25,6 +30,8 @@ export interface VerifySweepResult {
   earn: { checked: number; verified: number; failed: number };
   pools: { checked: number; verified: number; failed: number };
   claims: { checked: number; verified: number; failed: number };
+  /** Signed orders without a settlement hash yet, asked of the order book. */
+  orders: { checked: number; verified: number; failed: number };
 }
 
 const isHash = (h: string | undefined | null): h is Hash => !!h && /^0x[0-9a-fA-F]{64}$/.test(h);
@@ -33,14 +40,16 @@ const zero = () => ({ checked: 0, verified: 0, failed: 0 });
 export async function verifyPendingRecords(): Promise<VerifySweepResult> {
   const repos = getRepos();
   const now = Date.now();
-  const result: VerifySweepResult = { trades: zero(), gifts: zero(), earn: zero(), pools: zero(), claims: zero() };
+  const result: VerifySweepResult = { trades: zero(), gifts: zero(), earn: zero(), pools: zero(), claims: zero(), orders: zero() };
   const writeOff = (createdAt: number) => now - createdAt > PENDING_GRACE_MS;
 
   for (const t of await repos.trades.listUnverified(BATCH).catch(() => [])) {
     if (!isHash(t.txHash) || t.status === "failed") continue;
     result.trades.checked += 1;
     try {
-      const s = await settleTrade(t, t.txHash);
+      // A record filed under the wallet's own session keeps that trust; any other has to be shown
+      // sent by the wallet before it counts.
+      const s = await settleTrade(t, t.txHash, { trusted: t.verifyNote === FILED_BY_OWNER });
       if (s.verifiedAt) {
         await repos.trades.update(t.id, { status: "confirmed", usdValue: s.usdValue, buyAmount: s.buyAmount, sellAmount: s.sellAmount, verifiedAt: s.verifiedAt });
         result.trades.verified += 1;
@@ -54,6 +63,32 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
       result.trades.failed += 1;
     }
   }
+
+  // Signed orders the browser filed before they settled: the order book says whether a solver
+  // filled them (then the settlement hash is verified like any trade), or they expired.
+  for (const t of await repos.trades.listOpenOrders(BATCH).catch(() => [])) {
+    if (!t.orderUid) continue;
+    result.orders.checked += 1;
+    try {
+      const order = await getOrder(t.orderUid);
+      if (order.status === "fulfilled" && order.txHash) {
+        const s = await settleTrade(t, order.txHash, { trusted: true });
+        await repos.trades.update(t.id, { txHash: s.txHash, status: s.status, usdValue: s.usdValue, buyAmount: s.buyAmount, sellAmount: s.sellAmount, verifiedAt: s.verifiedAt });
+        result.orders.verified += 1;
+      } else if (order.status === "expired" || order.status === "cancelled" || (order.status !== "fulfilled" && order.validTo * 1000 < now - 3600_000)) {
+        // The wallet's own order, not filled: a failed trade, not a disowned one (no note).
+        await repos.trades.update(t.id, { status: "failed" });
+        result.orders.failed += 1;
+      }
+    } catch {
+      // The order book was unreachable, or the settlement is not matched yet: the next sweep asks again.
+    }
+  }
+
+  // Drafts whose escrow the chain already holds (the browser's hash write never arrived): found
+  // by their indexed id and settled, so the funds are never "locked" for want of a row.
+  const repairedGifts = await repairDraftGifts().catch(() => ({ checked: 0, repaired: 0 }));
+  result.gifts.verified += repairedGifts.repaired;
 
   for (const g of await repos.gifts.listUnverified(BATCH).catch(() => [])) {
     if (!isHash(g.txHash) || g.status === "failed") continue;
@@ -70,7 +105,16 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
       }
       let patch = funded;
       const pendingClaim = g.verifyNote?.startsWith("pending:") ? (g.verifyNote.slice(8) as "claimed" | "reclaimed") : null;
-      if (pendingClaim && isHash(g.claimTx)) patch = { ...patch, ...(await settleGiftClaim(g, g.claimTx, pendingClaim)) };
+      if (pendingClaim && isHash(g.claimTx)) {
+        try {
+          patch = { ...patch, ...(await settleGiftClaim(g, g.claimTx, pendingClaim)) };
+        } catch (err) {
+          // The claim hash was wrong, not the gift: the escrow still holds the stock and the funding
+          // record stands. The bogus claim report is dropped with its reason; the gift is not failed.
+          if (!(err instanceof AppError)) throw err;
+          patch = { ...patch, ...rejectedClaimPatch(pendingClaim, err.message) };
+        }
+      }
       await repos.gifts.update(g.id, patch);
       result.gifts.verified += 1;
     } catch (err) {
@@ -80,12 +124,17 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
   }
 
   for (const a of await repos.earnActions.listUnverified(BATCH).catch(() => [])) {
-    if (!isHash(a.txHash) || a.verifyNote) continue;
+    // A note is a verdict already given, except the one that says the wallet had signed in when it filed.
+    if (!isHash(a.txHash) || (a.verifyNote && a.verifyNote !== FILED_BY_OWNER)) continue;
     result.earn.checked += 1;
     const v = await verifyEarn({ txHash: a.txHash, owner: a.owner, provider: a.provider, action: a.action });
-    if (v.ok) {
+    if (v.ok && a.verifyNote !== FILED_BY_OWNER && !v.initiatedByOwner) {
+      await repos.earnActions.update(a.id, { verifyNote: "That transaction was not sent by this wallet." });
+      result.earn.failed += 1;
+    } else if (v.ok) {
       await repos.earnActions.update(a.id, {
         verifiedAt: Date.now(),
+        verifyNote: undefined,
         ...(v.amount !== null ? { amount: v.amount.toString(), usdValue: Math.round(Number(formatUnits(v.amount, USDC_DECIMALS)) * 100) / 100 } : {}),
       });
       result.earn.verified += 1;
@@ -94,6 +143,10 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
       result.earn.failed += 1;
     }
   }
+
+  const signer = gateSignerAddress();
+  const repairedPools = await repairDraftPools(signer && isGateSignerConfigured() ? signer : null).catch(() => ({ checked: 0, repaired: 0 }));
+  result.pools.verified += repairedPools.repaired;
 
   for (const p of await repos.pools.listUnverified(BATCH).catch(() => [])) {
     if (!isHash(p.txHash) || p.status === "failed" || p.status === "draft") continue;
@@ -114,8 +167,9 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
   }
 
   // Claims a page reported while their receipt was pending: prove them, or hand the ticket back.
+  // A ticket that still carries an unproven hash is looked at until its grace period is over.
   const pools = new Map((await repos.pools.listAll().catch(() => [])).map((p) => [p.id, p]));
-  for (const c of (await repos.poolClaims.listAll(BATCH * 5).catch(() => [])).filter((c) => c.status === "confirmed" && isHash(c.txHash)).slice(0, BATCH)) {
+  for (const c of (await repos.poolClaims.listAll(BATCH * 5).catch(() => [])).filter((c) => isHash(c.txHash) && (c.status === "confirmed" || (c.status === "issued" && !writeOff(c.createdAt)))).slice(0, BATCH)) {
     const pool = pools.get(c.poolId);
     if (!pool) continue;
     result.claims.checked += 1;
@@ -123,7 +177,7 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
     if (v.ok) {
       await repos.poolClaims.update(c.poolId, c.claimant, { status: "reconciled", blockNumber: v.blockNumber }).catch(() => null);
       result.claims.verified += 1;
-    } else if (v.state !== "pending" || writeOff(c.createdAt)) {
+    } else if (c.status === "confirmed" && (v.state !== "pending" || writeOff(c.createdAt))) {
       // Back to a ticket: the row keeps its hash for audit, and stops counting.
       await repos.poolClaims.update(c.poolId, c.claimant, { status: "issued" }).catch(() => null);
       result.claims.failed += 1;

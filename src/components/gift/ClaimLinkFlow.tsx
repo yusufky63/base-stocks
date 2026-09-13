@@ -5,17 +5,19 @@ import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, erc20Abi, formatUnits, type Hash } from "viem";
-import { base } from "viem/chains";
 import { Link2, TriangleAlert } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { GiftRecord } from "@/domain/gift";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { publicEnv } from "@/config/env";
-import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
-import { attributionCapabilities, withAttribution } from "@/lib/attribution";
+import { apiPost, ApiError } from "@/lib/client-api";
 import { claimPath, GIFT_ESCROW_ADDRESS, giftEscrowAbi, makeClaimSecret, type ClaimSecret } from "@/lib/escrow";
+import { formatShares } from "@/lib/gift/format";
+import { patchWithRetry } from "@/lib/gift/record";
+import { probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { callAfterApproval } from "@/lib/trade/execute";
+import { useAuth } from "@/hooks/useAuth";
 import { bpsOf, parseAmountSafe, toRaw } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { AmountInput, Input } from "@/components/ui/Input";
@@ -32,7 +34,7 @@ const EXPIRY_DAYS: Array<[number, string]> = [
 ];
 const PCT_PRESETS = [25, 50, 75, 100];
 
-type Phase = "form" | "signing" | "submitted" | "ready" | "failed";
+type Phase = "form" | "signing" | "submitted" | "recording" | "ready" | "failed";
 
 /**
  * Claim-link gifts: lock the stock in the ownerless GiftEscrow against a fresh ephemeral key and
@@ -44,6 +46,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+  const { ensureSignedIn } = useAuth();
 
   const [shares, setShares] = useState("");
   const [pct, setPct] = useState<number | null>(null);
@@ -54,6 +57,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
   const [gift, setGift] = useState<GiftRecord | null>(null);
   const [txHash, setTxHash] = useState<Hash | undefined>();
   const [secret, setSecret] = useState<ClaimSecret | null>(null);
+  const [recorded, setRecorded] = useState(true);
 
   const multiplier = BigInt(asset.multiplier);
   const wad = BigInt(asset.wadPrecision);
@@ -82,7 +86,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
     enabled: !!fullLink,
     staleTime: Infinity,
   });
-  const amountLabel = `${formatTokenAmount((rawAmount * multiplier) / wad, asset.decimals)} ${asset.underlying}`;
+  const amountLabel = `${formatShares(rawAmount, asset)} ${asset.underlying}`;
 
   const create = async () => {
     if (!address || !walletClient || !publicClient) return;
@@ -93,6 +97,8 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
     setError(null);
     setPhase("signing");
     try {
+      // The draft is written under this wallet, so the wallet proves it is the one asking.
+      await ensureSignedIn();
       const secret = makeClaimSecret();
       setSecret(secret);
       const expiresAt = Date.now() + days * 24 * 3600 * 1000;
@@ -110,42 +116,28 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
       const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_ESCROW_ADDRESS, rawAmount] });
       const createData = encodeFunctionData({ abi: giftEscrowAbi, functionName: "create", args: [asset.address, rawAmount, secret.claimKey, BigInt(Math.floor(expiresAt / 1000)), record.memo] });
 
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
-
-      let hash: Hash | undefined;
-      if (atomic) {
-        const { id } = await walletClient.sendCalls({
-          account: address,
-          chain: base,
-          forceAtomic: true,
-          calls: [
-            { to: asset.address, data: withAttribution(approveData) },
-            { to: GIFT_ESCROW_ADDRESS, data: withAttribution(createData) },
-          ],
-          capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
-        });
-        setPhase("submitted");
-        const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
-        if (result.status === "failure") throw new Error("Batched transaction failed");
-        hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
-      } else {
-        const ah = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(approveData) });
-        await publicClient.waitForTransactionReceipt({ hash: ah });
-        await callAfterApproval(publicClient, address, { to: GIFT_ESCROW_ADDRESS, data: createData });
-        hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(createData) });
-        setPhase("submitted");
-        await publicClient.waitForTransactionReceipt({ hash });
-      }
+      const caps = await probeWalletCapabilities(walletClient, address);
+      const { last: hash } = await sendCallsOrSequential({
+        walletClient,
+        publicClient,
+        address,
+        caps,
+        sponsor: true,
+        calls: [
+          { to: asset.address, data: approveData },
+          { to: GIFT_ESCROW_ADDRESS, data: createData },
+        ],
+        // On the sequential path the deposit is simulated after the approval has landed.
+        preflight: (call, i) => (i === 1 ? callAfterApproval(publicClient, address, call) : Promise.resolve()),
+        onSubmitted: () => setPhase("submitted"),
+      });
       setTxHash(hash);
-      void apiPatch(`/api/gifts/${record.id}`, { txHash: hash, status: "submitted" }).catch(() => undefined);
+
+      // The hash is what makes the link work: until it is on the record the claim page is a 404.
+      // So this is awaited, retried, and the link is shown only once it is written (or we say so).
+      setPhase("recording");
+      const written = hash ? await patchWithRetry(`/api/gifts/${record.id}`, { txHash: hash, status: "submitted" }) : null;
+      setRecorded(!!written);
       setPhase("ready");
       onSent?.();
     } catch (err) {
@@ -170,6 +162,11 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
             <p className="text-[13px] text-ink-secondary">{`Valid for ${days} days. Let them scan the code in person, or share the link below. Unclaimed? Cancel any time and it comes straight back.`}</p>
           </div>
         </div>
+        {!recorded && (
+          <InfoBanner tone="warning">
+            The stock is locked, but we could not record the transaction just now. The link starts working once our next check finds it onchain (a few minutes); keep it.
+          </InfoBanner>
+        )}
         <InfoBanner tone="warning">
           <span className="inline-flex items-start gap-2">
             <TriangleAlert size={15} strokeWidth={1.75} className="shrink-0 mt-0.5 text-warning-fg" />
@@ -184,7 +181,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
     );
   }
 
-  const busy = phase === "signing" || phase === "submitted";
+  const busy = phase === "signing" || phase === "submitted" || phase === "recording";
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 text-[13px] text-ink-secondary">
@@ -214,8 +211,17 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
       <p className="text-[12px] text-ink-muted">The stock moves into the BaseStocks gift escrow, an ownerless contract that can only pay whoever holds the claim link, or refund you. You can cancel any time before it is claimed.</p>
       {error && <ErrorBanner message={error.message} detail={error.detail} />}
       <Button full size="lg" loading={busy} disabled={rawAmount === 0n || raw === 0n} onClick={() => void create()}>
-        {busy ? (phase === "submitted" ? "Locking in escrow…" : "Confirm in your wallet…") : `Create claim link${rawAmount > 0n ? ` · ${amountLabel}` : ""}`}
+        {busy ? PHASE_COPY[phase] : `Create claim link${rawAmount > 0n ? ` · ${amountLabel}` : ""}`}
       </Button>
     </div>
   );
 }
+
+const PHASE_COPY: Record<Phase, string> = {
+  form: "",
+  signing: "Confirm in your wallet…",
+  submitted: "Locking in escrow…",
+  recording: "Recording the gift…",
+  ready: "",
+  failed: "Try again",
+};

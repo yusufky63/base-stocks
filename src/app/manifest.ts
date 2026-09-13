@@ -19,7 +19,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/?source=pwa",
     scope: "/",
     display: "standalone",
-    orientation: "portrait",
+    // No `orientation`: a locked portrait made the installed app unusable on a tablet held sideways,
+    // and a dashboard of tables is exactly what a wide screen is for.
     background_color: "#ffffff",
     theme_color: "#0370fd",
     categories: ["finance"],
@@ -33,7 +34,7 @@ export default function manifest(): MetadataRoute.Manifest {
     shortcuts: [
       { name: "Markets", short_name: "Markets", url: "/markets?source=pwa", icons: [{ src: "/brand/pwa-192.png", sizes: "192x192" }] },
       { name: "Portfolio", short_name: "Portfolio", url: "/portfolio?source=pwa", icons: [{ src: "/brand/pwa-192.png", sizes: "192x192" }] },
-      { name: "Gift a stock", short_name: "Gift", url: "/gift?source=pwa", icons: [{ src: "/brand/pwa-192.png", sizes: "192x192" }] },
+      { name: "Gift a stock", short_name: "Gift", url: "/gifts?source=pwa", icons: [{ src: "/brand/pwa-192.png", sizes: "192x192" }] },
     ],
   };
 }

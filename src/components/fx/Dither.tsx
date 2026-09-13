@@ -25,6 +25,9 @@ const BAYER = [
   [15, 7, 13, 5],
 ];
 
+/** Half of a typical display's rate: the wave is slow, and a phone's battery notices the other half. */
+const MAX_FPS = 30;
+
 function hash(x: number, y: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return s - Math.floor(s);
@@ -50,7 +53,12 @@ function parseColor(c: string): [number, number, number] {
 /**
  * Ordered-dither wave backdrop (after reactbits.dev/backgrounds/dither), implemented on a 2D
  * canvas instead of WebGL: low-res value noise → 4×4 Bayer threshold → nearest-neighbour upscale.
- * Cheap (a few thousand cells), pauses off-screen, static under reduced motion.
+ * Cheap (a few thousand cells), pauses off-screen, capped at 30 fps.
+ *
+ * It is ornament, so it yields first: a static frame when the OS asks for reduced motion (whatever
+ * the app's own Motion setting says) and on touch-only devices, where there is no pointer to follow
+ * and a 60 fps canvas was the single most expensive thing on the page. Below the md breakpoint the
+ * cells are also coarser, which is fewer cells to fill and the look the dither is after anyway.
  */
 export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, opacity = 0.5, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,11 +69,15 @@ export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, o
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const reduced = !enabled;
+    const osReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const touchOnly = window.matchMedia("(hover: none)").matches;
+    const narrow = window.matchMedia("(max-width: 767px)").matches;
+    const animate = enabled && !osReduced && !touchOnly;
+    const px = narrow ? Math.round(pixelSize * 1.6) : pixelSize;
     const rgb = parseColor(color ?? getComputedStyle(document.documentElement).getPropertyValue("--primary") ?? "#0370fd");
     const off = document.createElement("canvas");
     const octx = off.getContext("2d")!;
-    let cols = 0, rows = 0, img: ImageData | null = null, raf = 0, visible = true;
+    let cols = 0, rows = 0, img: ImageData | null = null, raf = 0, visible = true, lastDrawn = 0;
     const mouse = { x: -9999, y: -9999 };
     const start = performance.now();
 
@@ -73,8 +85,8 @@ export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, o
       const { width, height } = canvas.getBoundingClientRect();
       canvas.width = Math.max(1, Math.floor(width));
       canvas.height = Math.max(1, Math.floor(height));
-      cols = Math.max(1, Math.ceil(width / pixelSize));
-      rows = Math.max(1, Math.ceil(height / pixelSize));
+      cols = Math.max(1, Math.ceil(width / px));
+      rows = Math.max(1, Math.ceil(height / px));
       off.width = cols;
       off.height = rows;
       img = octx.createImageData(cols, rows);
@@ -90,7 +102,7 @@ export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, o
           const nx = x / 22, ny = y / 22;
           let v = 0.55 * noise(nx + t * 0.6, ny + t * 0.25) + 0.3 * noise(nx * 2.1 - t * 0.4, ny * 2.1 + t * 0.5) + 0.15 * noise(nx * 4.3 + t, ny * 4.3);
           if (mouseRadius > 0) {
-            const dx = x * pixelSize - mouse.x, dy = y * pixelSize - mouse.y;
+            const dx = x * px - mouse.x, dy = y * px - mouse.y;
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d < mouseRadius) v += (1 - d / mouseRadius) * 0.45;
           }
@@ -106,12 +118,15 @@ export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, o
       octx.putImageData(img, 0, 0);
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(off, 0, 0, cols, rows, 0, 0, cols * pixelSize, rows * pixelSize);
+      ctx.drawImage(off, 0, 0, cols, rows, 0, 0, cols * px, rows * px);
     };
 
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       if (!visible || document.visibilityState === "hidden") return;
+      // Skip the frames a 60 Hz display would give us above the cap; 120 Hz screens skip three in four.
+      if (now - lastDrawn < 1000 / MAX_FPS) return;
+      lastDrawn = now;
       frame(now);
     };
 
@@ -125,14 +140,16 @@ export function Dither({ pixelSize = 6, speed = 0.35, color, mouseRadius = 90, o
       mouse.y = -9999;
     };
     const parent = canvas.parentElement ?? canvas;
-    parent.addEventListener("mousemove", onMove);
-    parent.addEventListener("mouseleave", onLeave);
+    if (animate) {
+      parent.addEventListener("mousemove", onMove);
+      parent.addEventListener("mouseleave", onLeave);
+    }
     const io = new IntersectionObserver((entries) => (visible = entries.some((e) => e.isIntersecting)), { threshold: 0.05 });
     io.observe(canvas);
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     resize();
-    if (!reduced) raf = requestAnimationFrame(loop);
+    if (animate) raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
       io.disconnect();

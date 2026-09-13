@@ -8,10 +8,11 @@ import type { B20AssetDTO } from "@/domain/asset";
 import type { TradeSide, TradeState } from "@/domain/trade";
 import { apiPost, ApiError, type SignedOrderRequest } from "@/lib/client-api";
 import { BASE_CHAIN_ID, USDC_DECIMALS } from "@/config/chain";
-import { equityPricePerShare, parseAmountSafe, toRaw } from "@/lib/b20/math";
+import { equityPricePerShare, parseAmountSafe, toRaw, toScaled } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { executeSignedOrder } from "@/lib/trade/execute";
+import { newId } from "@/lib/execution/portfolio-execution";
 import { useOrderStatus } from "@/hooks/queries";
 import { AmountInput } from "@/components/ui/Input";
 import { Segmented } from "@/components/ui/Segmented";
@@ -132,6 +133,20 @@ export function LimitOrderPanel({ initialSide, asset, priceUsd, rawStockBalance,
       });
       const result = await executeSignedOrder({ address, chainId, walletClient, publicClient }, prepared, { onState: setState, onApproval: setApprovalHash });
       setOrderUid(result.orderUid);
+      // The order's own record, so a fill lands in Activity, the cost basis and the statistics
+      // even if this page is long closed by then; the sweep settles it from the order book.
+      const orderUsd = Number(formatUnits(buy ? sellAmount : minBuyAmount, USDC_DECIMALS));
+      void apiPost("/api/trades", {
+        id: newId("trade"),
+        owner: address,
+        side,
+        assetAddress: asset.address,
+        sellAmount: sellAmount.toString(),
+        buyAmount: minBuyAmount.toString(),
+        usdValue: Math.round(orderUsd * 100) / 100,
+        provider: "cow",
+        orderUid: result.orderUid,
+      }).catch(() => undefined);
       setState("SUBMITTED");
       void qc.invalidateQueries({ queryKey: ["orders", address.toLowerCase()] });
       onPlaced?.();
@@ -272,7 +287,7 @@ export function LimitOrderPanel({ initialSide, asset, priceUsd, rawStockBalance,
             <KeyValue k={buy ? "Max total" : "Min total"} v={formatUsd(usdTotal)} />
             <KeyValue k="Expires" v={EXPIRIES.find(([s]) => s === validFor)?.[1] ?? "—"} mono={false} />
             <KeyValue k="Partial fills" v={partial ? "Allowed" : "All or nothing"} mono={false} />
-            {order && BigInt(order.executedBuyAmount) > 0n && <KeyValue k="Filled so far" v={buy ? `${formatTokenAmount(order.executedBuyAmount, asset.decimals)} ${asset.symbol}` : formatUsd(Number(formatUnits(BigInt(order.executedBuyAmount), USDC_DECIMALS)))} />}
+            {order && BigInt(order.executedBuyAmount) > 0n && <KeyValue k="Filled so far" v={buy ? `${formatTokenAmount(toScaled(BigInt(order.executedBuyAmount), BigInt(asset.multiplier), BigInt(asset.wadPrecision)), asset.decimals)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(order.executedBuyAmount), USDC_DECIMALS)))} />}
           </div>
           <Button variant="secondary" full onClick={reset}>
             New order

@@ -5,6 +5,7 @@ import { getServerPublicClient } from "@/lib/viem/server-client";
 import { cached, TTL } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
+import { aprToApyPct } from "@/lib/earn/rates";
 
 /**
  * Aave V3 on Base — runtime discovery only.
@@ -48,11 +49,16 @@ export class AaveEarnProvider implements EarnProvider {
       const [, , , , , , , , isActive, isFrozen] = cfg.result;
       if (!isActive || isFrozen) return [];
       let apy: number | undefined;
-      let ts = Date.now();
+      let aprPct: number | undefined;
+      // The read time. `lastUpdateTimestamp` is when the reserve last accrued, which on a quiet
+      // reserve can be hours back and made a fresh read look stale.
+      const ts = Date.now();
       if (data.status === "success") {
         const liquidityRate = data.result[5];
-        apy = (Number((liquidityRate * 1_000_000n) / RAY) / 1_000_000) * 100;
-        ts = Number(data.result[11]) * 1000;
+        // `liquidityRate` is a linear annual rate in RAY; deposits compound as interest accrues, so
+        // the comparable figure is the compounded one, as Aave's own interface shows it.
+        aprPct = (Number((liquidityRate * 1_000_000n) / RAY) / 1_000_000) * 100;
+        apy = aprToApyPct(aprPct);
       }
       return [
         {
@@ -71,7 +77,7 @@ export class AaveEarnProvider implements EarnProvider {
             "Withdrawals depend on available liquidity in the reserve.",
           ],
           inApp: true,
-          metadata: { pool: AAVE_V3_BASE_POOL },
+          metadata: { pool: AAVE_V3_BASE_POOL, aprPct, rateBasis: "apy" },
         },
       ];
     } catch (err) {

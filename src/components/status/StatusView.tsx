@@ -102,7 +102,7 @@ export function StatusView() {
           <div className="overflow-x-auto">
             <table className="w-full text-[12px] font-mono">
               <thead>
-                <tr className="text-ink-muted uppercase tracking-[0.06em] text-[10px]">
+                <tr className="text-ink-muted uppercase tracking-[0.06em] text-[11px]">
                   <th className="text-left px-4 py-2">provider</th>
                   <th className="text-right px-2 py-2">calls</th>
                   <th className="text-right px-2 py-2">errors</th>
@@ -149,7 +149,7 @@ function StatusRow({ c }: { c: ServiceCheck }) {
             <span key={i} className={cx("inline-block w-[5px] h-3 rounded-[1px]", DOT[h])} title={LABEL[h]} />
           ))}
         </span>
-        <span className={cx("font-mono text-[10px] uppercase tracking-[0.08em] w-[92px] text-right shrink-0", TEXT[c.status])}>{LABEL[c.status]}</span>
+        <span className={cx("font-mono text-[11px] uppercase tracking-[0.08em] w-[92px] text-right shrink-0", TEXT[c.status])}>{LABEL[c.status]}</span>
         <ChevronDown size={14} strokeWidth={1.75} className={cx("text-ink-muted shrink-0 transition-transform", open && "rotate-180")} />
       </button>
       {open && (

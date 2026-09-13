@@ -5,6 +5,7 @@ import { integratorFee } from "@/lib/fees";
 import type { ExecutableQuote, IndicativeQuote, TradeIntent, TradeProvider } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { CircuitBreaker, fetchJson } from "@/lib/http";
+import { INDICATIVE_TIMEOUT_MS } from "../budget";
 import { kyberBuildResponseSchema, kyberRoutesResponseSchema, type KyberRouteSummary } from "./schemas";
 
 /**
@@ -15,6 +16,16 @@ import { kyberBuildResponseSchema, kyberRoutesResponseSchema, type KyberRouteSum
 const BASE_URL = "https://aggregator-api.kyberswap.com/base/api/v1";
 const ROUTE_TTL_MS = 8_000;
 const breaker = new CircuitBreaker("kyber", 3, 20_000);
+
+/**
+ * MetaAggregationRouterV2: the only contract the API's `routerAddress` and the built calldata's
+ * target are allowed to be. One address on every chain Kyber serves; BaseScan labels it
+ * "KyberSwap: Meta Aggregation Router v2" (checked 2026-09-13). It is both the swap target and
+ * the spender, so the response is verified against it rather than trusted.
+ */
+export const KYBER_ROUTER: Address = "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5";
+/** Contracts a Kyber quote may send the wallet to or ask it to approve. */
+export const EXPECTED_TARGETS: readonly Address[] = [KYBER_ROUTER];
 
 function headers(): Record<string, string> {
   const env = serverEnv();
@@ -44,15 +55,17 @@ function fills(summary: KyberRouteSummary): Array<{ source: string; proportionBp
   return out;
 }
 
-async function fetchRoute(intent: TradeIntent): Promise<{ summary: KyberRouteSummary; router: Address }> {
+async function fetchRoute(intent: TradeIntent, timeoutMs: number): Promise<{ summary: KyberRouteSummary; router: Address }> {
   const p = new URLSearchParams({
     tokenIn: intent.sellToken,
     tokenOut: intent.buyToken,
     amountIn: intent.sellAmount.toString(),
     gasInclude: "true",
   });
-  // The fee is taken in USDC whichever side it is on, so it reads as a dollar line; the route
-  // summary returned here carries it (`extraFee`) into the build step and the quoted output is net of it.
+  // The fee is charged in the currency named here: on a sell, from the USDC coming out
+  // (`currency_out`); on a buy, from what is paid in (`currency_in`), which is USDC or, for an
+  // ETH-paid buy, ETH. The route summary carries it (`extraFee`) into the build step and the quoted
+  // output is already net of it.
   const fee = integratorFee();
   if (fee) {
     p.set("chargeFeeBy", intent.buyToken.toLowerCase() === USDC_ADDRESS.toLowerCase() ? "currency_out" : "currency_in");
@@ -61,7 +74,7 @@ async function fetchRoute(intent: TradeIntent): Promise<{ summary: KyberRouteSum
     p.set("feeReceiver", fee.recipient);
   }
   return breaker.run(async () => {
-    const { status, data } = await fetchJson<unknown>(`${BASE_URL}/routes?${p}`, { headers: headers(), timeoutMs: 5_000, provider: "kyber" });
+    const { status, data } = await fetchJson<unknown>(`${BASE_URL}/routes?${p}`, { headers: headers(), timeoutMs, provider: "kyber" });
     if (status === 429) throw new AppError("PROVIDER_UNAVAILABLE", "kyber: rate limited", 503);
     if (status >= 500) throw new AppError("PROVIDER_UNAVAILABLE", `kyber: http ${status}`, 502);
     const parsed = kyberRoutesResponseSchema.safeParse(data);
@@ -101,6 +114,15 @@ function normalize(summary: KyberRouteSummary, router: Address, intent: TradeInt
   };
 }
 
+/**
+ * The minimum the calldata will accept. The build step re-prices the route, and the router
+ * encodes `amountOut × (1 − slippageTolerance)` from *that* figure; deriving it from the /routes
+ * amount instead showed the user a minimum the transaction was not actually holding to.
+ */
+export function kyberMinOut(builtAmountOut: bigint, slippageBps: number): bigint {
+  return (builtAmountOut * BigInt(10_000 - slippageBps)) / 10_000n;
+}
+
 export class KyberTradeProvider implements TradeProvider {
   readonly id = "kyber" as const;
 
@@ -109,7 +131,7 @@ export class KyberTradeProvider implements TradeProvider {
   }
 
   async getIndicativeQuote(intent: TradeIntent): Promise<IndicativeQuote> {
-    const { summary, router } = await fetchRoute(intent);
+    const { summary, router } = await fetchRoute(intent, INDICATIVE_TIMEOUT_MS);
     const q = normalize(summary, router, intent);
     if (!q.liquidityAvailable) throw new AppError("ROUTE_UNAVAILABLE", "kyber: no liquidity", 409);
     return q;
@@ -117,7 +139,7 @@ export class KyberTradeProvider implements TradeProvider {
 
   async getExecutableQuote(intent: TradeIntent): Promise<ExecutableQuote> {
     if (!intent.taker) throw new AppError("BAD_REQUEST", "taker is required for an executable quote", 400);
-    const { summary, router } = await fetchRoute(intent);
+    const { summary, router } = await fetchRoute(intent, 5_000);
     const base = normalize(summary, router, intent);
     const body = {
       routeSummary: summary,
@@ -144,11 +166,11 @@ export class KyberTradeProvider implements TradeProvider {
       }
       return parsed.data.data;
     });
-    const minBuy = (base.buyAmount * BigInt(10_000 - intent.slippageBps)) / 10_000n;
+    const buyAmount = toBig(built.amountOut) ?? base.buyAmount;
     return {
       ...base,
-      buyAmount: toBig(built.amountOut) ?? base.buyAmount,
-      minBuyAmount: minBuy,
+      buyAmount,
+      minBuyAmount: kyberMinOut(buyAmount, intent.slippageBps),
       gas: toBig(built.gas) ?? base.gas,
       transaction: {
         to: built.routerAddress as Address,

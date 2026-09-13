@@ -101,6 +101,8 @@ export interface PoolRecord {
   /** When the server matched the funding transaction to a `PoolCreated` log for this pool. */
   verifiedAt?: number;
   verifyNote?: string;
+  /** When the reconciliation sweep last read this pool's claims; the sweep visits the oldest first. */
+  lastReconciledAt?: number;
 }
 
 export type PoolClaimStatus = "issued" | "confirmed" | "reconciled";
@@ -151,6 +153,10 @@ export interface PoolView {
   legs: PoolLegView[];
   /** Sum of `usdPerClaim` across legs, when every leg has a price. */
   usdPerClaim: number | null;
+  /**
+   * Shares taken: the contract's `claimed` whenever the chain answered, else the rows the app has
+   * confirmed or matched to a log. Tickets handed out are never counted.
+   */
   claimCount: number;
   creatorBasename: string | null;
 }

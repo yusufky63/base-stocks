@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alignTick, amountsForLiquidity, amountsForOneSide, inRange, priceToTick, sqrtPriceX96ToSqrtPrice, tickToPrice, tickToSqrtPrice } from "./lp-math";
+import { alignTick, amountsForLiquidity, amountsForOneSide, inRange, priceToTick, rangeUsd, sqrtPriceX96ToSqrtPrice, tickToPrice, tickToSqrtPrice } from "./lp-math";
 
 describe("concentrated-liquidity math", () => {
   it("tick 0 is price 1 (same decimals) and sqrt price 1", () => {
@@ -86,5 +86,44 @@ describe("concentrated-liquidity math", () => {
     const below = amountsForOneSide(sqrtP, -2000, -100, { amount1: 1_000_000 }); // range below price → token1 only
     expect(below.amount0).toBe(0);
     expect(below.amount1).toBeCloseTo(1_000_000, 3);
+  });
+});
+
+describe("rangeUsd", () => {
+  // An 8-decimal stock against 6-decimal USDC: tickToPrice adjusts for the decimals, so the
+  // USD-per-token figure is the raw pool price scaled by 10^(8-6).
+  const stock = { decimals: 8, isStock: true, priceUsd: 180 };
+  const usdc = { decimals: 6, isStock: false, priceUsd: 1 };
+
+  it("converts a stock/USDC range to USD per stock token and orders the bounds", () => {
+    const lower = Math.round(Math.log(150 / 100) / Math.log(1.0001));
+    const upper = Math.round(Math.log(200 / 100) / Math.log(1.0001));
+    const r = rangeUsd({ tickLower: lower, tickUpper: upper, currentTick: Math.round((lower + upper) / 2) }, stock, usdc)!;
+    expect(r.lower).toBeCloseTo(150, 0);
+    expect(r.upper).toBeCloseTo(200, 0);
+    expect(r.current).toBeGreaterThan(r.lower);
+    expect(r.current).toBeLessThan(r.upper);
+  });
+
+  it("inverts the price when the stock is token1, so lower still means lower in USD", () => {
+    // token0 = USDC (6), token1 = stock (8): pool price is stock per USDC; a higher tick is a cheaper stock.
+    const lower = Math.round(Math.log((1 / 200) * 100) / Math.log(1.0001));
+    const upper = Math.round(Math.log((1 / 150) * 100) / Math.log(1.0001));
+    const r = rangeUsd({ tickLower: lower, tickUpper: upper, currentTick: lower }, usdc, stock)!;
+    expect(r.lower).toBeCloseTo(150, 0);
+    expect(r.upper).toBeCloseTo(200, 0);
+  });
+
+  it("prices the quote leg in its own USD price (WETH), not in dollars", () => {
+    const weth = { decimals: 18, isStock: false, priceUsd: 4_000 };
+    // 1 stock token = 0.05 WETH: raw token1 per raw token0 is 0.05 * 10^(18-8).
+    const tick = Math.round(Math.log(0.05 * 1e10) / Math.log(1.0001));
+    const r = rangeUsd({ tickLower: tick, tickUpper: tick + 1, currentTick: tick }, stock, weth)!;
+    expect(r.lower).toBeCloseTo(200, 0);
+  });
+
+  it("has nothing to say without a stock or without a quote price", () => {
+    expect(rangeUsd({ tickLower: 0, tickUpper: 10, currentTick: 5 }, usdc, { ...usdc })).toBeNull();
+    expect(rangeUsd({ tickLower: 0, tickUpper: 10, currentTick: 5 }, stock, { ...usdc, priceUsd: null })).toBeNull();
   });
 });

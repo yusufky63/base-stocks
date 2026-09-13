@@ -1,16 +1,27 @@
 name: Keeper
 
-# The AutoInvest keeper tick. Vercel's Hobby cron runs at most once a day, so this schedule is
-# what actually makes plans run on time. Overlaps with the Vercel cron are harmless: a plan is
-# locked while it executes and the contract refuses a second run inside the cadence.
+# The AutoInvest keeper tick. Vercel's Hobby cron runs at most once a day, so a quarter-hour
+# schedule has to come from somewhere else: since 2026-09-13 that is Supabase pg_cron, and this
+# workflow is the fallback, switched off with the repository variable KEEPER_ENABLED=false.
+# Overlaps are harmless: a plan is locked while it executes and the contract refuses a second run
+# inside the cadence.
 on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
+# The job calls one URL with a secret and writes nothing back: no token scopes at all.
+permissions: {}
+
+# One tick at a time; a queued duplicate would only repeat the previous one's work.
+concurrency:
+  group: keeper
+  cancel-in-progress: false
+
 jobs:
   tick:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ vars.KEEPER_ENABLED != 'false' }}
     steps:
       - name: Run due plans
@@ -19,5 +30,5 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET secret is not set"; exit 1; fi
-          curl -fsS -X POST "$APP_URL/api/cron/automation" -H "Authorization: Bearer $CRON_SECRET" | tee tick.json
+          curl -fsS --max-time 90 -X POST "$APP_URL/api/cron/automation" -H "Authorization: Bearer $CRON_SECRET" | tee tick.json
           node -e "const r=require('./tick.json'); if(!r.enabled) console.log('keeper disabled: '+r.reason); else console.log('checked '+r.checked+', executed '+r.executed.length+', failed '+r.failed.length+', keeper ETH '+r.keeperEth);"

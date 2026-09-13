@@ -5,7 +5,7 @@ import { IntegrationMark } from "./IntegrationMark";
 /** Full list for /how-it-works: one module per job, each platform with its role. */
 export function IntegrationsSection() {
   return (
-    <section id="integrations" className="flex flex-col gap-3 scroll-mt-24">
+    <section id="integrations" className="flex flex-col gap-3 scroll-mt-header">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="eyebrow">Integrations</div>
         <Link href="/status" className="text-[13px] text-primary hover:underline">

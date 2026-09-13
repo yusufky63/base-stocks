@@ -154,6 +154,21 @@ export function peek<T>(key: string): T | undefined {
 }
 
 /**
+ * `peek`, then the shared tier. On serverless the instance answering a question is rarely the
+ * one that computed the answer, so a memory-only peek reads as "unknown" most of the time; the
+ * health route asked it whether the status probes found an outage and almost always heard nothing.
+ * Never computes, never throws.
+ */
+export async function peekShared<T>(key: string): Promise<T | undefined> {
+  const local = peek<T>(key);
+  if (local !== undefined) return local;
+  const hit = await readShared<T>(key);
+  if (!hit) return undefined;
+  setAbsolute(key, hit.value, hit.expiresAt, hit.staleUntil);
+  return hit.value;
+}
+
+/**
  * Forget everything under a prefix, in both tiers.
  *
  * The shared tier has to go too: clearing only this instance leaves the next read to pull the same

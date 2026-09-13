@@ -7,15 +7,7 @@ import { Button, cx } from "@/components/ui/primitives";
 import { publicEnv } from "@/config/env";
 import { useMiniApp } from "@/components/layout/MiniAppProvider";
 import { composeCast } from "@/lib/miniapp-actions";
-
-/** X (Twitter) mark at button-icon size. */
-function XIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
-  );
-}
+import { XMark } from "@/components/brand/Logo";
 
 interface ShareProps {
   /** Path on this site (e.g. /stocks/0x…). */
@@ -53,7 +45,7 @@ function ShareTile({
   const toneClass = {
     // X is black on white and white on black — the same inversion `ink` already makes for the theme.
     x: "bg-ink text-canvas border-ink hover:opacity-90",
-    base: "bg-primary text-primary-contrast border-primary-strong hover:brightness-[1.08]",
+    base: "bg-primary-fill text-primary-contrast border-primary-strong hover:brightness-[1.08]",
     neutral: "bg-canvas text-ink border-line-strong hover:bg-surface",
     done: "bg-positive-soft text-positive-fg border-positive",
   }[tone];
@@ -144,7 +136,7 @@ export function ShareActions({ path, text, className, compact }: ShareProps & { 
       )}
 
       <div className="grid grid-cols-3 gap-2">
-        <ShareTile compact={compact} tone="x" href={x} label="Post on X" icon={<XIcon size={compact ? 14 : 18} />} />
+        <ShareTile compact={compact} tone="x" href={x} label="Post on X" icon={<XMark size={compact ? 14 : 18} />} />
         {isMiniApp ? (
           <ShareTile compact={compact} tone="base" onClick={() => void cast()} label={casting ? "Opening…" : "Cast"} icon={<Share2 size={compact ? 14 : 18} strokeWidth={1.75} />} />
         ) : (

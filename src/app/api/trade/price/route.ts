@@ -14,14 +14,19 @@ const bodySchema = z.object({
   sellAmount: bigintStringSchema,
   taker: addressSchema.optional(),
   recipient: addressSchema.optional(),
-  slippageBps: z.number().int().min(1).max(5000).optional(),
+  /** Capped at 10%: anything wider is a minimum output so loose it protects nobody. */
+  slippageBps: z.number().int().min(1).max(1000).optional(),
   chainId: z.number().int().optional(),
   provider: z.enum(["zeroX", "kyber", "okx", "uniswap", "velora", "aerodrome", "cow"]).optional(),
   /** false = transactions only (no signed orders); basket legs need a transaction hash per leg. */
   orders: z.boolean().optional(),
 });
 
-/** Indicative price. Browser → this route → 0x/Kyber (keys stay server-side). */
+/**
+ * Indicative price. Browser → this route → 0x/Kyber (keys stay server-side). The router memoizes
+ * the provider comparison for five seconds per (side, asset, amount, pay token, taker, region), so
+ * a burst of identical asks costs one round of provider calls.
+ */
 export const POST = route({ rateLimit: { key: "trade.price", limit: 120, windowMs: 60_000 } }, async (req) => {
   const body = await parseBody(req, bodySchema);
   const summary = await tradeRouter.price({ ...body, noZeroX: requestCountry(req) === "US" });

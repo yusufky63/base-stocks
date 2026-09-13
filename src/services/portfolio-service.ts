@@ -1,4 +1,4 @@
-import { cached, invalidate } from "@/lib/cache";
+import { cached } from "@/lib/cache";
 import { formatUnits, parseUnits, type Address } from "viem";
 import { MIN_TRADE_USD, USDC_DECIMALS } from "@/config/chain";
 import type { B20Asset } from "@/domain/asset";
@@ -17,6 +17,7 @@ import type { PortfolioEarnPosition, DeferredPolicy, PortfolioPlanDeferred, Port
 import { getEarnPositions } from "./earn-opportunity-service";
 import { getLpPositions } from "./lp-positions-service";
 import { metrics } from "@/lib/http";
+import { bumpWalletVersion, walletVersion } from "@/lib/portfolio/wallet-version";
 
 /* ------------------------------ Allocation validation ------------------------------ */
 
@@ -127,14 +128,29 @@ async function lpPositionsSafe(owner: Address, assets: B20Asset[]): Promise<Port
   }
 }
 
-/** Drop the cached snapshot after an action that changes balances (trade record, earn action). */
-export function invalidatePortfolioSnapshot(owner: Address): void {
-  invalidate(`portfolio:snapshot:${owner.toLowerCase()}`);
+/**
+ * Drop the cached snapshot (and the LP positions behind it) after an action that changes balances:
+ * a trade record, an Earn action, a liquidity action.
+ *
+ * The cache key carries a per-wallet version from the shared store, so bumping it retires the entry
+ * on every instance, not only the one that took the write. Deleting the local key alone left the
+ * other instances serving the old balance for the rest of their window, which on serverless is
+ * most of them. Fire-and-forget callers get the local effect at once and the shared one shortly.
+ */
+export function invalidatePortfolioSnapshot(owner: Address): Promise<void> {
+  return bumpWalletVersion(owner).then(() => undefined);
 }
 
-/** Snapshot shared for 15 s per wallet: several tabs and the 45 s poll cost one set of reads, not many. */
-export async function getPortfolioSnapshot(owner: Address): Promise<PortfolioSnapshot> {
-  return cached(`portfolio:snapshot:${owner.toLowerCase()}`, { ttlMs: 15_000, staleMs: 45_000 }, () => computePortfolioSnapshot(owner));
+/**
+ * Snapshot shared for 15 s per wallet: several tabs and the 45 s poll cost one set of reads, not
+ * many. `viewer` is the signed-in wallet, when the route knows it; it decides whether a visit is
+ * worth a daily snapshot row, never what the snapshot contains.
+ */
+export async function getPortfolioSnapshot(owner: Address, opts: { viewer?: Address | null } = {}): Promise<PortfolioSnapshot> {
+  const version = await walletVersion(owner);
+  const snapshot = await cached(`portfolio:snapshot:${owner.toLowerCase()}:v${version}`, { ttlMs: 15_000, staleMs: 45_000 }, () => computePortfolioSnapshot(owner));
+  void recordDailySnapshot(snapshot, { ownerViewing: !!opts.viewer && opts.viewer.toLowerCase() === owner.toLowerCase() });
+  return snapshot;
 }
 
 async function computePortfolioSnapshot(owner: Address): Promise<PortfolioSnapshot> {
@@ -195,18 +211,30 @@ async function computePortfolioSnapshot(owner: Address): Promise<PortfolioSnapsh
     change24hPct: weightBase > 0 ? weighted / weightBase : null,
     readAt: Date.now(),
   };
-  void recordDailySnapshot(snapshot);
   return snapshot;
 }
 
 const snapshotWritten = new Map<string, string>();
 
+/**
+ * Whether a wallet is one whose history is worth keeping: its owner is looking at it, it holds
+ * something, or it has traded here. Any address can be typed into the URL, and writing a row per
+ * viewed address filled the table with strangers' wallets that nobody will ever chart.
+ */
+async function worthRecording(s: PortfolioSnapshot, ownerViewing: boolean): Promise<boolean> {
+  if (ownerViewing) return true;
+  if (s.holdings.length > 0 || s.earnValueUsd > 0 || s.lpValueUsd > 0) return true;
+  const trades = await getRepos().trades.listByOwner(s.owner, 1).catch(() => []);
+  return trades.length > 0;
+}
+
 /** Value history for the portfolio chart: one row per wallet per UTC day, upserted on load. */
-async function recordDailySnapshot(s: PortfolioSnapshot): Promise<void> {
+async function recordDailySnapshot(s: PortfolioSnapshot, opts: { ownerViewing: boolean }): Promise<void> {
   if (s.totalValueUsd <= 0) return;
   const day = new Date().toISOString().slice(0, 10);
   const key = s.owner.toLowerCase();
   if (snapshotWritten.get(key) === day) return;
+  if (!(await worthRecording(s, opts.ownerViewing))) return;
   snapshotWritten.set(key, day);
   try {
     await getRepos().snapshots.record({

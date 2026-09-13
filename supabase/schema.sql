@@ -3,6 +3,12 @@
 -- service client. RLS is enabled everywhere with NO public policies, so anon/authenticated
 -- roles cannot read or write anything through the Data API.
 -- Idempotent: safe to re-run (IF NOT EXISTS everywhere).
+--
+-- SOURCE OF TRUTH: the migrations applied through the Supabase MCP (and the files under
+-- supabase/migrations/) are what the database actually runs. This file is the readable
+-- reference and is kept in step by hand; when the two disagree, the database is right.
+-- `users`, `activity_cache` and `referrals` below are historical: nothing in src/ reads or
+-- writes them any more (the timeline is assembled live, there is no referral programme).
 
 create extension if not exists pgcrypto;
 
@@ -446,3 +452,58 @@ create table if not exists public.stats_daily (
 
 -- The integrator fee a route charged on a trade, in basis points, set by the server from its own configuration.
 alter table public.trade_records add column if not exists fee_bps integer;
+
+-- ---------- Appendix (2026-09-13): definitions the migrations carry that this file lacked ----------
+
+-- CoW Protocol limit orders: the order uid a record was filed under before its settlement hash is known.
+alter table public.trade_records add column if not exists order_uid text;
+
+-- One leg, one record: the same settlement cannot be filed twice for the same wallet, stock and side.
+create unique index if not exists trade_records_leg_unique_idx
+  on public.trade_records (lower(tx_hash), lower(asset_address), side, lower(wallet_address))
+  where tx_hash is not null;
+
+-- AI digests: the shared market brief and per-wallet portfolio summaries, with what each cost.
+create table if not exists public.ai_digests (
+  key        text primary key,
+  kind       text not null,
+  owner      text,
+  content    jsonb not null,
+  model      text not null,
+  cost_usd   numeric not null default 0,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+alter table public.ai_digests enable row level security;
+
+-- Community counters: one clone per wallet, and an atomic increment (migration 2026-09-13-infra.sql).
+create table if not exists public.basket_clones (
+  basket_id  text not null references public.baskets (id) on delete cascade,
+  cloner     text not null,
+  created_at timestamptz not null default now(),
+  primary key (basket_id, cloner)
+);
+alter table public.basket_clones enable row level security;
+create index if not exists ai_usage_day_idx on public.ai_usage (day);
+-- public.increment_basket_counter(p_id text, p_column text, p_delta integer): see the migration file.
+
+revoke all on all tables in schema public from anon, authenticated;
+
+-- ---------- Schedules: pg_cron + pg_net (migration pg_cron_app_schedules, 2026-09-13) ----------
+-- The fifteen-minute jobs run from the database: `app_cron_call(path)` posts to the app with the
+-- bearer read from Vault (`cron_secret`, stored with `node scripts/vault-cron-secret.mjs`). The
+-- GitHub schedules that used to do this are switched off by repository variables and kept as a
+-- fallback; Vercel keeps the two daily jobs (`?job=discovery`, `?job=sweep`).
+--
+--   create extension if not exists pg_cron;
+--   create extension if not exists pg_net;
+--   -- app_cron_call(path text): net.http_get(<app url> || path, headers := Authorization: Bearer <vault cron_secret>)
+--   select cron.schedule('bstocks-keeper',         '*/15 * * * *',      $$select public.app_cron_call('/api/cron/automation')$$);
+--   select cron.schedule('bstocks-refresh-index',  '7,22,37,52 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=index')$$);
+--   select cron.schedule('bstocks-refresh-verify', '8,23,38,53 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=verify')$$);
+--   select cron.schedule('bstocks-refresh-earn',   '9,24,39,54 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=earn')$$);
+--   select cron.schedule('bstocks-refresh-pools',  '10,25,40,55 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=pools')$$);
+--   select cron.schedule('bstocks-refresh-rollup', '11,26,41,56 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=rollup')$$);
+--   select cron.schedule('bstocks-refresh-stats',  '12,27,42,57 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=stats')$$);
+--   select cron.schedule('bstocks-refresh-status', '13,28,43,58 * * * *', $$select public.app_cron_call('/api/cron/refresh?job=status')$$);
+--   select cron.schedule('bstocks-net-log-sweep',  '15 3 * * *',         $$delete from net._http_response where created < now() - interval '1 day'$$);

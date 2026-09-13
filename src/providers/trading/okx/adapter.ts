@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ExecutableQuote, IndicativeQuote, TradeIntent, TradeProvider } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { BASE_CHAIN_INDEX, okxConfigured, okxRequest, okxStatus } from "@/providers/okx/client";
+import { INDICATIVE_TIMEOUT_MS } from "../budget";
 
 /**
  * OKX DEX aggregator (Onchain OS) on Base. Comparison + execution provider when the project's API
@@ -15,6 +16,21 @@ import { BASE_CHAIN_INDEX, okxConfigured, okxRequest, okxStatus } from "@/provid
  */
 const QUOTE_TTL_MS = 8_000;
 const numLike = z.union([z.string(), z.number()]).transform((v) => String(v));
+
+/**
+ * The contracts OKX documents for Base (web3.okx.com/onchainos/dev-docs/trade/dex-smart-contract,
+ * read 2026-09-13): the DEX Router the swap is sent to (BaseScan "OKX Labs: DEX Router", verified)
+ * and the TokenApprove contract the wallet approves (BaseScan "OKX: DEX Token Approval 7").
+ *
+ * OKX says these rotate with upgrades and that the API's own response is authoritative. The app
+ * does not take that on trust: a response naming a contract outside this list is refused by the
+ * router, the Status page shows OKX failing, and the list is updated by hand once the new address
+ * has been checked. Failing closed on an address we have never seen is the point of the list.
+ */
+export const OKX_DEX_ROUTER: Address = "0x67d03631fe51b741c0c00c4e16eb662ac84381df";
+export const OKX_TOKEN_APPROVE: Address = "0x57df6092665eb6058DE53939612413ff4B09114E";
+/** Contracts an OKX quote may send the wallet to or ask it to approve. */
+export const EXPECTED_TARGETS: readonly Address[] = [OKX_DEX_ROUTER, OKX_TOKEN_APPROVE];
 
 const dexProtocolSchema = z.object({ dexName: z.string().optional(), percent: numLike.optional() }).passthrough();
 // v6: one `dexProtocol` object per hop; v5 nested `subRouterList[].dexProtocol[]` — accept both.
@@ -125,7 +141,7 @@ export class OkxTradeProvider implements TradeProvider {
   }
 
   async getIndicativeQuote(intent: TradeIntent): Promise<IndicativeQuote> {
-    const data = await okxRequest<unknown[]>("GET", "/api/v6/dex/aggregator/quote", { query: baseQuery(intent) });
+    const data = await okxRequest<unknown[]>("GET", "/api/v6/dex/aggregator/quote", { query: baseQuery(intent), timeoutMs: INDICATIVE_TIMEOUT_MS });
     const parsed = quoteSchema.safeParse(Array.isArray(data) ? data[0] : data);
     if (!parsed.success) throw new AppError("PROVIDER_UNAVAILABLE", "okx: unexpected quote schema", 502);
     const q = normalize(parsed.data, intent, null);

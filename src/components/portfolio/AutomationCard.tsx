@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowUpRight, Repeat } from "lucide-react";
 import { useAutomation } from "@/hooks/useAutomation";
-import { formatUsd, timeAgo } from "@/lib/format";
+import { formatUsd, timeUntil } from "@/lib/format";
 import { cadenceLabel } from "@/lib/auto-invest";
 import { Module, ModuleHeader, Badge } from "@/components/ui/primitives";
 
@@ -53,7 +53,7 @@ export function AutomationCard() {
                     ? "A run is due; the keeper will pick it up, or run it yourself from Automate."
                     : "A run is waiting for your confirmation."
                   : next
-                    ? `Next run ${next.config.mode === "auto" ? "runs by itself" : "asks you"} ${timeAgo(next.nextRunAt!).replace(/ ago$/, "")} from now · ${cadenceLabel(next.config.cadenceDays ?? 7).toLowerCase()}.`
+                    ? `Next run ${next.config.mode === "auto" ? "runs by itself" : "asks you"} ${timeUntil(next.nextRunAt!)} · ${cadenceLabel(next.config.cadenceDays ?? 7).toLowerCase()}.`
                     : "Nothing due."}
               </span>
             </>

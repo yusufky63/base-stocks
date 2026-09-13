@@ -29,6 +29,9 @@ export interface ActivityLeg {
   amountUsd?: number;
   rawAmount?: string;
   decimals?: number;
+  /** B20 multiplier (WAD string) and precision; present when the stock is known, so raw units read as shares. */
+  multiplier?: string;
+  wadPrecision?: string;
   txHash?: Hash;
   status: "confirmed" | "failed" | "pending";
   provider?: string;
@@ -47,6 +50,8 @@ export interface ActivityItem {
   amountUsd?: number;
   rawAmount?: string;
   decimals?: number;
+  multiplier?: string;
+  wadPrecision?: string;
   counterparty?: Address;
   counterpartyBasename?: string;
   /** BaseStocks handle of the counterparty when they have a profile here. */

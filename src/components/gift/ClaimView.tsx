@@ -5,18 +5,18 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAccount, usePublicClient, useReadContract, useWalletClient } from "wagmi";
 import { encodeFunctionData, type Address, type Hash, type Hex } from "viem";
-import { base } from "viem/chains";
 import { Gift, ShieldCheck, Sparkles } from "lucide-react";
-import type { GiftReceipt } from "@/services/gift-service";
-import { giftAmountLabel, giftPartyLabel } from "@/services/gift-service";
+import type { GiftReceipt } from "@/domain/gift";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
-import { apiGet, apiPatch } from "@/lib/client-api";
-import { attributionCapabilities, withAttribution } from "@/lib/attribution";
+import { apiGet } from "@/lib/client-api";
 import { GIFT_ESCROW_ADDRESS, giftEscrowAbi, parseClaimFragment, signClaim } from "@/lib/escrow";
+import { giftAmountLabel, giftPartyName } from "@/lib/gift/format";
+import { patchWithRetry } from "@/lib/gift/record";
+import { explainClaimError, pollWhenVisible, probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { humanizeError, type HumanError } from "@/lib/errors";
 import { coinSrc } from "@/lib/coins";
 import { shortenAddress } from "@/lib/format";
+import { useNow } from "@/hooks/useNow";
 import { useRegion } from "@/hooks/queries";
 import { Badge, Button, LinkButton, Module } from "@/components/ui/primitives";
 import { AddressLabel, TxLink } from "@/components/common/display";
@@ -59,27 +59,31 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
   const secret = useMemo(() => parseClaimFragment(hash), [hash]);
   const secretMatches = !!secret && secret.escrowId.toLowerCase() === escrowId.toLowerCase();
 
+  // One read covers everything this page needs from the chain, and it pauses in a hidden tab.
   const onchain = useReadContract({
     abi: giftEscrowAbi,
     address: GIFT_ESCROW_ADDRESS,
     functionName: "gifts",
     args: [escrowId],
     chainId: BASE_CHAIN_ID,
-    query: { enabled: gift.escrowId !== undefined, refetchInterval: 8_000 },
+    query: { enabled: gift.escrowId !== undefined, refetchInterval: pollWhenVisible(15_000) },
   });
   const onchainSender = onchain.data?.[0] ?? null;
   const active = onchainSender !== null && onchainSender !== ZERO;
   const isSender = !!address && address.toLowerCase() === gift.sender.toLowerCase();
 
   const [phase, setPhase] = useState<ClaimPhase>("idle");
-  const [loadedAt] = useState(() => Date.now());
-  const expired = gift.expiresAt !== undefined && loadedAt > gift.expiresAt;
+  // The escrow's own expiry wins while the gift is live; the record's is what the sender asked for.
+  // A ticking clock, not a snapshot: a link opened an hour before it expires should say so when it does.
+  const now = useNow(30_000);
+  const expiresAt = active && onchain.data ? Number(onchain.data[2]) * 1000 : gift.expiresAt;
+  const expired = expiresAt !== undefined && now > 0 && now > expiresAt;
   const [error, setError] = useState<HumanError | null>(null);
   const [claimTx, setClaimTx] = useState<Hash | undefined>();
   const [cancelBusy, setCancelBusy] = useState(false);
 
   const amount = giftAmountLabel(r);
-  const senderName = giftPartyLabel(r.sender);
+  const senderName = giftPartyName(r.sender);
   const coin = coinSrc(r.asset?.underlying, "full");
   const restricted = region.data?.restricted === true;
 
@@ -99,42 +103,26 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
     try {
       const sig = await signClaim(secret.privateKey, escrowId, address);
       const data = encodeFunctionData({ abi: giftEscrowAbi, functionName: "claim", args: [escrowId, address, sig.v, sig.r, sig.s] });
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
+      const caps = await probeWalletCapabilities(walletClient, address);
       setPhase("awaiting");
-      let hash: Hash | undefined;
-      if (atomic) {
-        const { id: callsId } = await walletClient.sendCalls({
-          account: address,
-          chain: base,
-          calls: [{ to: GIFT_ESCROW_ADDRESS, data: withAttribution(data) }],
-          capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
-        });
-        setPhase("submitted");
-        const result = await walletClient.waitForCallsStatus({ id: callsId, timeout: 180_000 });
-        if (result.status === "failure") throw new Error("The claim transaction failed onchain.");
-        hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
-      } else {
-        await publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data });
-        hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(data) });
-        setPhase("submitted");
-        await publicClient.waitForTransactionReceipt({ hash });
-      }
+      // A claim link is one gift for one holder, so sponsoring its claim buys nobody a second share.
+      const { last: hash } = await sendCallsOrSequential({
+        walletClient,
+        publicClient,
+        address,
+        caps,
+        sponsor: true,
+        calls: [{ to: GIFT_ESCROW_ADDRESS, data }],
+        preflight: () => publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data }).then(() => undefined),
+        onSubmitted: () => setPhase("submitted"),
+      });
       setClaimTx(hash);
-      await apiPatch(`/api/gifts/${id}`, { status: "claimed", claimTx: hash, claimedBy: address }).catch(() => undefined);
+      // Who received is read from the escrow's log on the server; the body only names the transaction.
+      if (hash) await patchWithRetry(`/api/gifts/${id}`, { status: "claimed", claimTx: hash });
       setPhase("confirmed");
       refresh();
     } catch (err) {
-      const h = humanizeError(err);
-      if (/insufficient funds/i.test(h.detail ?? "")) h.message = "This wallet has no ETH for gas. Claim with a Base Account (passkey) instead — the fee is covered for you.";
-      setError(h);
+      setError(explainClaimError(err));
       setPhase("failed");
     }
   };
@@ -145,10 +133,15 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
     setError(null);
     try {
       const data = encodeFunctionData({ abi: giftEscrowAbi, functionName: "reclaim", args: [escrowId] });
-      await publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data });
-      const hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_ESCROW_ADDRESS, data: withAttribution(data) });
-      await publicClient.waitForTransactionReceipt({ hash });
-      await apiPatch(`/api/gifts/${id}`, { status: "reclaimed", claimTx: hash }).catch(() => undefined);
+      const { last: hash } = await sendCallsOrSequential({
+        walletClient,
+        publicClient,
+        address,
+        caps: { atomic: false, paymaster: false },
+        calls: [{ to: GIFT_ESCROW_ADDRESS, data }],
+        preflight: () => publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data }).then(() => undefined),
+      });
+      if (hash) await patchWithRetry(`/api/gifts/${id}`, { status: "reclaimed", claimTx: hash });
       refresh();
     } catch (err) {
       setError(humanizeError(err));
@@ -184,7 +177,7 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
             {claimedView && <Badge tone="positive">Claimed</Badge>}
             {reclaimedView && <Badge>Cancelled by sender</Badge>}
             {active && expired && <Badge tone="warning">Expired</Badge>}
-            {active && !expired && gift.expiresAt !== undefined && <Badge>{`Claimable until ${new Date(gift.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}</Badge>}
+            {active && !expired && expiresAt !== undefined && <Badge>{`Claimable until ${new Date(expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}</Badge>}
           </div>
         </div>
 
@@ -192,7 +185,8 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
           {claimedView ? (
             <>
               <p className="text-[14px] text-ink-secondary text-center">
-                {phase === "confirmed" ? "The stock is in your wallet. It stays yours, self-custodial, on Base." : `Claimed by ${shortenAddress((gift.recipient !== ZERO ? gift.recipient : address) ?? ZERO)}.`}
+                {/* The recipient is named only once the escrow's log has said who it was; a guess from the viewer's wallet is not a fact. */}
+                {phase === "confirmed" ? "The stock is in your wallet. It stays yours, self-custodial, on Base." : gift.recipient !== ZERO ? `Claimed by ${shortenAddress(gift.recipient)}.` : "Claimed."}
               </p>
               {(claimTx ?? gift.claimTx) && (
                 <div className="text-center">

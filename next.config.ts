@@ -55,6 +55,7 @@ const nextConfig: NextConfig = {
   /** Share cards read fonts and brand PNGs from disk at request time; make sure the serverless bundles carry them. */
   outputFileTracingIncludes: {
     "/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
+    "/miniapp-image": ["./public/fonts/**", "./public/brand/**"],
     "/stocks/[address]/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
   },
   reactStrictMode: true,
@@ -79,7 +80,8 @@ const nextConfig: NextConfig = {
       headers: [
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        { key: "Content-Security-Policy", value: `frame-ancestors ${FRAME_ANCESTORS}` },
+        // Beyond framing: no plugins, no rebasing of relative URLs, and forms post only to this origin.
+        { key: "Content-Security-Policy", value: `frame-ancestors ${FRAME_ANCESTORS}; object-src 'none'; base-uri 'self'; form-action 'self'` },
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       ],
     },

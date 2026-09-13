@@ -78,14 +78,24 @@ export class CircuitBreaker {
       this.failures = 0;
       return r;
     } catch (err) {
-      this.failures += 1;
-      if (this.failures >= this.threshold) {
-        this.openUntil = Date.now() + this.openMs;
-        this.failures = 0;
-        metrics.breakerOpened(this.name);
+      // Only a provider that cannot answer opens the circuit. "No route for this pair" (409) and a
+      // rejected request (4xx) are answers; the nine not-issued stocks used to trip every breaker
+      // with them and take live stocks down for the next twenty seconds.
+      if (CircuitBreaker.isOutage(err)) {
+        this.failures += 1;
+        if (this.failures >= this.threshold) {
+          this.openUntil = Date.now() + this.openMs;
+          this.failures = 0;
+          metrics.breakerOpened(this.name);
+        }
       }
       throw err;
     }
+  }
+
+  static isOutage(err: unknown): boolean {
+    if (!(err instanceof AppError)) return true; // network, timeout, malformed response
+    return err.httpStatus === 429 || err.httpStatus >= 500;
   }
 }
 

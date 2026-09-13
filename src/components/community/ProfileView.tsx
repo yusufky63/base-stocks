@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import type { Address } from "viem";
 import type { Badge as BadgeT, CommunityBasket, Profile } from "@/domain/community";
-import { apiGet } from "@/lib/client-api";
+import { ApiError, apiGet } from "@/lib/client-api";
 import { useAssets } from "@/hooks/queries";
 import { bpsToPct, shortenAddress } from "@/lib/format";
 import { Module, ModuleHeader, Badge, PageTitle } from "@/components/ui/primitives";
-import { AddressLabel, AssetLogo } from "@/components/common/display";
+import { AddressLabel, AssetLogo, ErrorBanner } from "@/components/common/display";
 import { AllocationBar, ColorDot } from "@/components/common/AllocationBar";
 import { ShareButton } from "@/components/common/ShareSheet";
 import { BasketRow } from "./CommunityView";
@@ -27,10 +27,19 @@ interface ProfileResponse {
 /** Public page: Basename (or address) identity, allocation percentages, published baskets, badges. */
 export function ProfileView({ refParam }: { refParam: string }) {
   const { data: assets } = useAssets();
-  const { data, isLoading, isError } = useQuery({ queryKey: ["profile", refParam.toLowerCase()], queryFn: () => apiGet<ProfileResponse>(`/api/profiles/${refParam}`), staleTime: 30_000 });
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["profile", refParam.toLowerCase()],
+    queryFn: () => apiGet<ProfileResponse>(`/api/profiles/${refParam}`),
+    staleTime: 30_000,
+    // A 404 is the answer, not a hiccup; retrying it only delays saying so.
+    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 1,
+  });
 
   if (isLoading) return <div className="border border-line rounded-[8px] p-8 text-ink-secondary">Loading profile…</div>;
-  if (isError || !data) return <div className="border border-line rounded-[8px] p-8 text-ink-secondary">Profile not found.</div>;
+  // Only a 404 means there is no such profile. Anything else (a timeout, a 500, being offline) used
+  // to be reported the same way, which told a visitor their friend's page did not exist.
+  if (isError && error instanceof ApiError && error.status === 404) return <div className="border border-line rounded-[8px] p-8 text-ink-secondary">Profile not found.</div>;
+  if (isError || !data) return <ErrorBanner message="This profile could not be loaded right now." detail={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />;
   const byId = new Map((assets?.assets ?? []).map((a) => [a.canonicalId, a]));
   const title = data.basename || shortenAddress(data.address);
 

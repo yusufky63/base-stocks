@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { ProfileView } from "@/components/community/ProfileView";
 import { StrategiesShell } from "@/components/strategies/StrategiesShell";
 
-/** Rendered at most every 60 s and served from the cache between; the client refreshes prices itself. */
-export const revalidate = 60;
+// No `revalidate`: the server renders only the shell here and ProfileView fetches the profile in the
+// browser, so a 60 s cache on the shell was caching nothing that changes. Rendering the profile on the
+// server would need the route's own loader (repositories, badges, a portfolio snapshot) in the page,
+// which this page does not own; the client fetch stays.
 
 type Props = { params: Promise<{ ref: string }> };
 

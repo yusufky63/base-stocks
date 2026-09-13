@@ -3,24 +3,26 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 /**
- * Motion preference. "on" plays every animation, "off" disables all of them, "system" follows the
- * OS "reduce motion" setting. Default is "on" (product decision); the OS preference still wins when
- * the user picks "system" in Settings.
+ * Motion preference. "system" (the default) follows the OS "reduce motion" setting, "on" plays
+ * every animation regardless of it, "off" disables all of them. The OS preference is the default
+ * because a visitor who asked their device for less motion should not have to find a second
+ * switch here; "on" exists for the one who wants the ticker back anyway.
  */
 export type MotionPreference = "on" | "off" | "system";
 
 const KEY = "bstocks:motion";
 const EVENT = "bstocks:motion";
+const DEFAULT: MotionPreference = "system";
 
 export function readMotionPreference(): MotionPreference {
-  if (typeof window === "undefined") return "on";
+  if (typeof window === "undefined") return DEFAULT;
   try {
     const v = localStorage.getItem(KEY);
     if (v === "on" || v === "off" || v === "system") return v;
   } catch {
     /* ignore */
   }
-  return "on";
+  return DEFAULT;
 }
 
 /** True when animations should run right now. */
@@ -49,7 +51,7 @@ function subscribe(cb: () => void) {
 }
 
 export function useMotion() {
-  const preference = useSyncExternalStore(subscribe, readMotionPreference, () => "on" as MotionPreference);
+  const preference = useSyncExternalStore(subscribe, readMotionPreference, () => DEFAULT);
   const enabled = useSyncExternalStore(subscribe, motionEnabled, () => true);
   const setPreference = useCallback((p: MotionPreference) => {
     try {

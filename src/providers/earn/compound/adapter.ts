@@ -5,6 +5,7 @@ import { cached, TTL } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { MAX_UINT256 } from "@/lib/earn/abis";
+import { perSecondRateToAprPct, perSecondRateToApyPct } from "@/lib/earn/rates";
 
 /**
  * Compound v3 (Comet) USDC market on Base — runtime discovery only.
@@ -23,8 +24,6 @@ export const cometAbi = parseAbi([
   "function withdraw(address asset, uint256 amount)",
 ]);
 
-const SECONDS_PER_YEAR = 31_536_000;
-
 export class CompoundEarnProvider implements EarnProvider {
   readonly id = "compound" as const;
 
@@ -38,7 +37,10 @@ export class CompoundEarnProvider implements EarnProvider {
           client.readContract({ address: COMET_USDC_BASE, abi: cometAbi, functionName: "totalSupply" }),
         ]);
         const rate = await client.readContract({ address: COMET_USDC_BASE, abi: cometAbi, functionName: "getSupplyRate", args: [utilization] });
-        return { baseToken, apr: (Number(rate) / 1e18) * SECONDS_PER_YEAR * 100, tvlUsd: Number(totalSupply) / 1e6, at: Date.now() };
+        // The rate is per second, scaled by 1e18; interest accrues every second, so the comparable
+        // figure is the compounded one. The linear APR is kept in the metadata for the curious.
+        const perSecond = Number(rate) / 1e18;
+        return { baseToken, apy: perSecondRateToApyPct(perSecond), aprPct: perSecondRateToAprPct(perSecond), tvlUsd: Number(totalSupply) / 1e6, at: Date.now() };
       });
       if (data.baseToken.toLowerCase() !== asset.toLowerCase()) return [];
       return [
@@ -48,14 +50,14 @@ export class CompoundEarnProvider implements EarnProvider {
           assetAddress: asset,
           type: "supply",
           title: "Compound v3 USDC",
-          variableApy: data.apr,
+          variableApy: data.apy,
           tvlUsd: data.tvlUsd,
           riskLabel: "medium",
           dataTimestamp: data.at,
           url: "https://app.compound.finance/markets/usdc-basemainnet",
           risks: ["Variable supply rate driven by market utilization; not guaranteed.", "Protocol and smart-contract risk of Compound v3.", "Withdrawals depend on available liquidity in the market."],
           inApp: true,
-          metadata: { comet: COMET_USDC_BASE },
+          metadata: { comet: COMET_USDC_BASE, aprPct: data.aprPct, rateBasis: "apy" },
         },
       ];
     } catch (err) {

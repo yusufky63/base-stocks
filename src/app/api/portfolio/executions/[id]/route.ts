@@ -1,24 +1,10 @@
 import { z } from "zod";
-import { route, json, parseBody, addressSchema, hashSchema } from "@/lib/api";
+import { route, json, parseBody } from "@/lib/api";
 import { requireOwner } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
 import { AppError } from "@/lib/errors";
-import type { Hash } from "viem";
-
-const stepSchema = z.object({
-  id: z.string().min(4).max(64),
-  assetAddress: addressSchema,
-  symbol: z.string().max(16),
-  side: z.enum(["buy", "sell"]).default("buy"),
-  targetUsd: z.number().nonnegative(),
-  sellAmountUsdc: z.string().regex(/^\d+$/),
-  sellAmount: z.string().regex(/^\d+$/).optional(),
-  provider: z.string().max(32).optional(),
-  status: z.enum(["pending", "quoted", "submitted", "confirmed", "failed"]),
-  txHash: hashSchema.optional(),
-  errorCode: z.string().max(64).optional(),
-  errorMessage: z.string().max(300).optional(),
-});
+import { settleSteps } from "../settle";
+import { stepSchema } from "../schema";
 
 const patchSchema = z.object({
   status: z.enum(["READY", "QUOTING", "AWAITING_USER", "EXECUTING", "PARTIALLY_FILLED", "COMPLETE", "FAILED"]).optional(),
@@ -31,9 +17,13 @@ export const PATCH = route<{ params: Promise<{ id: string }> }>({ rateLimit: { k
   const existing = await getRepos().executions.get(id);
   if (!existing) throw new AppError("NOT_FOUND", "Execution not found", 404);
   requireOwner(req, existing.owner);
+  // A leg newly reported as confirmed is held to its receipt before it is kept: the stock has to
+  // have arrived in the owner's wallet in that transaction, and where the receipt shows the USDC
+  // that paid for it, that figure replaces the browser's. Anyone could otherwise PATCH a hash
+  // they did not send with any amount and have Activity show it as a purchase.
   const updated = await getRepos().executions.update(id, {
     status: body.status,
-    steps: body.steps?.map((s) => ({ ...s, txHash: s.txHash as Hash | undefined })),
+    steps: body.steps ? await settleSteps(existing.owner, existing.steps, body.steps) : undefined,
     updatedAt: Date.now(),
   });
   if (!updated) throw new AppError("NOT_FOUND", "Execution not found", 404);

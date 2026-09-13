@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-import { encodeFunctionData, type Address, type Hash } from "viem";
-import { base } from "viem/chains";
+import { encodeFunctionData, type Address, type Hash, type Hex } from "viem";
 import { Eye, EyeOff, Lock, RefreshCw } from "lucide-react";
 import type { PoolClaim, PoolView } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { apiGet, apiPatch, apiPut, ApiError } from "@/lib/client-api";
-import { withAttribution, attributionCapabilities } from "@/lib/attribution";
 import { GIFT_POOL_ADDRESS, giftPoolAbi } from "@/lib/pool";
+import { patchWithRetry } from "@/lib/gift/record";
+import { probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { humanizeError, type HumanError } from "@/lib/errors";
 import { useAuth } from "@/hooks/useAuth";
+import { useNow } from "@/hooks/useNow";
 import { formatTokenAmount, shortenAddress } from "@/lib/format";
 import { Badge, Button, Module, ModuleHeader, Skeleton, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
@@ -48,6 +49,7 @@ export function PoolManagePanel({
   cancelled,
   claimed,
   slots,
+  expiry,
 }: {
   view: PoolView;
   onChanged: () => void;
@@ -55,6 +57,8 @@ export function PoolManagePanel({
   cancelled: boolean;
   claimed: number;
   slots: number;
+  /** The chain's expiry when read, else the record's. */
+  expiry?: number;
 }) {
   const pool = view.pool;
   const { address } = useAccount();
@@ -63,11 +67,7 @@ export function PoolManagePanel({
 
   // A ticking clock rather than a snapshot: a lock that expires while the page is open should
   // hand the creator their button, not make them reload to find out.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(t);
-  }, []);
+  const now = useNow(30_000);
   const { ensureSignedIn } = useAuth();
   const [busy, setBusy] = useState<"close" | "sync" | "visibility" | number | null>(null);
   const [error, setError] = useState<HumanError | null>(null);
@@ -79,50 +79,38 @@ export function PoolManagePanel({
     refetchInterval: 30_000,
   });
 
-  const locked = lockedUntil > now;
-  const expired = now > pool.expiry;
+  // `now` is 0 until the clock's first tick (the server snapshot); nothing is decided from it then.
+  const locked = now > 0 && lockedUntil > now;
+  const expired = now > 0 && now > (expiry ?? pool.expiry);
   const remaining = Math.max(0, slots - claimed);
   const legsOnchain = view.onchain?.legs ?? [];
   const allWithdrawn = legsOnchain.length > 0 && legsOnchain.every((l) => l.withdrawn);
 
-  const send = async (calls: Array<{ to: Address; data: `0x${string}` }>) => {
+  /** The creator pays their own gas; sponsorship is for claimants. */
+  const send = async (calls: Array<{ to: Address; data: Hex }>) => {
     if (!address || !walletClient || !publicClient) throw new Error("Connect your wallet first.");
-    let atomic = false;
-    try {
-      const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string } };
-      atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-    } catch {
-      atomic = false;
-    }
-    if (atomic && calls.length > 1) {
-      const { id } = await walletClient.sendCalls({ account: address, chain: base, forceAtomic: true, calls, capabilities: attributionCapabilities() });
-      const result = await walletClient.waitForCallsStatus({ id, timeout: 180_000 });
-      if (result.status === "failure") throw new Error("The transaction failed onchain.");
-      return result.receipts?.[result.receipts.length - 1]?.transactionHash;
-    }
-    let last: Hash | undefined;
-    for (const c of calls) {
-      last = await walletClient.sendTransaction({ account: address, chain: base, to: c.to, data: c.data });
-      await publicClient.waitForTransactionReceipt({ hash: last });
-    }
-    return last;
+    const caps = await probeWalletCapabilities(walletClient, address);
+    return (await sendCallsOrSequential({ walletClient, publicClient, address, caps: { ...caps, atomic: caps.atomic && calls.length > 1 }, calls })).last;
   };
 
   const close = async () => {
     setError(null);
     setBusy("close");
     try {
-      const calls: Array<{ to: Address; data: `0x${string}` }> = [];
+      const calls: Array<{ to: Address; data: Hex }> = [];
       if (!cancelled) {
-        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: withAttribution(encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] })) });
+        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] }) });
       }
       if (!allWithdrawn) {
-        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: withAttribution(encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] })) });
+        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] }) });
       }
       if (calls.length === 0) return;
       const hash = await send(calls);
       setTx(hash);
-      await apiPatch(`/api/pools/${pool.id}`, { status: "cancelled" }).catch(() => undefined);
+      // The cancel is reported with its hash so the server can match it to `PoolCancelled`
+      // rather than take the creator's word; the route wants the creator's session for it.
+      await ensureSignedIn().catch(() => undefined);
+      await patchWithRetry(`/api/pools/${pool.id}`, { status: "cancelled", ...(hash && !cancelled ? { txHash: hash } : {}) });
       onChanged();
     } catch (err) {
       setError(humanizeError(err));
@@ -135,9 +123,7 @@ export function PoolManagePanel({
     setError(null);
     setBusy(index);
     try {
-      const hash = await send([
-        { to: GIFT_POOL_ADDRESS as Address, data: withAttribution(encodeFunctionData({ abi: giftPoolAbi, functionName: "withdrawLeg", args: [pool.onchainId, BigInt(index)] })) },
-      ]);
+      const hash = await send([{ to: GIFT_POOL_ADDRESS as Address, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdrawLeg", args: [pool.onchainId, BigInt(index)] }) }]);
       setTx(hash);
       onChanged();
     } catch (err) {
@@ -167,9 +153,11 @@ export function PoolManagePanel({
     }
   };
 
+  /** A log scan the server only runs for the creator, so it asks for the session first. */
   const sync = async () => {
     setBusy("sync");
     try {
+      await ensureSignedIn();
       await apiPut(`/api/pools/${pool.id}/claims`, {});
       await claims.refetch();
       onChanged();
@@ -181,6 +169,7 @@ export function PoolManagePanel({
   };
 
   const rows = claims.data?.claims ?? [];
+  const counted = rows.filter((c) => c.status !== "issued").length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -299,7 +288,7 @@ export function PoolManagePanel({
       </Module>
 
       <Module>
-        <ModuleHeader title={`Who claimed${rows.length > 0 ? ` · ${rows.length}` : ""}`} />
+        <ModuleHeader title={`Who claimed${counted > 0 ? ` · ${counted}` : ""}`} />
         {claims.isLoading ? (
           <div className="p-4 flex flex-col gap-2">
             <Skeleton className="h-10" />
@@ -342,7 +331,7 @@ export function PoolManagePanel({
           </ul>
         )}
         <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">
-          “Onchain” rows were matched against a <span className="font-mono">PoolClaimed</span> log — those are proof. The others are what the app was told; Sync turns them into the former. Green step tags were read from Base; grey “declared” tags are the claimant&apos;s own word about X, which nobody can check from outside.
+          “Onchain” rows were matched against a <span className="font-mono">PoolClaimed</span> log — those are proof. “Reported” is what a claim page told us and “Ticket issued” is a ticket nobody has used yet; neither counts as a claim. Sync reads the contract&apos;s logs and turns matches into Onchain rows. Green step tags were read from Base; grey “declared” tags are the claimant&apos;s own word about X, which nobody can check from outside.
         </p>
       </Module>
     </div>

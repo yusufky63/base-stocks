@@ -2,46 +2,41 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "wagmi";
-import { wagmiConfig } from "@/config/wagmi";
-import { ensureAppKit, getAppKit } from "@/config/appkit";
+import { WagmiProvider, useAccount } from "wagmi";
+import { couldBeMiniAppHost, hasReown, wagmiConfig } from "@/config/wagmi";
+import { getAppKit, warmAppKit } from "@/config/appkit";
 import { ThemeProvider, useTheme } from "@/components/layout/ThemeProvider";
 import { MiniAppProvider } from "@/components/layout/MiniAppProvider";
 
 /**
- * Loads the wallet modal once the page is idle, so the first tap on "Connect" is answered at
- * once — and never before, so a visitor who only reads prices never downloads it. The modal's
- * UI is a second bundle AppKit imports on the first open(); that is warmed too.
+ * Loads the wallet modal on a sign of intent, never on idle: a visitor who only reads prices
+ * should not download ~686 KB they will never open. Intent is any of
+ *  - wagmi restoring a stored connection (the account chip opens this modal on click),
+ *  - the first pointerdown anywhere on the page (the visitor is interacting, not just reading),
+ *  - the pointer or focus reaching the Connect button (wired in ConnectButton).
+ * Inside a mini app host the modal is never used at all, the host wallet connects on its own, so
+ * nothing is loaded there. When the modal already exists this only keeps its theme in step.
  */
 function AppKitBoot() {
   const { resolved } = useTheme();
+  const { status } = useAccount();
+  const restoring = status === "connected" || status === "reconnecting";
+
   useEffect(() => {
-    let cancelled = false;
-    const warm = () => {
-      void ensureAppKit(resolved).then((kit) => {
-        if (cancelled || !kit) return;
-        kit.setThemeMode(resolved);
-        void (kit as unknown as { injectModalUi?: () => Promise<void> }).injectModalUi?.().catch(() => undefined);
-      });
-    };
+    if (!hasReown || couldBeMiniAppHost()) return;
     const existing = getAppKit();
     if (existing) {
       existing.setThemeMode(resolved);
       return;
     }
-    if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(warm, { timeout: 4_000 });
-      return () => {
-        cancelled = true;
-        window.cancelIdleCallback(id);
-      };
+    if (restoring) {
+      warmAppKit(resolved);
+      return;
     }
-    const t = setTimeout(warm, 1_500);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [resolved]);
+    const onFirstPointer = () => warmAppKit(resolved);
+    window.addEventListener("pointerdown", onFirstPointer, { once: true, passive: true, capture: true });
+    return () => window.removeEventListener("pointerdown", onFirstPointer, { capture: true });
+  }, [resolved, restoring]);
   return null;
 }
 

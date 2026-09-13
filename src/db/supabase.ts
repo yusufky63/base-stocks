@@ -17,7 +17,7 @@ export function getSupabaseAdmin(): SupabaseClient | null {
   }
   client = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { "x-application-name": "blocks" } },
+    global: { headers: { "x-application-name": "bstocks" } },
   });
   return client;
 }

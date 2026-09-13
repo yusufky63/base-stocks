@@ -147,3 +147,48 @@ describe("holding profit and loss", () => {
     expect(p.costUsd).toBeCloseTo(400); // what was paid is still known
   });
 });
+
+describe("cost basis: whose units, and how many times", () => {
+  const RECIPIENT = "0x000000000000000000000000000000000000bEEF" as Address;
+
+  /** The same gift, seen from the holding: the buyer's wallet never received those units, so nothing is covered by them. */
+  it("values a holding without the units bought for someone else", () => {
+    const basis = computeCostBasis([buy(1, 100), buy(1, 300, { recipient: RECIPIENT })]).get(NVDA.toLowerCase());
+    // The buyer holds only the one unit that landed in their own wallet.
+    const mine = holdingPnl(NVDA, BigInt(units(1)), 8, 250, basis);
+    expect(mine.coveredRaw).toBe(BigInt(units(1)));
+    expect(mine.costUsd).toBeCloseTo(100);
+    expect(mine.unrealisedUsd).toBeCloseTo(150);
+    // The recipient holds the gifted unit with no purchase of their own behind it.
+    const theirs = holdingPnl(NVDA, BigInt(units(1)), 8, 250, computeCostBasis([]).get(NVDA.toLowerCase()));
+    expect(theirs.coveredRaw).toBe(0n);
+    expect(theirs.uncoveredRaw).toBe(BigInt(units(1)));
+    expect(theirs.unrealisedPct).toBeNull();
+  });
+
+  it("keeps a gift bought for someone else out of the buyer's position", () => {
+    // Bought 1 for the wallet at $100, then 1 for a friend at $300 (filed under the buyer, delivered to the friend).
+    const b = computeCostBasis([buy(1, 100), buy(1, 300, { recipient: RECIPIENT })]).get(NVDA.toLowerCase())!;
+    expect(b.coveredRaw).toBe(BigInt(units(1)));
+    expect(b.costUsd).toBe(100);
+    expect(b.buys).toBe(1);
+  });
+
+  it("treats a buy delivered to the buyer's own wallet as its own", () => {
+    const b = computeCostBasis([buy(1, 100, { recipient: OWNER })]).get(NVDA.toLowerCase())!;
+    expect(b.coveredRaw).toBe(BigInt(units(1)));
+    expect(b.costUsd).toBe(100);
+  });
+
+  it("counts one transaction, one stock, one side once, however many rows say it", () => {
+    const hash = `0x${"ab".repeat(32)}` as Hash;
+    const twice = [buy(1, 100, { txHash: hash }), buy(1, 100, { txHash: hash })];
+    const b = computeCostBasis(twice).get(NVDA.toLowerCase())!;
+    expect(b.coveredRaw).toBe(BigInt(units(1)));
+    expect(b.costUsd).toBe(100);
+    expect(b.buys).toBe(1);
+    // A different stock in the same transaction (a basket) is a different trade.
+    const basket = [buy(1, 100, { txHash: hash }), buy(1, 50, { txHash: hash, assetAddress: AAPL })];
+    expect(computeCostBasis(basket).size).toBe(2);
+  });
+});

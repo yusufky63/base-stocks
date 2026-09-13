@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { route, json, parseBody } from "@/lib/api";
 import { regionState } from "@/lib/geo";
+import { cookieAttributes } from "@/lib/auth/session";
 
 const COOKIE = "bstocks_eligibility";
 const THIRTY_DAYS = 30 * 24 * 3600;
@@ -21,8 +22,7 @@ export const GET = route({}, async (req) => json(describe(req)));
  */
 export const POST = route({ rateLimit: { key: "region.attest", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   const body = await parseBody(req, z.object({ confirm: z.boolean() }));
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  const cookie = body.confirm ? `${COOKIE}=confirmed; Path=/; Max-Age=${THIRTY_DAYS}; SameSite=Lax; HttpOnly${secure}` : `${COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure}`;
+  const cookie = body.confirm ? `${COOKIE}=confirmed; Path=/; Max-Age=${THIRTY_DAYS}${cookieAttributes()}` : `${COOKIE}=; Path=/; Max-Age=0${cookieAttributes()}`;
   const state = describe(req);
   const attested = body.confirm;
   const res = json({ ...state, attested, restricted: state.blockedCountry && !(state.mode === "attest" && attested) });

@@ -95,8 +95,9 @@ export class KeylessMarketDataProvider implements MarketDataProvider {
    * series, whichever way it got that way, and returning nothing hands the chart to Chainlink round
    * history, which Base documents as a first-class source for exactly this.
    */
-  async getTokenOhlcv(address: Address, timeframe: Timeframe): Promise<Candle[]> {
-    const market = await this.getTokenMarket(address).catch(() => null);
+  async getTokenOhlcv(address: Address, timeframe: Timeframe, hint?: TokenMarketData | null): Promise<Candle[]> {
+    // The caller's reading first (the batch snapshot the page already holds); a fetch only when none is known.
+    const market = hint ?? (await this.getTokenMarket(address).catch(() => null));
     let pool: Address | undefined = market?.source === "dexscreener" ? market.primaryPool : undefined;
     let tokenIsBase = true;
     if (!pool) {

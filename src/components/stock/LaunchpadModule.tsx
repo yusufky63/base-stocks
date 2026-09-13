@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight } from "lucide-react";
+import { qk } from "@/hooks/queries";
 import { formatUsd } from "@/lib/format";
 import { PriceChange } from "@/components/common/display";
 import { LAUNCHPAD_NAME, launchpadMarketsUrl, launchpadTokenUrl } from "@/content/ecosystem";
@@ -22,10 +23,12 @@ type LaunchpadMarket = {
 /**
  * Tokens launched on StockPair with this stock as the quote asset. Renders nothing when the
  * launchpad has no markets for the stock (or is unreachable) so the Details tab stays clean.
+ * The route already dedupes by token and drops tokens nobody holds; the same filter runs here so
+ * a cached older answer cannot show a duplicate.
  */
 export function LaunchpadModule({ stockAddress, underlying }: { stockAddress: string; underlying: string }) {
   const { data } = useQuery({
-    queryKey: ["launchpad-markets", stockAddress.toLowerCase()],
+    queryKey: qk.launchpad(stockAddress),
     queryFn: async (): Promise<LaunchpadMarket[]> => {
       const res = await fetch(`/api/launchpad/markets?stock=${stockAddress}`);
       if (!res.ok) return [];
@@ -35,7 +38,13 @@ export function LaunchpadModule({ stockAddress, underlying }: { stockAddress: st
     staleTime: 60_000,
   });
 
-  const markets = data ?? [];
+  const seen = new Set<string>();
+  const markets = (data ?? []).filter((m) => {
+    const key = m.token.toLowerCase();
+    if (seen.has(key) || !(m.holders > 0)) return false;
+    seen.add(key);
+    return true;
+  });
   if (markets.length === 0) return null;
 
   return (
@@ -48,14 +57,16 @@ export function LaunchpadModule({ stockAddress, underlying }: { stockAddress: st
       </div>
       <ul className="flex flex-col">
         {markets.map((m) => (
-          <li key={m.token}>
+          <li key={m.token.toLowerCase()}>
             <a href={launchpadTokenUrl(m.token)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-2 group">
               {/* Launchpad images come from IPFS gateways; a plain img avoids remote-pattern config. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {m.imageUrl ? <img src={m.imageUrl} alt="" className="h-7 w-7 rounded-full object-cover border border-line" /> : <span aria-hidden className="h-7 w-7 rounded-full border border-line bg-surface inline-flex items-center justify-center font-mono text-[10px] text-ink-muted">{m.symbol.slice(0, 2)}</span>}
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-medium truncate group-hover:text-primary transition-fast">{m.name}</span>
-                <span className="block font-mono text-[11px] text-ink-muted">{m.symbol} · {m.holders} holders</span>
+                <span className="block font-mono text-[11px] text-ink-muted">
+                  {m.symbol} · {m.holders} holder{m.holders === 1 ? "" : "s"}
+                </span>
               </span>
               <span className="text-right shrink-0">
                 <span className="block num text-[13px]">{m.priceUsd !== null ? formatUsd(m.priceUsd) : "—"}</span>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getGiftReceipt, giftAmountLabel, giftPartyLabel } from "@/services/gift-service";
+import { getGiftReceipt } from "@/services/gift-service";
+import { giftAmountLabel, giftPartyName } from "@/lib/gift/format";
 import { ClaimView } from "@/components/gift/ClaimView";
 
 type Props = { params: Promise<{ id: string }> };
@@ -12,7 +13,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const r = await getGiftReceipt(id).catch(() => null);
   if (!r || r.gift.kind !== "claim-link") return { title: "Gift", robots: { index: false } };
   const title = `A gift for you · ${giftAmountLabel(r)}`;
-  const description = `${giftPartyLabel(r.sender)} sent ${giftAmountLabel(r)}, a Coinbase Tokenized Stock on Base. No wallet needed — open the link to claim it with a passkey.`;
+  const description = `${giftPartyName(r.sender)} sent ${giftAmountLabel(r)}, a Coinbase Tokenized Stock on Base. No wallet needed — open the link to claim it with a passkey.`;
   return { title, description, robots: { index: false }, openGraph: { title: `${title} · BaseStocks`, description } };
 }
 

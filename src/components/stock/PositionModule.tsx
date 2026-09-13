@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { formatUnits } from "viem";
 import { ArrowUpRight, Send } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import { formatTokenAmount, formatUsd, bpsToPct } from "@/lib/format";
+import { equityPricePerShare, multiplierToNumber, rawValueUsd } from "@/lib/b20/math";
 import { Button } from "@/components/ui/primitives";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { PriceChange } from "@/components/common/display";
@@ -16,6 +16,7 @@ interface Props {
   raw: bigint;
   scaled: bigint;
   priceUsd: number | null;
+  /** Already gated by the caller (`hasMeaningfulChange`): null when the market is too thin for a daily move to mean anything. */
   change24hPct: number | null;
   /** Share of the user's portfolio in bps, when known. */
   portfolioWeightBps?: number;
@@ -35,11 +36,22 @@ export interface LpSummary {
   inRange: number;
 }
 
+/**
+ * Today's change in value, from the value now and the day's move. A move at or below -100% has no
+ * "value a day ago" (division by zero or a negative), and a pool can report exactly that on the
+ * day it opens; such a move is not a number about the position.
+ */
+export function dayPnlUsd(valueUsd: number | null, change24hPct: number | null): number | null {
+  if (valueUsd === null || change24hPct === null || !Number.isFinite(change24hPct) || change24hPct <= -100) return null;
+  return valueUsd - valueUsd / (1 + change24hPct / 100);
+}
+
 /** "Your position": share-equivalents from scaledBalanceOf, value from raw × token price. */
 export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, portfolioWeightBps, connected, onBuy, onSend, lp }: Props) {
-  const valueUsd = priceUsd !== null ? Number(formatUnits(raw, asset.decimals)) * priceUsd : null;
-  const multiplier = Number(formatUnits(BigInt(asset.multiplier), 18));
-  const dayPnl = valueUsd !== null && change24hPct !== null ? valueUsd - valueUsd / (1 + change24hPct / 100) : null;
+  const multiplierWad = BigInt(asset.multiplier);
+  const valueUsd = priceUsd !== null ? rawValueUsd(raw, asset.decimals, priceUsd) : null;
+  const multiplier = multiplierToNumber(multiplierWad);
+  const dayPnl = dayPnlUsd(valueUsd, change24hPct);
 
   return (
     <div className="p-4 md:p-5 flex flex-col gap-4">
@@ -68,7 +80,8 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
             </div>
             <div className="text-right">
               <div className="display num text-[26px] leading-none">
-                <AnimatedNumber value={valueUsd} format={(v) => formatUsd(v)} />
+                {/* The tween keeps its last number when the value goes away; "—" is the honest state. */}
+                {valueUsd === null ? "—" : <AnimatedNumber value={valueUsd} format={(v) => formatUsd(v)} />}
               </div>
               <div className="text-[12px] font-mono mt-1">
                 <PriceChange value={change24hPct} /> <span className="text-ink-muted">24h</span>
@@ -79,7 +92,7 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
           <div className="module-grid grid-cols-3">
             <div className="p-2.5">
               <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Price / share</div>
-              <div className="num text-[15px] font-medium">{priceUsd !== null ? formatUsd(priceUsd / (multiplier || 1)) : "—"}</div>
+              <div className="num text-[15px] font-medium">{priceUsd !== null ? formatUsd(equityPricePerShare(priceUsd, multiplierWad)) : "—"}</div>
             </div>
             <div className="p-2.5">
               <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Today</div>

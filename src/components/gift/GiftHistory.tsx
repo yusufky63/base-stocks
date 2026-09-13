@@ -8,7 +8,9 @@ import type { Address } from "viem";
 import type { GiftRecord } from "@/domain/gift";
 import { apiGet } from "@/lib/client-api";
 import { useAssets, useBasename } from "@/hooks/queries";
-import { formatTokenAmount, shortenAddress } from "@/lib/format";
+import { useNow } from "@/hooks/useNow";
+import { formatShares, giftStatusInfo, truncateMessage } from "@/lib/gift/format";
+import { shortenAddress } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { Badge, ModuleHeader, Skeleton } from "@/components/ui/primitives";
@@ -16,27 +18,20 @@ import { Segmented } from "@/components/ui/Segmented";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-function statusInfo(g: GiftRecord): { label: string; tone: "positive" | "warning" | "danger" | "neutral" | "primary" } {
-  if (g.status === "claimed") return { label: "Claimed", tone: "positive" };
-  if (g.status === "reclaimed") return { label: "Cancelled", tone: "neutral" };
-  if (g.status === "failed") return { label: "Failed", tone: "danger" };
-  if (g.kind === "claim-link") {
-    if (g.expiresAt !== undefined && Date.now() > g.expiresAt) return { label: "Expired", tone: "neutral" };
-    return { label: "Awaiting claim", tone: "primary" };
-  }
-  if (g.status === "confirmed") return { label: "Delivered", tone: "positive" };
-  return { label: "Submitted", tone: "warning" };
-}
-
 function CounterpartyName({ address }: { address: Address }) {
   const { data } = useBasename(address);
   return <>{data?.name ?? shortenAddress(address)}</>;
 }
 
-/** Everything sent and received: direct sends, purchases for others and claim links with live states. */
+/**
+ * Everything sent and received: direct sends, purchases for others and claim links with live
+ * states. The list is the wallet's own (drafts and messages included), so the route wants that
+ * wallet's session; the parent renders this only once it is signed in.
+ */
 export function GiftHistory({ owner }: { owner: Address }) {
   const [filter, setFilter] = useState<"all" | "sent" | "received">("all");
   const assets = useAssets();
+  const now = useNow(60_000);
   const gifts = useQuery({
     queryKey: ["gifts", owner.toLowerCase()],
     queryFn: () => apiGet<{ gifts: GiftRecord[] }>(`/api/gifts?owner=${owner}`).then((r) => r.gifts),
@@ -85,11 +80,11 @@ export function GiftHistory({ owner }: { owner: Address }) {
           {list.map((g) => {
             const sent = g.sender.toLowerCase() === me;
             const asset = assets.data?.assets.find((a) => a.canonicalId === g.assetAddress.toLowerCase());
-            const decimals = asset?.decimals ?? 8;
-            const scaled = asset ? (BigInt(g.rawAmount) * BigInt(asset.multiplier)) / BigInt(asset.wadPrecision) : BigInt(g.rawAmount);
-            const s = statusInfo(g);
+            const amount = asset ? formatShares(g.rawAmount, asset) : g.rawAmount;
+            // `now` is 0 for the server snapshot, which reads as "not expired yet" until the clock starts a tick later.
+            const s = giftStatusInfo(g, now);
             const link = g.kind === "claim-link";
-            const openManage = link && sent && (s.label === "Awaiting claim" || s.label === "Expired");
+            const openManage = link && sent && (s.key === "awaiting" || s.key === "expired");
             return (
               <li key={g.id} className="border-b border-line last:border-b-0">
                 <div className="px-4 py-3 flex items-center gap-3 min-w-0">
@@ -99,7 +94,7 @@ export function GiftHistory({ owner }: { owner: Address }) {
                   {asset && <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={30} />}
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="font-medium text-[14px] num truncate">{`${formatTokenAmount(scaled, decimals)} ${asset?.underlying ?? "stock"}`}</span>
+                      <span className="font-medium text-[14px] num truncate">{`${amount} ${asset?.underlying ?? "stock"}`}</span>
                       <Badge tone={s.tone}>{s.label}</Badge>
                     </span>
                     <span className="block text-[12px] text-ink-secondary truncate">
@@ -114,7 +109,7 @@ export function GiftHistory({ owner }: { owner: Address }) {
                           from <CounterpartyName address={g.sender} />
                         </>
                       )}
-                      {g.message ? ` · “${g.message.slice(0, 40)}${g.message.length > 40 ? "…" : ""}”` : ""}
+                      {g.message ? ` · “${truncateMessage(g.message, 40)}”` : ""}
                       {" · "}
                       <TimeAgo value={g.createdAt} />
                     </span>

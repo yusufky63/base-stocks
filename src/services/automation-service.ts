@@ -1,13 +1,16 @@
-import type { Address, Hash } from "viem";
+import { formatUnits, type Address, type Hash } from "viem";
 import type { AutomationOnchain, AutomationRule, AutomationRunRecord } from "@/domain/community";
 import { getRepos } from "@/db/repositories";
 import { AppError } from "@/lib/errors";
 import { cached, invalidate } from "@/lib/cache";
+import { metrics } from "@/lib/http";
 import { newId } from "@/lib/execution/portfolio-execution";
+import { USDC_DECIMALS } from "@/config/chain";
 import { validateAllocations } from "./portfolio-service";
 import { isCuratedAsset, findCuratedAsset } from "@/lib/b20/registry";
 import { AUTO_INVEST_ADDRESS, allocationsFromLegs, intervalToCadenceDays, isAutoInvestDeployed, usdcToUsd, type OnchainPlan, type PlanFunding } from "@/lib/auto-invest";
-import { readFunding, readOnchainPlan, readOnchainPlansOf } from "./auto-invest-chain";
+import { readFunding, readFundingMany, readOnchainPlan, readOnchainPlansOf } from "./auto-invest-chain";
+import { verifyTrade } from "./tx-verify-service";
 
 /**
  * Automation rules come in two kinds that must never be confused:
@@ -200,8 +203,12 @@ export async function listRulesSynced(owner: Address): Promise<AutomationRule[]>
     if (!plans) return rules;
     const out = [...rules];
     const byPlan = new Map(rules.filter((r) => r.config.onchain).map((r) => [r.config.onchain!.planId, r]));
+    // One multicall for every active plan's funding, instead of one round trip per plan in turn.
+    const active = plans.filter((p) => p.status === "active");
+    const fundings = await readFundingMany(active.map((p) => ({ owner, amountPerRun: p.amountPerRun }))).catch(() => [] as PlanFunding[]);
+    const fundingByPlan = new Map(active.map((p, i) => [p.planId.toString(), fundings[i]]));
     for (const plan of plans) {
-      const funding = plan.status === "active" ? await readFunding(owner, plan.amountPerRun).catch(() => undefined) : undefined;
+      const funding = fundingByPlan.get(plan.planId.toString());
       const rule = byPlan.get(plan.planId.toString());
       if (!rule) {
         const created = await repos.automation.create(mirrorRule(owner, plan, funding, {}, Date.now()));
@@ -262,8 +269,53 @@ export interface RunSummary {
 }
 
 /**
+ * What a manual run actually spent, from the chain rather than from the browser.
+ *
+ * The browser's `spentUsd` used to be written down as sent, and a plan's history feeds the
+ * statistics. So: the verified trade rows on the run's hashes are summed first; a hash with no
+ * row yet is read from its receipt (the USDC that left the wallet for that stock); a hash the
+ * receipt does not vouch for contributes nothing. Null means nothing could be settled yet (the
+ * receipts are still pending), and the caller falls back to the claim, bounded.
+ */
+async function settledRunUsd(owner: Address, hashes: readonly Hash[], legs: RunSummary["legs"]): Promise<number | null> {
+  if (hashes.length === 0) return 0;
+  const wanted = new Set(hashes.map((h) => h.toLowerCase()));
+  const rows = (await getRepos().trades.listByOwner(owner, 500).catch(() => [])).filter((t) => t.txHash && wanted.has(t.txHash.toLowerCase()) && t.verifiedAt !== undefined && t.status !== "failed" && t.usdValue !== null);
+  const seen = new Set<string>();
+  let usd = 0;
+  let settled = false;
+  for (const t of rows) {
+    const key = `${t.txHash!.toLowerCase()}:${t.assetAddress.toLowerCase()}:${t.side}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    usd += t.usdValue!;
+    settled = true;
+  }
+  const covered = new Set(rows.map((t) => t.txHash!.toLowerCase()));
+  // Hashes with no verified row: the receipt itself, one leg's stock at a time.
+  for (const h of hashes) {
+    if (covered.has(h.toLowerCase())) continue;
+    const candidates = (legs ?? []).filter((l) => l.spentUsd > 0 && !l.skipped);
+    for (const leg of candidates) {
+      try {
+        const v = await verifyTrade({ txHash: h, owner, assetAddress: leg.assetAddress, side: "buy" });
+        if (!v.ok) continue;
+        settled = true;
+        if (v.usdcAmount !== null) usd += Number(formatUnits(v.usdcAmount, USDC_DECIMALS));
+      } catch (err) {
+        metrics.count("automation.run.settle", false, err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+  return settled ? Math.round(usd * 100) / 100 : null;
+}
+
+/**
  * Record that the owner ran a manual plan. Only a run that bought something moves the schedule: a
  * run rejected in the wallet stays due, so nothing is silently skipped.
+ *
+ * The amount recorded is what the chain shows was spent (see `settledRunUsd`); a claim above the
+ * plan's own amount is refused outright, and a run that names no transaction spent nothing.
  */
 export async function markRun(owner: Address, id: string, summary: RunSummary = {}): Promise<AutomationRule | null> {
   const rules = await getRepos().automation.list(owner);
@@ -272,10 +324,19 @@ export async function markRun(owner: Address, id: string, summary: RunSummary = 
   if (!isPlanRule(rule)) throw new AppError("BAD_REQUEST", "Your target mix is not a plan; there is nothing to run.", 400);
   if (isAutoRule(rule)) throw new AppError("BAD_REQUEST", "Auto plans are run by the contract; the app does not mark them by hand.", 400);
   const now = Date.now();
+  const cap = rule.config.amountUsd ?? 0;
+  // A little over the plan's amount is rounding on a leg; a lot over is not this plan's run.
+  if ((summary.spentUsd ?? 0) > cap * 1.05 + 1) throw new AppError("BAD_REQUEST", `A run of this plan spends at most ${cap.toFixed(2)} USD.`, 400);
+  const hashes = [...new Set((summary.txHashes ?? []).map((h) => h.toLowerCase()))] as Hash[];
+  const claimed = Math.min(summary.spentUsd ?? 0, cap);
+  // Settled from the chain where it can be; a claim without a transaction is a claim of nothing.
+  const fromChain = hashes.length === 0 ? 0 : await settledRunUsd(owner, hashes, summary.legs);
+  const spentUsd = fromChain !== null ? Math.min(fromChain, cap * 1.05 + 1) : claimed;
   // A toward-target run that found the mix in balance did its job without buying: it counts, and the date moves on.
   const inBalance = summary.inBalance === true && !!rule.config.towardTarget;
-  const ok = summary.ok !== false && ((summary.spentUsd ?? 0) > 0 || inBalance);
-  const record: AutomationRunRecord = { at: now, ok, via: "wallet", txHash: summary.txHashes?.[0], spentUsd: summary.spentUsd, legs: summary.legs, error: ok ? undefined : (summary.error ?? "Nothing was bought."), ...(inBalance ? { note: "In balance — nothing under target, nothing bought." } : {}) };
+  const ok = summary.ok !== false && (spentUsd > 0 || inBalance);
+  const legs = summary.legs?.map((l) => ({ ...l, spentUsd: Math.min(l.spentUsd, cap) }));
+  const record: AutomationRunRecord = { at: now, ok, via: "wallet", txHash: hashes[0], spentUsd, legs, error: ok ? undefined : (summary.error ?? "Nothing was bought."), ...(inBalance ? { note: "In balance — nothing under target, nothing bought." } : {}) };
   const history = [record, ...(rule.config.history ?? [])].slice(0, HISTORY_CAP);
   return getRepos().automation.update(id, owner, {
     ...(ok ? { lastRunAt: now, nextRunAt: nextRunAfter(rule.nextRunAt, rule.config.cadenceDays ?? 7, now) } : {}),

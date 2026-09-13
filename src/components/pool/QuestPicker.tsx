@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import type { Address } from "viem";
-import { Globe, Heart, Plus, Repeat2, ShieldCheck, UserPlus, Wallet, X } from "lucide-react";
+import { Globe, Heart, Layers, Plus, Repeat2, ShieldCheck, UserPlus, Wallet, X } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { Quest, QuestType } from "@/domain/pool";
 import { isSelfDeclared, isSingletonQuest } from "@/domain/pool";
 import { BSTOCKS_X_HANDLE, isXPostUrl, normalizeXHandle } from "@/content/social";
 import { isHttpUrl } from "@/lib/url";
 import { MAX_POOL_QUESTS } from "@/lib/pool";
+import { parseAmountSafe, toRaw } from "@/lib/b20/math";
+import { formatShares } from "@/lib/gift/format";
 import { XMark } from "@/components/brand/Logo";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -26,7 +28,7 @@ export function questsValid(quests: Quest[]): boolean {
       case "visit-url":
         return !!q.url && isHttpUrl(q.url);
       case "hold-asset":
-        return !!q.assetAddress && !!q.minRawAmount;
+        return !!q.assetAddress && !!q.minRawAmount && BigInt(q.minRawAmount) > 0n;
       case "buy-asset":
         return !!q.assetAddress && (q.minUsd ?? 0) > 0;
       default:
@@ -42,9 +44,21 @@ interface CatalogEntry {
   seed: (assets: B20AssetDTO[]) => Quest;
 }
 
+/** The raw minimum for "one share" of a stock, so a new Hold step starts with a figure that means something. */
+function oneShareRaw(asset: B20AssetDTO | undefined): string {
+  if (!asset) return "1";
+  return toRaw(parseAmountSafe("1", asset.decimals), BigInt(asset.multiplier), BigInt(asset.wadPrecision)).toString();
+}
+
 const CHECKED_CATALOG: CatalogEntry[] = [
   { type: "hold-basename", label: "Own a Basename", icon: <ShieldCheck size={13} strokeWidth={1.75} />, seed: () => ({ type: "hold-basename" }) },
   { type: "sign-in", label: "Sign in", icon: <Wallet size={13} strokeWidth={1.75} />, seed: () => ({ type: "sign-in" }) },
+  {
+    type: "hold-asset",
+    label: "Hold a stock",
+    icon: <Layers size={13} strokeWidth={1.75} />,
+    seed: (assets) => ({ type: "hold-asset", assetAddress: assets[0]?.address as Address, minRawAmount: oneShareRaw(assets[0]) }),
+  },
   {
     type: "buy-asset",
     label: "Buy a stock",
@@ -190,9 +204,53 @@ function AddGroup({
   );
 }
 
+/**
+ * The minimum to hold, typed in shares and stored raw. The text is the creator's own while they
+ * type; the raw figure is derived from it with the stock's multiplier and decimals, the same way
+ * every other amount in the app goes from shares to base units.
+ */
+function HoldAmountField({ asset, quest, onChange }: { asset: B20AssetDTO | undefined; quest: Quest; onChange: (fields: Partial<Quest>) => void }) {
+  const [text, setText] = useState(() => (asset && quest.minRawAmount ? formatShares(quest.minRawAmount, asset, 8) : ""));
+  const update = (v: string) => {
+    setText(v);
+    if (!asset) return;
+    const shares = parseAmountSafe(v, asset.decimals);
+    onChange({ minRawAmount: shares > 0n ? toRaw(shares, BigInt(asset.multiplier), BigInt(asset.wadPrecision)).toString() : "0" });
+  };
+  return (
+    <span className="w-[110px]">
+      <Input value={text} onChange={(e) => update(e.target.value)} inputMode="decimal" aria-label={`Minimum ${asset?.underlying ?? "shares"} to hold`} placeholder="1" className="!h-9 text-[13px]" />
+    </span>
+  );
+}
+
 /** The inputs a given step needs, if any. */
 function StepFields({ assets, quest, onChange }: { assets: B20AssetDTO[]; quest: Quest; onChange: (fields: Partial<Quest>) => void }) {
   switch (quest.type) {
+    case "hold-asset": {
+      const asset = assets.find((a) => a.address.toLowerCase() === (quest.assetAddress ?? "").toLowerCase());
+      return (
+        <span className="flex flex-wrap items-center gap-2 text-[13px]">
+          <span className="text-ink-secondary">At least</span>
+          <HoldAmountField key={quest.assetAddress ?? ""} asset={asset} quest={quest} onChange={onChange} />
+          <span className="text-ink-secondary">shares of</span>
+          <Select
+            className="w-[140px]"
+            size="sm"
+            ariaLabel="Stock to hold"
+            value={(quest.assetAddress ?? "") as string}
+            onChange={(v) => {
+              // A different stock has a different multiplier; the minimum starts over at one share of it.
+              const next = assets.find((a) => a.address === v);
+              onChange({ assetAddress: v as Address, minRawAmount: oneShareRaw(next) });
+            }}
+            options={assets.map((a) => ({ value: a.address as string, label: a.underlying, description: a.name }))}
+          />
+          <span className="text-ink-secondary">right now</span>
+        </span>
+      );
+    }
+
     case "buy-asset":
       return (
         <span className="flex flex-wrap items-center gap-2 text-[13px]">

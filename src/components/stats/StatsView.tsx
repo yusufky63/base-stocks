@@ -7,6 +7,7 @@ import type { DailyStat, LedgerEntry, PlatformStats, StatsSummary, StatsWindowKe
 import { useAccount } from "wagmi";
 import { useActivity, useStats } from "@/hooks/queries";
 import { formatUsd, formatUsdCompact, timeAgo } from "@/lib/format";
+import { earnVenueLabel } from "@/lib/earn/labels";
 import { Badge, KeyValue, Module, ModuleHeader, PageTitle, Skeleton, cx } from "@/components/ui/primitives";
 import { Segmented } from "@/components/ui/Segmented";
 import { Collapsible } from "@/components/ui/Collapsible";
@@ -25,8 +26,9 @@ const usd = (v: number) => (Math.abs(v) >= 100_000 ? formatUsdCompact(v) : forma
 const n = (v: number) => v.toLocaleString("en-US");
 const plural = (v: number, one: string, many = `${one}s`) => `${n(v)} ${v === 1 ? one : many}`;
 
-const PROVIDER_LABEL: Record<string, string> = { kyber: "KyberSwap", okx: "OKX DEX", uniswap: "Uniswap API", velora: "Velora", aerodrome: "Aerodrome", cow: "CoW Protocol", zeroX: "0x", "auto-invest": "AutoInvest contract", basket: "Basket (route not recorded)", morpho: "Morpho", aave: "Aave V3", compound: "Compound v3" };
-const providerLabel = (p: string) => PROVIDER_LABEL[p] ?? p;
+/** Trade routes by name; the Earn venues come from the one shared map so this page and the Earn pages agree. */
+const ROUTE_LABEL: Record<string, string> = { kyber: "KyberSwap", okx: "OKX DEX", uniswap: "Uniswap API", velora: "Velora", aerodrome: "Aerodrome", cow: "CoW Protocol", zeroX: "0x", "auto-invest": "AutoInvest contract", basket: "Basket (route not recorded)" };
+const providerLabel = (p: string) => ROUTE_LABEL[p] ?? earnVenueLabel(p);
 
 /**
  * Everything done through the app, as numbers a reader can check. The page leads with one

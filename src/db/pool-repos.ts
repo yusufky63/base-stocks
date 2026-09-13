@@ -12,8 +12,13 @@ export interface PoolRepo {
   listByCreator(creator: Address): Promise<PoolRecord[]>;
   /** Public directory: submitted pools only, verified ones first. */
   listPublic(limit: number): Promise<PoolRecord[]>;
-  /** Pools that could still receive claims, for the reconciliation sweep. */
+  /**
+   * Pools that could still receive claims, for the reconciliation sweep: the ones reconciled
+   * longest ago (never, first) come first, so a bounded sweep rotates through every open pool.
+   */
   listOpen(limit: number): Promise<PoolRecord[]>;
+  /** Stamps the sweep's visit. Must never fail the sweep: the column may not exist yet. */
+  touchReconciled(id: string): Promise<void>;
   /** Every pool, newest first, for platform statistics. */
   listAll(limit?: number): Promise<PoolRecord[]>;
   /** Pools created in [fromMs, toMs), oldest first, for the statistics' live window and daily rollups. */
@@ -29,7 +34,10 @@ export interface PoolClaimRepo {
   get(poolId: string, claimant: Address): Promise<PoolClaim | null>;
   listByPool(poolId: string, limit?: number): Promise<PoolClaim[]>;
   listByClaimant(claimant: Address, limit?: number): Promise<PoolClaim[]>;
+  /** Claims that count: `confirmed` and `reconciled` rows. A ticket (`issued`) is not a claim. */
   countByPool(poolId: string): Promise<number>;
+  /** The same count for many pools in one query, keyed by pool id (pools with no claims are absent). */
+  countByPools(poolIds: string[]): Promise<Map<string, number>>;
   /** Every claim row, newest first, for platform statistics. */
   listAll(limit?: number): Promise<PoolClaim[]>;
   listBetween(fromMs: number, toMs: number, limit?: number): Promise<PoolClaim[]>;
@@ -72,7 +80,14 @@ export class MemoryPoolRepo implements PoolRepo {
   }
   async listOpen(limit: number) {
     const now = Date.now();
-    return [...this.items.values()].filter((p) => p.status === "submitted" || (p.status === "live" && p.expiry > now)).slice(0, limit);
+    return [...this.items.values()]
+      .filter((p) => p.status === "submitted" || (p.status === "live" && p.expiry > now))
+      .sort((a, b) => (a.lastReconciledAt ?? 0) - (b.lastReconciledAt ?? 0) || a.createdAt - b.createdAt)
+      .slice(0, limit);
+  }
+  async touchReconciled(id: string) {
+    const cur = this.items.get(id);
+    if (cur) this.items.set(id, { ...cur, lastReconciledAt: Date.now() });
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
@@ -114,7 +129,13 @@ export class MemoryPoolClaimRepo implements PoolClaimRepo {
     return [...this.items.values()].filter((c) => lower(c.claimant) === lower(claimant)).sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
   async countByPool(poolId: string) {
-    return [...this.items.values()].filter((c) => c.poolId === poolId).length;
+    return [...this.items.values()].filter((c) => c.poolId === poolId && counts(c.status)).length;
+  }
+  async countByPools(poolIds: string[]) {
+    const wanted = new Set(poolIds);
+    const out = new Map<string, number>();
+    for (const c of this.items.values()) if (wanted.has(c.poolId) && counts(c.status)) out.set(c.poolId, (out.get(c.poolId) ?? 0) + 1);
+    return out;
   }
   async listAll(limit = LIST_ALL_MAX) {
     return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
@@ -127,7 +148,16 @@ export class MemoryPoolClaimRepo implements PoolClaimRepo {
   }
 }
 
+/** Which claim rows are claims. `issued` is a ticket the app handed out; nothing has moved. */
+const COUNTED_STATUSES = ["confirmed", "reconciled"] as const;
+const counts = (status: PoolClaim["status"]) => (COUNTED_STATUSES as readonly string[]).includes(status);
+
 /* ------------------------------ Supabase ------------------------------ */
+
+/** PostgREST's answer when a migration has not been applied yet; the caller falls back rather than failing. */
+function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
+  return !!err && (err.code === "42703" || /column .* does not exist/i.test(err.message ?? ""));
+}
 
 type Row = Record<string, unknown>;
 
@@ -159,6 +189,8 @@ export class SupabasePoolRepo implements PoolRepo {
     if (p.createdAt !== undefined) r.created_at = new Date(p.createdAt).toISOString();
     if (p.verifiedAt !== undefined) r.verified_at = p.verifiedAt === null ? null : new Date(p.verifiedAt).toISOString();
     if (p.verifyNote !== undefined) r.verify_note = p.verifyNote;
+    // `legs` live in their own table and `lastReconciledAt` in a column that may not exist yet;
+    // both are written by their own methods, never through this generic mapping.
     return r;
   }
 
@@ -187,6 +219,7 @@ export class SupabasePoolRepo implements PoolRepo {
       createdAt: new Date(String(r.created_at)).getTime(),
       verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
       verifyNote: (r.verify_note as string | null) ?? undefined,
+      lastReconciledAt: r.last_reconciled_at ? new Date(String(r.last_reconciled_at)).getTime() : undefined,
     };
   }
 
@@ -212,8 +245,22 @@ export class SupabasePoolRepo implements PoolRepo {
   }
 
   async update(id: string, patch: Partial<PoolRecord>) {
-    const { error } = await sb().from("gift_pools").update(this.toRow(patch)).eq("id", id);
-    if (error) throw error;
+    const row = this.toRow(patch);
+    if (Object.keys(row).length > 0) {
+      const { error } = await sb().from("gift_pools").update(row).eq("id", id);
+      if (error) throw error;
+    }
+    // The chain's legs replace the draft's: the funding receipt is the authority on what was locked.
+    if (patch.legs) {
+      const { error: delError } = await sb().from("gift_pool_legs").delete().eq("pool_id", id);
+      if (delError) throw delError;
+      if (patch.legs.length > 0) {
+        const { error: legError } = await sb()
+          .from("gift_pool_legs")
+          .insert(patch.legs.map((l, i) => ({ pool_id: id, position: i, token: l.token.toLowerCase(), amount_per_claim: l.amountPerClaim })));
+        if (legError) throw legError;
+      }
+    }
     return this.get(id);
   }
 
@@ -251,15 +298,21 @@ export class SupabasePoolRepo implements PoolRepo {
   }
 
   async listOpen(limit: number) {
-    const { data, error } = await sb()
+    const open = () => sb().from("gift_pools").select("*").in("status", ["submitted", "live"]).gt("expiry", Date.now());
+    // Least recently reconciled first, never-reconciled before all of them. Until the migration
+    // adds the column, oldest first, which at least does not starve the old pools.
+    let res = await open().order("last_reconciled_at", { ascending: true, nullsFirst: true }).order("created_at", { ascending: true }).limit(limit);
+    if (res.error && isMissingColumn(res.error)) res = await open().order("created_at", { ascending: true }).limit(limit);
+    if (res.error) throw res.error;
+    return this.withLegs((res.data ?? []) as Row[]);
+  }
+  async touchReconciled(id: string) {
+    // A missing column (migration pending) or a blip must not fail the sweep; the stamp is an optimisation.
+    await sb()
       .from("gift_pools")
-      .select("*")
-      .in("status", ["submitted", "live"])
-      .gt("expiry", Date.now())
-      .order("created_at", { ascending: false })
-      .limit(limit);
-    if (error) throw error;
-    return this.withLegs((data ?? []) as Row[]);
+      .update({ last_reconciled_at: new Date().toISOString() })
+      .eq("id", id)
+      .then(() => undefined, () => undefined);
   }
   async listAll(limit = LIST_ALL_MAX) {
     const rows: Row[] = [];
@@ -363,9 +416,19 @@ export class SupabasePoolClaimRepo implements PoolClaimRepo {
   }
 
   async countByPool(poolId: string) {
-    const { count, error } = await sb().from("gift_pool_claims").select("*", { count: "exact", head: true }).eq("pool_id", poolId);
+    const { count, error } = await sb().from("gift_pool_claims").select("*", { count: "exact", head: true }).eq("pool_id", poolId).in("status", [...COUNTED_STATUSES]);
     if (error) throw error;
     return count ?? 0;
+  }
+  async countByPools(poolIds: string[]) {
+    const out = new Map<string, number>();
+    if (poolIds.length === 0) return out;
+    // PostgREST has no GROUP BY; one query for the ids and the grouping happens here. Bounded by
+    // the directory's page size times a pool's slots.
+    const { data, error } = await sb().from("gift_pool_claims").select("pool_id").in("pool_id", poolIds).in("status", [...COUNTED_STATUSES]).limit(50_000);
+    if (error) throw error;
+    for (const r of (data ?? []) as Row[]) out.set(String(r.pool_id), (out.get(String(r.pool_id)) ?? 0) + 1);
+    return out;
   }
   async listBetween(fromMs: number, toMs: number, limit = 20_000) {
     const out: PoolClaim[] = [];

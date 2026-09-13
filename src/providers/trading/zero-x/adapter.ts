@@ -6,6 +6,7 @@ import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 import type { ExecutableQuote, IndicativeQuote, TradeIntent, TradeProvider } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { CircuitBreaker, fetchJson, metrics } from "@/lib/http";
+import { INDICATIVE_TIMEOUT_MS } from "../budget";
 import { zeroXErrorSchema, zeroXPriceSchema, zeroXQuoteSchema } from "./schemas";
 
 /**
@@ -16,6 +17,18 @@ import { zeroXErrorSchema, zeroXPriceSchema, zeroXQuoteSchema } from "./schemas"
  */
 const BASE_URL = "https://api.0x.org";
 const breaker = new CircuitBreaker("zeroX", 3, 20_000);
+
+/**
+ * AllowanceHolder on Base (a Cancun chain). In the allowance-holder flow it is both the contract
+ * the wallet approves (`issues.allowance.spender`) and the transaction's `to`: the wallet calls
+ * AllowanceHolder, which pulls the tokens and forwards to the Settler of the day. The Settler
+ * address rotates with releases and never appears as the target, so this one address is the whole
+ * allowlist. From 0x's allowance-holder example (0x-examples, read 2026-09-13): "ONLY set
+ * allowances on Permit2 or AllowanceHolder contracts, as indicated by the API response".
+ */
+export const ZEROX_ALLOWANCE_HOLDER: Address = "0x0000000000001fF3684f28c67538d4D072C22734";
+/** Contracts a 0x quote may send the wallet to or ask it to approve. */
+export const EXPECTED_TARGETS: readonly Address[] = [ZEROX_ALLOWANCE_HOLDER];
 
 /**
  * 0x refuses some tokens for legal reasons (`*_TOKEN_NOT_AUTHORIZED_FOR_TRADE`, HTTP 422).
@@ -198,7 +211,7 @@ export class ZeroXTradeProvider implements TradeProvider {
   }
 
   async getIndicativeQuote(intent: TradeIntent): Promise<IndicativeQuote> {
-    const raw = await guarded("/swap/allowance-holder/price", buildParams(intent, false), 4_500, intent);
+    const raw = await guarded("/swap/allowance-holder/price", buildParams(intent, false), INDICATIVE_TIMEOUT_MS, intent);
     const q = normalizeIndicative(raw, intent);
     if (!q.liquidityAvailable) throw new AppError("ROUTE_UNAVAILABLE", "zeroX: no liquidity for this amount", 409);
     return q;

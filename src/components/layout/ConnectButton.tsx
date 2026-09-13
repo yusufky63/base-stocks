@@ -5,7 +5,7 @@ import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { ChevronDown, Wallet } from "lucide-react";
 import type { Address } from "viem";
 import { MINI_APP_CONNECTOR_ID, hasReown } from "@/config/wagmi";
-import { ensureAppKit, getAppKit } from "@/config/appkit";
+import { ensureAppKit, getAppKit, warmAppKit } from "@/config/appkit";
 import { useTheme } from "./ThemeProvider";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { Button, cx } from "@/components/ui/primitives";
@@ -38,6 +38,12 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
   useEffect(() => {
     if (status === "connected" && !address) disconnect();
   }, [status, address, disconnect]);
+
+  // The modal is loaded on intent rather than on idle (see AppKitBoot): a pointer or focus arriving
+  // on this button is the clearest sign there is, and it gives the ~686 KB a head start on the tap.
+  const warm = () => {
+    if (hasReown && !isMiniApp) warmAppKit(theme);
+  };
 
   const openWallet = () => {
     // In the Base app there is one wallet and it is the host's own. AppKit would offer a choice
@@ -91,7 +97,7 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
     }
     return (
       <>
-        <AccountChip address={address} onClick={openWallet} compact={compact} full={full} busy={opening} />
+        <AccountChip address={address} onClick={openWallet} onIntent={warm} compact={compact} full={full} busy={opening} />
         {open && <FallbackWalletSheet open={open} onClose={() => setOpen(false)} />}
       </>
     );
@@ -99,7 +105,7 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
 
   return (
     <>
-      <Button size={size} full={full} loading={opening} onClick={openWallet} className={cx(compact && "h-9 min-h-[36px] px-3")}>
+      <Button size={size} full={full} loading={opening} onClick={openWallet} onPointerEnter={warm} onFocus={warm} className={cx(compact && "h-9 min-h-[36px] px-3")}>
         <Wallet size={16} strokeWidth={1.75} /> {compact ? "Connect" : "Connect wallet"}
       </Button>
       {open && <FallbackWalletSheet open={open} onClose={() => setOpen(false)} />}
@@ -108,12 +114,14 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
 }
 
 /** Connected identity: wallet icon, Basename or short address, mono, one clean bordered chip. */
-function AccountChip({ address, onClick, compact, full, busy }: { address: Address; onClick: () => void; compact?: boolean; full?: boolean; busy?: boolean }) {
+function AccountChip({ address, onClick, onIntent, compact, full, busy }: { address: Address; onClick: () => void; onIntent?: () => void; compact?: boolean; full?: boolean; busy?: boolean }) {
   const { data } = useBasename(address);
   return (
     <button
       type="button"
       onClick={onClick}
+      onPointerEnter={onIntent}
+      onFocus={onIntent}
       aria-label="Wallet menu"
       aria-busy={busy || undefined}
       className={cx(

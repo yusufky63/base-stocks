@@ -2,12 +2,10 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import type { AssetsResponse } from "@/lib/client-api";
 import { hasMeaningfulChange, tradingStatus } from "@/lib/trading-status";
 import { formatPct, formatUsd, formatUsdCompact } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
-
-type Row = { asset: AssetsResponse["assets"][number]; price?: AssetsResponse["prices"][string] };
+import { liveMarketRows, type MarketRow } from "./live-markets";
 
 /**
  * Colour by the day's move, with intensity by its size: a 0.5% move is barely tinted, a 5% move
@@ -28,17 +26,14 @@ function tileStyle(changePct: number | null): { background: string; color: strin
  * 24h move and sized by DEX liquidity — the three deepest markets take double tiles, so the eye
  * lands where the money is. Computed from the assets response the page already holds.
  */
-export function Heatmap({ rows }: { rows: Row[] }) {
+export function Heatmap({ rows }: { rows: MarketRow[] }) {
   const ranked = useMemo(() => {
     const byLiq = [...rows].sort((a, b) => (b.price?.liquidityUsd ?? 0) - (a.price?.liquidityUsd ?? 0));
     const big = new Set(byLiq.filter((r) => (r.price?.liquidityUsd ?? 0) > 0).slice(0, 3).map((r) => r.asset.canonicalId));
     return byLiq.map((r) => ({ ...r, big: big.has(r.asset.canonicalId) }));
   }, [rows]);
 
-  const liveCount = rows.filter((r) => {
-    const s = tradingStatus(r.asset, r.price).status;
-    return s === "tradable" || s === "thin";
-  }).length;
+  const liveCount = liveMarketRows(rows).length;
   const moves = rows.map((r) => (hasMeaningfulChange(tradingStatus(r.asset, r.price).status, r.price) ? (r.price?.marketChange24hPct ?? null) : null)).filter((v): v is number => v !== null);
   const avg = moves.length ? moves.reduce((s, v) => s + v, 0) / moves.length : null;
 
@@ -67,10 +62,11 @@ export function Heatmap({ rows }: { rows: Row[] }) {
                 >
                   <span className="flex items-baseline justify-between gap-2">
                     <span className={cx("font-medium leading-none", big ? "text-[20px]" : "text-[14px]")}>{asset.underlying}</span>
-                    {view.status !== "tradable" && <span className={cx("font-mono text-[9px] uppercase tracking-[0.08em] truncate", change === null ? "text-ink-muted" : "opacity-85")}>{view.status === "thin" ? "thin" : view.status === "paused" ? "paused" : "not issued"}</span>}
+                    {/* The status's own label, so "Very thin" and "No pool yet" are not both printed as "not issued". */}
+                    {view.status !== "tradable" && <span className={cx("font-mono text-[11px] uppercase tracking-[0.06em] truncate", change === null ? "text-ink-muted" : "opacity-85")}>{view.label}</span>}
                   </span>
                   <span className={cx("block font-mono num leading-none mt-1.5", big ? "text-[18px]" : "text-[13px]", change === null && "text-ink-muted")}>{change === null ? "—" : formatPct(change, { sign: true })}</span>
-                  <span className={cx("block font-mono num mt-1", big ? "text-[12px]" : "text-[10px]", change === null ? "text-ink-secondary" : "opacity-90")}>{price?.displayUsd != null ? formatUsd(price.displayUsd) : "—"}</span>
+                  <span className={cx("block font-mono num mt-1", big ? "text-[12px]" : "text-[11px]", change === null ? "text-ink-secondary" : "opacity-90")}>{price?.displayUsd != null ? formatUsd(price.displayUsd) : "—"}</span>
                   {big && price?.liquidityUsd ? <span className={cx("block font-mono num text-[11px] mt-2", change === null ? "text-ink-secondary" : "opacity-90")}>liq {formatUsdCompact(price.liquidityUsd)}</span> : null}
                 </Link>
               </li>

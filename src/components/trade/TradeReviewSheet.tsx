@@ -11,6 +11,7 @@ import { useTrade } from "@/hooks/useTrade";
 import { apiPost } from "@/lib/client-api";
 import { ShareActions } from "@/components/common/ShareSheet";
 import { USDC_DECIMALS } from "@/config/chain";
+import { toScaled } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd, formatPct, shortenAddress } from "@/lib/format";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button, KeyValue } from "@/components/ui/primitives";
@@ -54,6 +55,9 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
   const firm = trade.quote !== null;
   const usdcOut = buy ? (payEth ? (payUsd ?? 0) : Number(formatUnits(sellAmount, USDC_DECIMALS))) : Number(formatUnits(BigInt(live.buyAmount), USDC_DECIMALS));
   const tokenAmount = buy ? live.buyAmount : live.sellAmount;
+  // Quotes are in raw token units; the user holds share-equivalents (raw × multiplier), which is what every balance on the page shows.
+  const shares = (raw: string | bigint) => formatTokenAmount(toScaled(typeof raw === "string" ? BigInt(raw) : raw, BigInt(asset.multiplier), BigInt(asset.wadPrecision)), asset.decimals);
+  const partialReceived = trade.partialFill && trade.order ? (buy ? `${shares(trade.order.executedBuyAmount)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(trade.order.executedBuyAmount), USDC_DECIMALS)))) : null;
 
   const execParams = { side, assetAddress: asset.address, sellAmount, payWith: buy ? payWith : undefined, provider: provider ?? summary.provider, strictProvider, recipient: recipient?.address, slippageBps, usdValue: usdcOut };
   // Fetch the firm quote as soon as the review opens; the CTA signs exactly what is on screen.
@@ -103,11 +107,11 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
       .catch(() => undefined);
   }, [recipient, buyer, trade.txHash, trade.quote, asset.address]);
 
-  const title = trade.state === "CONFIRMED" ? (recipient ? "Gift sent" : buy ? "Purchase complete" : "Sale complete") : trade.state === "FAILED" ? "Not completed" : buy ? `Review buy` : `Review sell`;
+  const title = trade.state === "CONFIRMED" ? (trade.partialFill ? "Partially filled" : recipient ? "Gift sent" : buy ? "Purchase complete" : "Sale complete") : trade.state === "FAILED" ? "Not completed" : buy ? `Review buy` : `Review sell`;
 
   const recipientName = recipient ? (recipient.basename ?? (recipient.profile?.handle ? `@${recipient.profile.handle}` : shortenAddress(recipient.address))) : null;
   const shareText = recipient
-    ? `I just gifted ${formatTokenAmount(tokenAmount, asset.decimals)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BaseStocks.`
+    ? `I just gifted ${shares(tokenAmount)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BaseStocks.`
     : buy
       ? `I just bought ${asset.underlying} as a tokenized stock on Base with BaseStocks.`
       : `I just sold ${asset.underlying} as a tokenized stock on Base with BaseStocks.`;
@@ -150,12 +154,12 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
         <div className="module-grid grid-cols-2">
           <div className="p-3">
             <div className="text-[11px] font-mono uppercase tracking-[0.08em] text-ink-muted">{buy ? "You pay" : "You sell"}</div>
-            <div className="display num text-[22px]">{buy ? (payEth ? `${formatTokenAmount(sellAmount, 18, 6)} ETH` : formatUsd(usdcOut)) : `${formatTokenAmount(tokenAmount, asset.decimals)} ${asset.underlying}`}</div>
+            <div className="display num text-[22px]">{buy ? (payEth ? `${formatTokenAmount(sellAmount, 18, 6)} ETH` : formatUsd(usdcOut)) : `${shares(tokenAmount)} ${asset.underlying}`}</div>
             {payEth && <div className="text-[12px] text-ink-muted">≈ {formatUsd(usdcOut)} at the current ETH price</div>}
           </div>
           <div className="p-3">
             <div className="text-[11px] font-mono uppercase tracking-[0.08em] text-ink-muted">{buy ? "You receive (est.)" : "You receive (est.)"}</div>
-            <div className="display num text-[22px]">{buy ? `${formatTokenAmount(tokenAmount, asset.decimals)} ${asset.underlying}` : formatUsd(usdcOut)}</div>
+            <div className="display num text-[22px]">{buy ? `${shares(tokenAmount)} ${asset.underlying}` : formatUsd(usdcOut)}</div>
           </div>
         </div>
 
@@ -168,16 +172,24 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
 
         <div>
           <KeyValue k="Stock" v={`${asset.name} (${asset.symbol})`} mono={false} />
-          <KeyValue k="Executable price" v={live.executablePriceUsd !== null ? `${formatUsd(live.executablePriceUsd, { precise: true })} / token` : "—"} />
-          <KeyValue k={`Price impact${live.priceImpactBasis ? ` vs ${live.priceImpactBasis}` : ""}`} v={live.priceImpactPct !== null ? formatPct(live.priceImpactPct, { sign: true }) : "—"} />
+          <KeyValue k="Executable price" v={live.executablePricePerShareUsd !== null ? `${formatUsd(live.executablePricePerShareUsd, { precise: true })} / share` : "—"} />
+          {/* Impact is what this trade does to the pool; the gap to the Chainlink reference is the pool's premium or discount. Without a trusted pool price the impact figure is itself the gap. */}
+          <KeyValue k={live.priceImpactBasis === "market" ? "Price impact" : "vs reference"} v={live.priceImpactPct !== null ? formatPct(live.priceImpactPct, { sign: true }) : "—"} />
+          {live.priceImpactBasis === "market" && live.referenceGapPct !== null && live.referenceGapPct !== undefined && <KeyValue k="vs reference" v={formatPct(live.referenceGapPct, { sign: true })} />}
           <KeyValue k="Network" v="Base" />
           <KeyValue k="Provider" v={`${PROVIDER_LABEL[live.provider] ?? live.provider}${strictProvider ? " · your choice" : " · best net"}${firm ? " · firm quote" : trade.state === "GETTING_FIRM_QUOTE" ? " · fetching firm quote…" : ""}`} />
-          <KeyValue k="Est. network fee" v={live.provider === "cow" ? "Paid by the solver · included in the price" : live.estimatedNetworkFeeUsd !== null ? formatUsd(live.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
+          <KeyValue k="Est. network fee" v={live.provider === "cow" ? "Paid by the solver · included in the price" : live.estimatedNetworkFeeUsd !== null ? `${live.networkFeeEstimated ? "≈ " : ""}${formatUsd(live.estimatedNetworkFeeUsd, { precise: true })}` : "—"} />
         </div>
 
         {live.provider === "cow" && (trade.state === "IDLE" || trade.state === "READY") && (
           <InfoBanner tone="info">
             You sign an order instead of sending a transaction. CoW Protocol solvers compete to fill it within about 30 minutes and pay the gas; if nobody can, it expires and nothing moves. A one-time approval for this amount is still a transaction{trade.sponsored ? " (sponsored)" : ""}.
+          </InfoBanner>
+        )}
+
+        {trade.partialFill && partialReceived && (
+          <InfoBanner tone="warning">
+            The order {trade.order?.status === "cancelled" ? "was cancelled" : "expired"} after a partial fill: {partialReceived} {buy ? "arrived" : "was received"} for the part that filled, and the rest of the order did not execute. Nothing else moved.
           </InfoBanner>
         )}
 
@@ -213,7 +225,8 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
 
         <Collapsible title="Execution details">
           <KeyValue k="Route" v={live.route.length ? live.route.map((r) => `${r.source}${r.proportionBps ? ` ${(r.proportionBps / 100).toFixed(0)}%` : ""}`).join(", ") : "Best available"} />
-          <KeyValue k="Min. received" v={live.minBuyAmount ? (buy ? `${formatTokenAmount(live.minBuyAmount, asset.decimals)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(live.minBuyAmount), USDC_DECIMALS)))) : "—"} />
+          <KeyValue k="Executable price · per token" v={live.executablePriceUsd !== null ? formatUsd(live.executablePriceUsd, { precise: true }) : "—"} />
+          <KeyValue k="Min. received" v={live.minBuyAmount ? (buy ? `${shares(live.minBuyAmount)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(live.minBuyAmount), USDC_DECIMALS)))) : "—"} />
           <KeyValue k="Slippage tolerance" v={`${(slippageBps / 100).toFixed(2)}%`} />
           <KeyValue k="Approval" v={live.allowanceRequired ? "Required (scoped to this amount)" : "Not required"} />
           <KeyValue k="Spender" v={live.allowanceSpender ?? "—"} />

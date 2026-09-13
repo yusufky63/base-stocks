@@ -4,8 +4,9 @@ import { metrics } from "@/lib/http";
 import { getServerPublicClient, getLogPublicClient } from "@/lib/viem/server-client";
 import { USDC_ADDRESS } from "@/config/chain";
 import { AAVE_SUPPLY, AAVE_WITHDRAW, COMET_SUPPLY, COMET_WITHDRAW, ERC4626_DEPOSIT, ERC4626_WITHDRAW, decodeVenueEvent, earnRecordFromEvent, earnRecordId, type EarnVenue, type VenueEvent } from "@/lib/earn/venue-events";
-import { discoverUsdcEarn } from "./earn-opportunity-service";
+import { discoverUsdcEarnRaw } from "./earn-opportunity-service";
 import { blockTimes } from "./receipt-service";
+import { cached } from "@/lib/cache";
 
 /**
  * Pulls the Earn records back into line with the venues' own events, the way `reconcilePool`
@@ -26,21 +27,45 @@ const DEFAULT_MAX_BLOCKS = 120_000n;
 const WALLET_BATCH = 200;
 const CURSOR_KEY = "earn:sweep";
 
-/** The USDC venues the app can deposit into, as the reconciliation sees them. */
+/**
+ * Every USDC venue a deposit could be sitting in, as the reconciliation and the verifier see them:
+ * the raw discovery (not the curated shortlist, which exists to pick what to *offer*), plus every
+ * vault any wallet's records name. A withdrawal from a vault that has since dropped out of the top
+ * twenty has to verify, or the record stays pending for ever and the position reads as stuck.
+ */
 export async function earnVenues(): Promise<EarnVenue[]> {
-  const { opportunities } = await discoverUsdcEarn();
-  const out: EarnVenue[] = [];
-  for (const o of opportunities) {
-    if (o.provider === "aave" && typeof o.metadata.pool === "string") out.push({ kind: "aave", address: o.metadata.pool as Address, provider: "aave", opportunityId: o.id });
-    else if (o.provider === "morpho" && typeof o.metadata.vault === "string") out.push({ kind: "erc4626", address: o.metadata.vault as Address, provider: "morpho", opportunityId: o.id });
-    else if (o.provider === "compound" && typeof o.metadata.comet === "string") out.push({ kind: "comet", address: o.metadata.comet as Address, provider: "compound", opportunityId: o.id });
-  }
-  return out;
+  return cached("earn:venues", { ttlMs: 2 * 60_000, staleMs: 10 * 60_000, shared: true }, async () => {
+    const [{ opportunities }, remembered] = await Promise.all([discoverUsdcEarnRaw(), getRepos().earnActions.listOpportunityIds().catch(() => [])]);
+    const out: EarnVenue[] = [];
+    const seen = new Set<string>();
+    const push = (v: EarnVenue) => {
+      const k = `${v.kind}:${v.address.toLowerCase()}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(v);
+    };
+    for (const o of opportunities) {
+      if (o.provider === "aave" && typeof o.metadata.pool === "string") push({ kind: "aave", address: o.metadata.pool as Address, provider: "aave", opportunityId: o.id });
+      else if (o.provider === "morpho" && typeof o.metadata.vault === "string") push({ kind: "erc4626", address: o.metadata.vault as Address, provider: "morpho", opportunityId: o.id });
+      else if (o.provider === "compound" && typeof o.metadata.comet === "string") push({ kind: "comet", address: o.metadata.comet as Address, provider: "compound", opportunityId: o.id });
+    }
+    for (const r of remembered) {
+      const m = /^morpho:vault:(0x[0-9a-fA-F]{40})$/.exec(r.opportunityId);
+      if (r.provider === "morpho" && m) push({ kind: "erc4626", address: m[1] as Address, provider: "morpho", opportunityId: r.opportunityId.toLowerCase() });
+    }
+    return out;
+  });
 }
 
-/** Every wallet the app has any record of; a deposit whose record was lost still belongs to one of these. */
+/**
+ * Every wallet the app has any record of; a deposit whose record was lost still belongs to one of
+ * these. The database answers with one DISTINCT over the wallet columns (`stats_known_wallets()`);
+ * until that function is installed the tables are read whole, which is what this used to cost.
+ */
 export async function knownWallets(): Promise<Address[]> {
   const repos = getRepos();
+  const fromSql = await repos.statsDaily.listKnownWallets().catch(() => null);
+  if (fromSql) return fromSql;
   const [trades, gifts, executions, earn, pools, claims, rules, profiles, baskets, snapshotWallets, indexedWallets] = await Promise.all([
     repos.trades.listAll(),
     repos.gifts.listAll(),

@@ -9,9 +9,9 @@ import { B20_FACTORY_ADDRESS, COINBASE_B20_CREATORS, STOCK_ORACLE_REGISTRY_ADDRE
 import { serverEnv } from "@/config/env";
 import type { AssetBalance, B20Asset, CuratedAssetEntry, OracleState, PendingMultiplier } from "@/domain/asset";
 import { cached, TTL, invalidate } from "@/lib/cache";
-import { readFeeds, isStale } from "@/providers/market-data/chainlink/reader";
+import { readFeeds } from "@/providers/market-data/chainlink/reader";
 import { recallGood, rememberGood } from "@/lib/last-good";
-import { classifyFreshness, isUsMarketOpen } from "@/lib/market-hours";
+import { classifyFreshness, isUsMarketOpen, secondsSinceUsMarketClose, secondsSinceUsMarketOpen } from "@/lib/market-hours";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { getMarketDataProvider } from "@/providers/market-data";
@@ -185,17 +185,21 @@ function buildOracleState(entry: CuratedAssetEntry, live: LiveState, feed: { ans
   if (!feed) return undefined;
   const threshold = serverEnv().ORACLE_STALENESS_SECONDS;
   const paused = live.oracleRegistryPaused ?? false;
-  const marketOpen = isUsMarketOpen();
-  const ageSeconds = Math.floor(Date.now() / 1000) - Number(feed.updatedAt);
+  const now = new Date();
+  const marketOpen = isUsMarketOpen(now);
+  const ageSeconds = Math.floor(now.getTime() / 1000) - Number(feed.updatedAt);
+  // Off-hours a feed holds the close, however long ago it last wrote; "stale" means the value
+  // itself can no longer be trusted, which is what the deviation gate and the API's `isStale` mean.
+  const freshness = classifyFreshness({ ageSeconds, thresholdSeconds: threshold, paused, marketOpen, sinceCloseSeconds: secondsSinceUsMarketClose(now), sinceOpenSeconds: secondsSinceUsMarketOpen(now) });
   return {
     feed: entry.chainlinkFeed,
     answer: feed.answer,
     updatedAt: feed.updatedAt,
     decimals: feed.decimals,
     paused,
-    stale: isStale(feed.updatedAt, threshold),
+    stale: freshness === "stale",
     staleAfterSeconds: threshold,
-    freshness: classifyFreshness({ ageSeconds, thresholdSeconds: threshold, paused, marketOpen }),
+    freshness,
     marketOpen,
     priceUsd: Number(feed.answer) / 10 ** feed.decimals,
   };

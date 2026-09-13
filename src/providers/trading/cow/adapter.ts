@@ -5,6 +5,7 @@ import type { ExecutableQuote, IndicativeQuote, OrderView, SignedOrderRequest, T
 import { AppError } from "@/lib/errors";
 import { CircuitBreaker, fetchJson, metrics } from "@/lib/http";
 import { integratorFee } from "@/lib/fees";
+import { INDICATIVE_TIMEOUT_MS } from "../budget";
 
 /**
  * CoW Protocol on Base (docs.cow.fi). Not a swap transaction: the user signs an EIP-712 order,
@@ -23,6 +24,8 @@ export const COW_API = "https://api.cow.fi/base/api/v1";
 export const COW_EXPLORER = "https://explorer.cow.fi/base/orders";
 export const GPV2_SETTLEMENT: Address = "0x9008D19f58AAbD9eD0D60971565AA8510560ab41";
 export const GPV2_VAULT_RELAYER: Address = "0xC92E8bdf79f0507f65a392b0ab4667716BFE0110";
+/** Contracts a CoW order may name: the settlement (EIP-712 verifying contract) and the relayer the wallet approves. */
+export const EXPECTED_TARGETS: readonly Address[] = [GPV2_SETTLEMENT, GPV2_VAULT_RELAYER];
 const APP_CODE = "BaseStocks";
 /** Market orders: how long a signed order may wait for a solver. */
 const MARKET_VALID_FOR_S = 30 * 60;
@@ -58,6 +61,7 @@ const quoteSchema = z.object({
 const orderSchema = z
   .object({
     uid: z.string(),
+    owner: z.string().optional(),
     status: z.enum(["presignaturePending", "open", "fulfilled", "cancelled", "expired"]),
     class: z.enum(["market", "limit", "liquidity"]).optional(),
     kind: z.enum(["sell", "buy"]),
@@ -287,8 +291,14 @@ function normalize(intent: TradeIntent, q: CowQuote): IndicativeQuote {
 export class CowTradeProvider implements TradeProvider {
   readonly id = "cow" as const;
 
+  /**
+   * The indicative budget is the comparison's 2.5 s less a margin for the round trip, and the order
+   * book is told to stop solving 500 ms before that (`timeout` in the body). Raising it to the
+   * 2.8 s a full solver pass wants would only help if the comparison waited that long; it does not,
+   * so a longer budget here would be an answer nobody is still listening for.
+   */
   async getIndicativeQuote(intent: TradeIntent): Promise<IndicativeQuote> {
-    const q = await fetchQuote(intent, { from: intent.taker ?? INDICATIVE_FROM, verified: false, validFor: MARKET_VALID_FOR_S, timeoutMs: 2_400 });
+    const q = await fetchQuote(intent, { from: intent.taker ?? INDICATIVE_FROM, verified: false, validFor: MARKET_VALID_FOR_S, timeoutMs: INDICATIVE_TIMEOUT_MS - 100 });
     const n = normalize(intent, q);
     if (!n.liquidityAvailable) throw new AppError("ROUTE_UNAVAILABLE", "cow: no liquidity", 409);
     return n;
@@ -367,6 +377,7 @@ function toView(o: z.infer<typeof orderSchema>, txHash: Hash | null): OrderView 
   const status = o.invalidated && o.status === "open" ? "cancelled" : o.status;
   return {
     uid: o.uid,
+    owner: (o.owner as Address | undefined) ?? null,
     provider: "cow",
     status,
     orderClass: o.class ?? "market",

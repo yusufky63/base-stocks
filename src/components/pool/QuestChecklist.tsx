@@ -4,10 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, Circle, ExternalLink, Globe, ShieldCheck } from "lucide-react";
 import type { QuestStatus } from "@/domain/pool";
 import { apiPost, ApiError } from "@/lib/client-api";
+import { prettyHost } from "@/lib/url";
 import { XMark } from "@/components/brand/Logo";
 import { Button, LinkButton, Skeleton, cx } from "@/components/ui/primitives";
 
-/** How long the confirmation window runs after someone says they did a declared step. */
+/**
+ * How long the page waits after opening a declared step before it records the confirmation. It
+ * is a pause, not a check: nothing is verified in those seconds, and the copy never says it is.
+ */
 const CONFIRM_MS = 5_000;
 
 interface Props {
@@ -106,16 +110,20 @@ export function QuestChecklist({ poolId, isSignedIn, data, loading, onSignIn, on
                   )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className={cx("block text-[13px]", q.done ? "text-ink-secondary line-through" : "font-medium")}>{q.label}</span>
+                  <span className={cx("block text-[13px]", q.done ? "text-ink-secondary line-through" : "font-medium")}>
+                    {q.label}
+                    {/* A link step always shows where it goes; the creator's label alone could call any page anything. */}
+                    {q.type === "visit-url" && q.actionUrl && <span className="font-mono font-normal text-[11px] text-ink-muted">{` · ${prettyHost(q.actionUrl)}`}</span>}
+                  </span>
                   {q.done && q.selfDeclared && <span className="block text-[11px] text-ink-muted">Confirmed by you</span>}
                   {!q.done && !busy && q.detail && <span className="block text-[12px] text-ink-muted">{q.detail}</span>}
                   {busy && (
-                    <span className="block text-[12px] text-ink-muted num">{left > 0 ? `Checking… ${left}s` : "Almost there…"}</span>
+                    <span className="block text-[12px] text-ink-muted num">{left > 0 ? `Waiting… ${left}s` : "Recording your confirmation…"}</span>
                   )}
                 </span>
                 {!q.done && q.selfDeclared && (
                   <Button size="sm" variant="secondary" loading={busy} disabled={pending !== null && !busy} onClick={() => confirm(q)} className="shrink-0">
-                    {busy ? "Checking" : (
+                    {busy ? "Confirm" : (
                       <>
                         Do it <ExternalLink size={12} strokeWidth={2} />
                       </>

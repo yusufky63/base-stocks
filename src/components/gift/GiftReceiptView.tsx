@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, BadgeCheck, Gift } from "lucide-react";
 import { useAccount } from "wagmi";
-import type { GiftParty, GiftReceipt } from "@/services/gift-service";
-import { giftAmountLabel, giftPartyLabel } from "@/services/gift-service";
+import type { GiftParty, GiftReceipt } from "@/domain/gift";
+import { giftAmountLabel, giftPartyLabel, giftPartyName, giftStatusInfo, isBrandLikeName } from "@/lib/gift/format";
 import { AssetLogo, TxLink } from "@/components/common/display";
 import { Avatar } from "@/components/common/RecipientCard";
 import { ShareButton } from "@/components/common/ShareSheet";
@@ -20,8 +20,9 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
   const claimLink = gift.kind === "claim-link";
   const unclaimed = claimLink && gift.recipient === "0x0000000000000000000000000000000000000000";
   const role = !unclaimed && me === gift.recipient.toLowerCase() ? "recipient" : me === gift.sender.toLowerCase() ? "sender" : "visitor";
-  const senderName = giftPartyLabel(receipt.sender);
-  const recipientName = giftPartyLabel(receipt.recipient);
+  // Sentences name parties by identity (Basename or address), with the display name beside it, never instead of it.
+  const senderName = giftPartyName(receipt.sender);
+  const recipientName = giftPartyName(receipt.recipient);
   const shareText =
     role === "recipient"
       ? `I received ${amount} as a gift from ${senderName} on BaseStocks — tokenized stocks on Base.`
@@ -29,7 +30,7 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
         ? `I just gifted ${amount} (a tokenized stock on Base) to ${recipientName} with BaseStocks.`
         : `${senderName} gifted ${amount} to ${recipientName} on BaseStocks — tokenized stocks on Base.`;
   const when = new Date(gift.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-  const status = gift.status === "claimed" ? "claimed" : gift.status === "reclaimed" ? "cancelled by sender" : claimLink ? "awaiting claim" : gift.status === "confirmed" ? "confirmed onchain" : gift.status === "failed" ? "failed" : "submitted";
+  const status = giftStatusInfo(gift);
 
   return (
     <div className="flex flex-col gap-6 max-w-[720px]">
@@ -79,7 +80,7 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
           <span className="inline-flex items-center gap-1.5">
             <Gift size={12} strokeWidth={2} className="text-primary" /> {gift.kind === "buy-for-recipient" ? "bought and delivered directly" : claimLink ? "held by the BaseStocks gift escrow" : "sent from the sender's wallet"}
           </span>
-          <Badge tone={gift.status === "confirmed" || gift.status === "claimed" ? "positive" : gift.status === "failed" ? "danger" : gift.status === "reclaimed" ? "neutral" : "warning"}>{status}</Badge>
+          <Badge tone={status.tone}>{status.label.toLowerCase()}</Badge>
           {gift.txHash && <TxLink hash={gift.txHash}>view transaction</TxLink>}
           {gift.claimTx && <TxLink hash={gift.claimTx}>claim transaction</TxLink>}
           <span>network: Base</span>
@@ -114,28 +115,33 @@ export function GiftReceiptView({ receipt }: { receipt: GiftReceipt }) {
   );
 }
 
+/**
+ * One side of the gift. The headline is the identity (Basename, else the address); a display
+ * name, when the profile has one, sits under it and is never allowed to read like the brand.
+ * "member" means a BaseStocks profile exists, not merely a Basename.
+ */
 function Party({ p, label }: { p: GiftParty; label: string }) {
-  const name = giftPartyLabel(p);
-  const member = !!(p.basename || p.displayName);
+  const identity = giftPartyLabel(p);
+  const displayName = p.displayName && !isBrandLikeName(p.displayName) ? p.displayName : null;
   const profileHref = `/u/${p.address}`;
   return (
     <div className="flex items-center gap-3 min-w-0">
-      <Avatar src={p.avatar} seed={p.address} label={name} size={44} />
+      <Avatar src={p.avatar} seed={p.address} label={identity} size={44} />
       <span className="min-w-0">
         <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</span>
         <span className="flex items-center gap-1.5 min-w-0">
           <Link href={profileHref} className="text-[15px] font-medium truncate hover:underline">
-            {name}
+            {identity}
           </Link>
-          {member && (
-            <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title="BaseStocks member">
+          {p.isMember && (
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-primary shrink-0" title="Has a BaseStocks profile">
               <BadgeCheck size={12} strokeWidth={2} /> member
             </span>
           )}
         </span>
         <span className="block font-mono text-[11px] text-ink-secondary truncate">
-          {shortenAddress(p.address, 6)}
-          {p.basename && name !== p.basename ? ` · ${p.basename}` : ""}
+          {displayName ? `${displayName} · ` : ""}
+          {p.basename ? shortenAddress(p.address, 6) : "no Basename"}
         </span>
       </span>
     </div>

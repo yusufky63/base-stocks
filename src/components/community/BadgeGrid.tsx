@@ -45,7 +45,7 @@ export function BadgeGrid({ badges, compact = false }: { badges: BadgeT[]; compa
                 </span>
                 <span className="min-w-0">
                   <span className={cx("block text-[13px] font-medium truncate", !b.earned && "text-ink-secondary")}>{b.label}</span>
-                  <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-muted">{b.earned ? (b.earnedAt ? `earned ${timeAgo(b.earnedAt)}` : "earned") : b.progress ? `${b.progress.current} of ${b.progress.target}` : "locked"}</span>
+                  <span className="block font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted">{b.earned ? (b.earnedAt ? `earned ${timeAgo(b.earnedAt)}` : "earned") : b.progress ? `${b.progress.current} of ${b.progress.target}` : "locked"}</span>
                 </span>
               </div>
               {!b.earned && (

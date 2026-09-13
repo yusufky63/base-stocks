@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/primitives";
  * per visitor; and it is the platform's own figures, not the market's.
  */
 export function PlatformActivity({ assetAddress, underlying }: { assetAddress: string; underlying: string }) {
-  const { data } = useStats();
+  const { data, isError } = useStats();
   const row = data?.trading.byAsset.find((a) => a.assetAddress.toLowerCase() === assetAddress.toLowerCase());
   const cells = row
     ? [
@@ -28,7 +28,10 @@ export function PlatformActivity({ assetAddress, underlying }: { assetAddress: s
           All stats →
         </Link>
       </div>
-      {!data ? (
+      {isError ? (
+        // A failed read used to sit on "Loading…" for good; say what happened instead.
+        <p className="text-[13px] text-ink-secondary">Platform statistics are not available right now.</p>
+      ) : !data ? (
         <p className="text-[13px] text-ink-secondary">Loading…</p>
       ) : !cells ? (
         <p className="text-[13px] text-ink-secondary">No verified trade of {underlying} through the app yet. The first one shows up here once its receipt is in.</p>

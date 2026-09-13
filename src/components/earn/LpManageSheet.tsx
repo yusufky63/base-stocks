@@ -10,6 +10,7 @@ import { BASE_CHAIN_ID, USDC_ADDRESS } from "@/config/chain";
 import { publicEnv } from "@/config/env";
 import { apiPost } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
+import { walletCapabilities } from "@/lib/trade/execute";
 import { MAX_UINT128, positionManagerCommonAbi } from "@/lib/earn/abis";
 import { lpManagerById } from "@/lib/earn/lp-managers";
 import { humanizeError, type HumanError } from "@/lib/errors";
@@ -117,15 +118,7 @@ export function LpManageSheet({ open, onClose, position }: { open: boolean; onCl
       // Simulate the exact sequence before the wallet opens; managers revert loudly on bad params.
       for (const c of calls) await publicClient.call({ account: address, to: c.to, data: c.data });
 
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
+      const { atomic, paymaster } = await walletCapabilities(walletClient, address);
 
       setPhase("awaiting");
       let hash: Hash | undefined;

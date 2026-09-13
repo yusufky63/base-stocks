@@ -2,16 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, LineChart, Layers, PieChart, Sprout, Moon, Sun, Newspaper, Settings, Gift as GiftIcon, Rocket } from "lucide-react";
+import { Home, LineChart, Layers, PieChart, Sprout, Newspaper, Settings, Gift as GiftIcon, Rocket } from "lucide-react";
 import type { ReactNode } from "react";
 import { ConnectButton } from "./ConnectButton";
-import { useTheme } from "./ThemeProvider";
 import { cx } from "@/components/ui/primitives";
 import { LegalNotice } from "@/components/common/display";
 import { Wordmark, XMark } from "@/components/brand/Logo";
 import { BSTOCKS_X_HANDLE, BSTOCKS_X_URL } from "@/content/social";
 import { LAUNCHPAD_URL } from "@/content/ecosystem";
 import { TopTicker } from "./TopTicker";
+import { HeaderHeight } from "./HeaderHeight";
 import { IntegrationsStrip } from "@/components/common/Integrations";
 import { CopilotProvider } from "@/components/assistant/CopilotProvider";
 import { Copilot } from "@/components/assistant/CopilotPanel";
@@ -19,10 +19,7 @@ import { EligibilityGate } from "@/components/common/EligibilityGate";
 
 const X_URL = BSTOCKS_X_URL;
 
-/** Kept as a local alias so the JSX below reads the same as before the mark moved to Logo.tsx. */
-const XLogo = () => <XMark size={14} />;
-
-/** Mobile bar: five destinations. Strategies groups Build, Community and Automate as tabs. */
+/** Mobile bar: six destinations. Strategies groups Build, Community and Automate as tabs. */
 const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/markets", label: "Markets", icon: LineChart },
@@ -71,6 +68,10 @@ function AppFrame({ children }: { children: ReactNode }) {
   const showTicker = !path.startsWith("/admin");
   return (
     <div className="flex min-h-dvh flex-col">
+      {/* Keyboard users land here first: one Tab, one Enter, and the ticker and header are behind them. */}
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:inline-flex focus:items-center focus:h-10 focus:px-3 focus:rounded-[6px] focus:bg-primary-fill focus:text-primary-contrast focus:text-[13px] focus:font-medium">
+        Skip to content
+      </a>
       <div className="sticky top-0 z-30 [padding-top:var(--miniapp-safe-top)] bg-canvas">
         {showTicker && <TopTicker />}
         <header className="border-b border-line bg-canvas/95 backdrop-blur-[2px]">
@@ -103,7 +104,7 @@ function AppFrame({ children }: { children: ReactNode }) {
                 href={LAUNCHPAD_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden md:inline-flex items-center gap-1.5 h-9 px-3 rounded-[6px] text-[13px] font-medium bg-primary text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:brightness-[1.08] active:border-b active:translate-y-[2px] transition-fast"
+                className="hidden md:inline-flex items-center gap-1.5 h-9 px-3 rounded-[6px] text-[13px] font-medium bg-primary-fill text-primary-contrast border border-primary-strong border-b-[3px] border-b-black/30 hover:brightness-[1.08] active:border-b active:translate-y-[2px] transition-fast"
               >
                 <Rocket size={14} strokeWidth={1.75} /> Launchpad
               </a>
@@ -120,12 +121,16 @@ function AppFrame({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
+        <HeaderHeight />
       </div>
 
-      <main className="flex-1 mx-auto w-full max-w-[1320px] px-4 md:px-6 py-5 md:py-8">{children}</main>
+      <main id="main" tabIndex={-1} className="flex-1 mx-auto w-full max-w-[1320px] px-4 md:px-6 py-5 md:py-8 outline-none">
+        {children}
+      </main>
 
-      {/* Compact footer: one horizontal band, legal text collapsed on mobile */}
-      <footer className="border-t border-line bg-canvas pb-16 md:pb-0">
+      {/* Compact footer: one horizontal band, legal text collapsed on mobile. On phones it clears
+          the fixed bottom bar by the bar's own height plus the same safe-area inset the bar adds. */}
+      <footer className="border-t border-line bg-canvas [padding-bottom:calc(56px+max(env(safe-area-inset-bottom),var(--miniapp-safe-bottom)))] md:pb-0">
         <div className="mx-auto max-w-[1320px] px-4 md:px-6 py-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <Wordmark size={18} />
@@ -138,7 +143,7 @@ function AppFrame({ children }: { children: ReactNode }) {
               ))}
             </nav>
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label={`@${BSTOCKS_X_HANDLE} on X`} title={`@${BSTOCKS_X_HANDLE} on X`} className="inline-flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-primary transition-fast">
-              <XLogo />
+              <XMark size={14} />
               <span className="font-mono text-[12px]">@{BSTOCKS_X_HANDLE}</span>
             </a>
           </div>
@@ -169,9 +174,10 @@ function AppFrame({ children }: { children: ReactNode }) {
 
       <Copilot />
 
-      {/* Asked on arrival, not at the Buy button, and keyed by path so every page asks again.
-          Skipped in the admin console, which trades nothing. */}
-      {!path.startsWith("/admin") && <EligibilityGate key={path} />}
+      {/* Asked on arrival, not at the Buy button. The gate remembers a dismissal for the session and
+          asks again only when a trading surface opens after a day. Skipped in the admin console,
+          which trades nothing. */}
+      {!path.startsWith("/admin") && <EligibilityGate />}
 
       <nav aria-label="Primary mobile" className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas [padding-bottom:max(env(safe-area-inset-bottom),var(--miniapp-safe-bottom))]">
         <div className="grid grid-cols-6">
@@ -179,7 +185,7 @@ function AppFrame({ children }: { children: ReactNode }) {
             const Icon = n.icon;
             const active = isActive(path, n.href);
             return (
-              <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined} className={cx("relative flex flex-col items-center justify-center gap-1 h-14 text-[10px] font-medium", active ? "text-primary" : "text-ink-secondary")}>
+              <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined} className={cx("relative flex flex-col items-center justify-center gap-1 h-14 text-[11px] font-medium", active ? "text-primary" : "text-ink-secondary")}>
                 {active && <span aria-hidden className="absolute top-0 left-1/2 -translate-x-1/2 w-7 h-[2px] bg-primary" />}
                 <Icon size={19} strokeWidth={1.75} />
                 {n.label}
@@ -189,16 +195,5 @@ function AppFrame({ children }: { children: ReactNode }) {
         </div>
       </nav>
     </div>
-  );
-}
-
-/** One click flips between light and dark (the "system" mode lives in Settings). */
-export function ThemeToggle() {
-  const { resolved, setPreference } = useTheme();
-  const Icon = resolved === "dark" ? Sun : Moon;
-  return (
-    <button type="button" aria-label={resolved === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setPreference(resolved === "dark" ? "light" : "dark")} className="h-9 w-9 inline-flex items-center justify-center rounded-[6px] text-ink-secondary hover:text-ink border border-line hover:border-line-strong transition-fast">
-      <Icon size={16} strokeWidth={1.75} />
-    </button>
   );
 }

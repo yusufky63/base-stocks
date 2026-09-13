@@ -2,21 +2,33 @@ import { ImageResponse } from "next/og";
 import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts } from "@/lib/og";
 import { findCuratedAsset } from "@/lib/b20/registry";
 import { loadAssetResponse } from "@/lib/server-data";
+import { hasMeaningfulChange, isNotIssued, tradingStatus } from "@/lib/trading-status";
 
 export const alt = "BaseStocks";
 export const size = OG.size;
 export const contentType = "image/png";
+/** A share card is rendered at most every five minutes; the price on it is a snapshot either way. */
+export const revalidate = 300;
 
-/** Dynamic share card: ticker, name, live price and the 24h move. Blue — this one is the product. */
+/**
+ * Dynamic share card: ticker, name, live price and the 24h move. Blue — this one is the product.
+ *
+ * The card says only what the page would: "Not issued yet" when the issuer has minted nothing,
+ * not whenever a price happened to be missing; and a daily move only when the market behind it
+ * is deep enough for the number to mean anything.
+ */
 export default async function Image({ params }: { params: Promise<{ address: string }> }) {
   const { address } = await params;
   const entry = findCuratedAsset(address);
   const data = entry ? await loadAssetResponse(address).catch(() => null) : null;
-  const price = data?.price?.displayUsd ?? null;
-  const change = data?.price?.marketChange24hPct ?? null;
-  const name = data?.asset.name ?? entry?.underlying ?? "Tokenized stock";
+  const asset = data?.asset ?? null;
+  const priceView = data?.price ?? null;
+  const price = priceView?.displayUsd ?? null;
+  const meaningful = asset ? hasMeaningfulChange(tradingStatus(asset, priceView).status, priceView) : false;
+  const change = meaningful ? (priceView?.marketChange24hPct ?? null) : null;
+  const name = asset?.name ?? entry?.underlying ?? "Tokenized stock";
   const ticker = entry?.underlying ?? null;
-  const priceText = price !== null ? `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Not issued yet";
+  const priceText = price !== null ? `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : asset && isNotIssued(asset) ? "Not issued yet" : "Price unavailable";
   const changeText = change !== null ? `${change > 0 ? "+" : ""}${change.toFixed(2)}% today` : null;
   const nameSize = name.length > 22 ? 46 : name.length > 14 ? 56 : 66;
   return new ImageResponse(

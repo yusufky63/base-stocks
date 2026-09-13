@@ -21,7 +21,7 @@ const signed = (v: number) => `${v > 0 ? "+" : ""}${formatUsd(v)}`;
  * was never recorded; those are counted and named, because a basis missing a leg is worse than one
  * that says so.
  */
-export function PnlModule({ address }: { address: Address }) {
+export function PnlModule({ address, hasHoldings }: { address: Address; hasHoldings: boolean }) {
   const { data, isLoading } = useQuery({
     queryKey: ["portfolio", "pnl", address.toLowerCase()],
     queryFn: () => apiGet<{ pnl: PortfolioPnl }>(`/api/portfolio/${address}/pnl`).then((r) => r.pnl),
@@ -42,6 +42,9 @@ export function PnlModule({ address }: { address: Address }) {
   if (!data) return null;
 
   if (data.noTrades) {
+    // Nothing bought and nothing held: there is no page to fill in. A holder with no trades gets
+    // the explanation; a wallet that sold everything keeps its realised line below.
+    if (!hasHoldings) return null;
     return (
       <Module>
         <ModuleHeader index="P" title="Profit and loss" />

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { AppError } from "@/lib/errors";
 import { describeHttpError, estimateCostUsd, type AiConfig, type AiUsage } from "@/lib/ai-provider";
@@ -85,6 +85,8 @@ export async function generateChatTurn(
   const allowTools = opts.allowTools !== false && opts.tools.length > 0;
 
   if (cfg.provider === "anthropic") {
+    // The SDK is imported where it is used, not at module load: only the types above are static.
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: cfg.apiKey, maxRetries: 1, timeout: opts.timeoutMs ?? 30_000 });
     const response = await client.messages.create({
       model: cfg.model,

@@ -28,6 +28,8 @@ export const POST = route({ rateLimit: { key: "orders.prepare", limit: 60, windo
   assertTradingAllowed(req);
   const body = await parseBody(req, bodySchema);
   if (body.sellAmount <= 0n || body.minBuyAmount <= 0n) throw new AppError("AMOUNT_TOO_SMALL", "Enter an amount and a limit price.", 400);
+  // A sale pays its USDC to the wallet that sold; a receiver elsewhere is a transfer dressed as a trade.
+  if (body.side === "sell" && body.recipient && body.recipient.toLowerCase() !== body.owner.toLowerCase()) throw new AppError("BAD_REQUEST", "A sale pays its proceeds to the wallet that sells; a recipient can only be set on a buy.", 400);
   const { asset, warnings } = await b20Guard.preTradeCheck({ assetAddress: body.assetAddress as Address, side: body.side, taker: body.owner as Address, recipient: body.recipient as Address | undefined });
   const buy = body.side === "buy";
   const order = prepareLimitOrder({

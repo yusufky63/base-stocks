@@ -16,18 +16,23 @@ export const GET = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key
 
 const actionSchema = z.object({ action: z.enum(["vote", "clone"]) });
 
-/** Vote (toggle, one per signed-in wallet) or count a clone. */
+/**
+ * Vote (toggle) or count a clone, each once per signed-in wallet. A clone used to count on any
+ * unauthenticated POST, so the number said how many requests had arrived rather than how many
+ * wallets had built the basket.
+ */
 export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { key: "baskets.action", limit: 60, windowMs: 60_000, durable: true } }, async (req, { params }) => {
   const { id } = await params;
   const { action } = await parseBody(req, actionSchema);
   const repos = getRepos();
   const basket = await repos.baskets.get(id);
   if (!basket) throw new AppError("NOT_FOUND", "Basket not found", 404);
+  const wallet = requireSession(req);
   if (action === "vote") {
-    const voter = requireSession(req);
-    const result = await repos.baskets.vote(id, voter);
+    const result = await repos.baskets.vote(id, wallet);
     return json(result);
   }
-  await repos.baskets.incrementClones(id);
-  return json({ ok: true, clones: basket.clones + 1 });
+  // The resilient wrapper answers `undefined` when storage is down; the clone still happened in the wallet.
+  const result = (await repos.baskets.incrementClones(id, wallet)) as { counted: boolean; clones: number } | undefined;
+  return json({ ok: true, counted: result?.counted ?? false, clones: result?.clones ?? basket.clones });
 });

@@ -11,6 +11,7 @@ import { formatTokenAmount } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { Badge, Module, ModuleHeader, Skeleton } from "@/components/ui/primitives";
+import { claimedShares } from "./PoolList";
 
 function statusInfo(v: PoolView): { label: string; tone: "positive" | "warning" | "danger" | "neutral" | "primary" } {
   switch (v.pool.status) {
@@ -27,7 +28,10 @@ function statusInfo(v: PoolView): { label: string; tone: "positive" | "warning" 
   }
 }
 
-/** Pools this wallet created, with the live share counter and a way into the manage panel. */
+/**
+ * Pools this wallet created, with the live share counter and a way into the manage panel. Unlisted
+ * pools are in here, so the route wants this wallet's session; the parent renders this signed in.
+ */
 export function PoolHistory({ owner }: { owner: Address }) {
   // Snapshot the clock once: a lock badge that flips mid-render would make the list jump.
   const [loadedAt] = useState(() => Date.now());
@@ -53,8 +57,7 @@ export function PoolHistory({ owner }: { owner: Address }) {
         <ul>
           {list.map((v) => {
             const s = statusInfo(v);
-            const remaining = v.onchain?.remainingSlots ?? Math.max(0, v.pool.slots - v.claimCount);
-            const claimed = v.pool.slots - remaining;
+            const claimed = claimedShares(v);
             return (
               <li key={v.pool.id} className="border-b border-line last:border-b-0">
                 <Link href={`/pools/${v.pool.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-surface transition-fast min-w-0">

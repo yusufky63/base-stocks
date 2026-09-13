@@ -10,18 +10,27 @@
   --miniapp-safe-bottom: 0px;
   --miniapp-safe-left: 0px;
   --miniapp-safe-right: 0px;
+  /* Height of the sticky header band (ticker rows + header), published by the shell from a
+     ResizeObserver so sticky panels and anchor targets can clear it. 56px is the header alone. */
+  --header-h: 56px;
   --bg: #ffffff;
   --surface: #f8f9fb;
   --surface-muted: #eef0f3;
   --border: #dee1e7;
-  --border-strong: #b1b7c3;
+  /* #8f96a3 on white is 3.0:1, the AA floor for UI boundaries; the old #b1b7c3 was 2.0:1. */
+  --border-strong: #8f96a3;
+  /* Older rules wrote `--line`; it is the same token as `--border` (Tailwind exposes it as `line`). */
+  --line: var(--border);
 
   --text: #0a0b0d;
   --text-secondary: #5b616e;
-  --text-muted: #717886;
+  /* 4.6:1 on white: muted text is still read, so it still has to pass AA. */
+  --text-muted: #687080;
 
   --primary: #0370fd;
   --primary-strong: #0257c9;
+  /* Solid button fill. Light keeps the logo blue; dark darkens it so white text stays above 4.5:1. */
+  --primary-fill: var(--primary);
   --primary-contrast: #ffffff;
   --positive: #66c800;
   --danger: #fc401f;
@@ -61,6 +70,7 @@ html[data-theme="dark"] {
   --text-muted: #8a90a0;
   --primary: #2b86ff;
   --primary-strong: #5aa0ff;
+  --primary-fill: #1f6fe0;
   --primary-contrast: #ffffff;
   --positive-fg: #7ddc1a;
   --danger-fg: #ff6a4d;
@@ -86,6 +96,7 @@ html[data-theme="dark"] {
     --text-muted: #8a90a0;
     --primary: #2b86ff;
     --primary-strong: #5aa0ff;
+    --primary-fill: #1f6fe0;
     --primary-contrast: #ffffff;
     --positive-fg: #7ddc1a;
     --danger-fg: #ff6a4d;
@@ -110,6 +121,7 @@ html[data-theme="dark"] {
   --color-ink-muted: var(--text-muted);
   --color-primary: var(--primary);
   --color-primary-strong: var(--primary-strong);
+  --color-primary-fill: var(--primary-fill);
   --color-primary-soft: var(--primary-soft);
   --color-primary-contrast: var(--primary-contrast);
   --color-positive: var(--positive);
@@ -129,6 +141,15 @@ html[data-theme="dark"] {
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+}
+
+/* Anchors and sticky panels sit under a sticky header of variable height (the ticker rows can be
+   switched on and off), so both clear it by the measured value rather than a guess. */
+@utility scroll-mt-header {
+  scroll-margin-top: calc(var(--header-h) + 16px);
+}
+@utility top-header {
+  top: calc(var(--header-h) + 16px);
 }
 
 html,
@@ -424,7 +445,8 @@ input[type="range"].slider:disabled {
   animation: tape 60s linear infinite;
   will-change: transform;
 }
-.tape:hover .tape-track {
+.tape:hover .tape-track,
+.tape-paused .tape-track {
   animation-play-state: paused;
 }
 .hero-fx {
@@ -448,7 +470,9 @@ input[type="range"].slider:disabled {
   animation: blink 1.6s ease-in-out infinite;
 }
 
-/* Motion: `data-motion="off"` disables everything; "system" follows the OS preference; "on" (default) always animates. */
+/* Motion: `data-motion="off"` disables everything; "system" (the default) follows the OS "reduce
+   motion" preference; only an explicit "on" overrides that preference. The OS setting is therefore
+   honoured whenever the attribute is anything but "on", including before the theme script has run. */
 html[data-motion="off"] *,
 html[data-motion="off"] *::before,
 html[data-motion="off"] *::after {
@@ -462,16 +486,16 @@ html[data-motion="off"] .coin-float .coin-shadow {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  html[data-motion="system"] *,
-  html[data-motion="system"] *::before,
-  html[data-motion="system"] *::after {
+  html:not([data-motion="on"]) *,
+  html:not([data-motion="on"]) *::before,
+  html:not([data-motion="on"]) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  html[data-motion="system"] .tape-track,
-  html[data-motion="system"] .coin-float,
-  html[data-motion="system"] .coin-float .coin-shadow {
+  html:not([data-motion="on"]) .tape-track,
+  html:not([data-motion="on"]) .coin-float,
+  html:not([data-motion="on"]) .coin-float .coin-shadow {
     animation: none;
   }
 }
@@ -616,7 +640,7 @@ input[type="number"]::-webkit-outer-spin-button {
 
 /* The technical reference, generated from Markdown at build time. */
 .prose-docs { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
-.prose-docs h2, .prose-docs h3, .prose-docs h4 { color: var(--text); font-family: var(--font-display); letter-spacing: -0.01em; scroll-margin-top: 24px; }
+.prose-docs h2, .prose-docs h3, .prose-docs h4 { color: var(--text); font-family: var(--font-display); letter-spacing: -0.01em; scroll-margin-top: calc(var(--header-h) + 16px); }
 .prose-docs h2 { font-size: 22px; margin: 32px 0 10px; padding-top: 20px; border-top: 1px solid var(--line); }
 .prose-docs h2:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
 .prose-docs h3 { font-size: 16px; margin: 22px 0 8px; }
@@ -634,6 +658,6 @@ input[type="number"]::-webkit-outer-spin-button {
 .prose-docs hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .prose-docs .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; margin: 0 0 14px; }
 .prose-docs table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-.prose-docs th { text-align: left; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface); font-weight: 500; white-space: nowrap; }
+.prose-docs th { text-align: left; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface); font-weight: 500; white-space: nowrap; }
 .prose-docs td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .prose-docs tr:last-child td { border-bottom: 0; }

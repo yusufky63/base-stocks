@@ -10,9 +10,11 @@ import type { TradeState } from "@/domain/trade";
 import { b20AssetAbi } from "@/lib/b20/abi";
 import { toRaw, parseAmountSafe, bpsOf } from "@/lib/b20/math";
 import { withAttribution } from "@/lib/attribution";
-import { apiPatch, apiPost, ApiError } from "@/lib/client-api";
+import { apiPost, ApiError } from "@/lib/client-api";
+import { patchWithRetry } from "@/lib/gift/record";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { formatTokenAmount, formatUsd, shortenAddress } from "@/lib/format";
+import { useAuth } from "@/hooks/useAuth";
 import { useResolveRecipient, useTxStatus } from "@/hooks/queries";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { Sheet } from "@/components/ui/Sheet";
@@ -46,6 +48,7 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
+  const { ensureSignedIn } = useAuth();
   const [step, setStep] = useState<Step>("form");
   const [mode, setMode] = useState<"direct" | "link">("direct");
   const [recipientInput, setRecipientInput] = useState("");
@@ -89,7 +92,8 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
     if (!gift || !txHash || !chain) return;
     if ((chain === "confirmed" || chain === "failed") && reported.current !== `${txHash}:${chain}`) {
       reported.current = `${txHash}:${chain}`;
-      void apiPatch(`/api/gifts/${gift.id}`, { status: chain }).catch(() => undefined);
+      // The hash rides along: if the first write was lost, this one still names the transaction.
+      void patchWithRetry(`/api/gifts/${gift.id}`, { txHash, status: chain });
       if (chain === "confirmed") onSent?.();
     }
   }, [chain, txHash, gift, onSent]);
@@ -123,6 +127,8 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
     }
     setBusyPreview(true);
     try {
+      // The draft is written under this wallet, so the wallet proves it is the one asking.
+      await ensureSignedIn();
       const res = await apiPost<{ gift: GiftRecord; warnings: string[] }>("/api/gifts", {
         kind: "send-existing",
         sender: address,
@@ -156,7 +162,7 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
       const hash = await walletClient.sendTransaction({ account: address, chain: base, to: asset.address, data: withAttribution(data) });
       setTxHash(hash);
       setMachine("SUBMITTED");
-      void apiPatch(`/api/gifts/${gift.id}`, { txHash: hash, status: "submitted" }).catch(() => undefined);
+      void patchWithRetry(`/api/gifts/${gift.id}`, { txHash: hash, status: "submitted" });
     } catch (err) {
       setLocalError(humanizeError(err));
       setMachine("FAILED");

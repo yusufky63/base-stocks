@@ -7,7 +7,7 @@ import { apiPatch, apiPost, ApiError, type ExecutableQuoteDTO, type OrderView } 
 import type { TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY, type HumanError } from "@/lib/errors";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { executeTrade, type ExecutionMode } from "@/lib/trade/execute";
+import { executeTrade, isReviewAgain, type ExecutionMode } from "@/lib/trade/execute";
 import { useOrderStatus, useTxStatus } from "./queries";
 
 export interface TradeExecParams {
@@ -39,6 +39,8 @@ export interface TradeRun {
   /** Signed order (CoW) being filled; `order` is its polled state. */
   orderUid?: string;
   order: OrderView | null;
+  /** The order closed (expired or cancelled) after part of it was filled: tokens moved, the rest did not. */
+  partialFill: boolean;
   execute: (params: TradeExecParams) => Promise<void>;
   reset: () => void;
   isBusy: boolean;
@@ -74,16 +76,22 @@ export function useTrade(): TradeRun {
   // Derived state: Submitted → Preconfirmed → Confirmed / Failed.
   let state: TradeState = machine;
   let error: HumanError | null = localError;
+  // A partially filled order that then expired or was cancelled did move tokens; calling that FAILED
+  // told the user nothing happened while their wallet said otherwise. It is a confirmed trade for
+  // the part that filled, with a note about the rest.
+  const orderFilledSome = !!order && BigInt(order.executedBuyAmount) > 0n;
+  const orderClosed = !!order && (order.status === "expired" || order.status === "cancelled");
+  const partialFill = orderClosed && orderFilledSome;
   if (machine === "SUBMITTED" || machine === "PRECONFIRMED") {
     if (order) {
-      if (order.status === "fulfilled") state = "CONFIRMED";
+      if (order.status === "fulfilled" || partialFill) state = "CONFIRMED";
       else if (order.status === "expired") {
         state = "FAILED";
         error = { code: "QUOTE_EXPIRED", message: "No solver filled the order before it expired. Your funds were not moved; try again or use a swap route." };
       } else if (order.status === "cancelled") {
         state = "FAILED";
         error = { code: "USER_REJECTED", message: "The order was cancelled. Your funds were not moved." };
-      } else if (BigInt(order.executedBuyAmount) > 0n) state = "PRECONFIRMED";
+      } else if (orderFilledSome) state = "PRECONFIRMED";
     } else if (chain === "preconfirmed") state = "PRECONFIRMED";
     else if (chain === "confirmed") state = "CONFIRMED";
     else if (chain === "failed") {
@@ -110,7 +118,9 @@ export function useTrade(): TradeRun {
     }
     if (order && (order.status === "fulfilled" || order.status === "expired" || order.status === "cancelled") && reported.current !== `${order.uid}:${order.status}`) {
       reported.current = `${order.uid}:${order.status}`;
-      void apiPatch(`/api/trades/${recordId.current}`, order.status === "fulfilled" ? { status: "confirmed", txHash: order.txHash ?? undefined } : { status: "failed" }).catch(() => undefined);
+      // Anything that filled, wholly or in part, is a confirmed trade with the settlement's hash.
+      const filled = order.status === "fulfilled" || BigInt(order.executedBuyAmount) > 0n;
+      void apiPatch(`/api/trades/${recordId.current}`, filled ? { status: "confirmed", txHash: order.txHash ?? undefined } : { status: "failed" }).catch(() => undefined);
     }
   }, [chain, txHash, order]);
 
@@ -170,7 +180,9 @@ export function useTrade(): TradeRun {
       try {
         const result = await executeTrade(
           { address, chainId, walletClient, publicClient },
-          { ...params, prefetchedQuote: quote && Date.now() < quote.expiresAt ? quote : undefined },
+          // The reviewed quote goes along even once it has expired: the executor refreshes it from its
+          // own route and holds the refresh to the reviewed numbers, instead of quoting afresh from anyone.
+          { ...params, prefetchedQuote: quote ?? undefined },
           {
             onState: setMachine,
             onQuote: setQuote,
@@ -190,11 +202,14 @@ export function useTrade(): TradeRun {
       } catch (err) {
         const h = err instanceof ApiError ? { code: (err.code in TRADE_ERROR_COPY ? err.code : "UNKNOWN") as HumanError["code"], message: err.message, detail: err.code } : humanizeError(err);
         setLocalError(h);
-        setMachine("FAILED");
+        // A re-quote that no longer matched the reviewed trade: nothing was sent, the refreshed
+        // quote is already on screen (onQuote), and the user is asked to look again rather than
+        // shown a failure.
+        setMachine(isReviewAgain(err) ? "READY" : "FAILED");
       }
     },
     [address, chainId, walletClient, publicClient, quote],
   );
 
-  return { state, error, quote, txHash: settledHash, approvalHash, mode, sponsored, orderUid, order, prepare, execute, reset, isBusy: BUSY.includes(state) };
+  return { state, error, quote, txHash: settledHash, approvalHash, mode, sponsored, orderUid, order, partialFill, prepare, execute, reset, isBusy: BUSY.includes(state) };
 }

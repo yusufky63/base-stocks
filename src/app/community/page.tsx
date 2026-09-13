@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/page-meta";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { CommunityView } from "@/components/community/CommunityView";
 import { StrategiesShell } from "@/components/strategies/StrategiesShell";
 
-export const metadata: Metadata = { title: "Community" };
+export const metadata: Metadata = pageMeta({ title: "Community", path: "/community" });
 
 export default function CommunityPage() {
   return (

@@ -1,5 +1,5 @@
 import type { B20AssetDTO } from "@/domain/asset";
-import type { Candle, PriceView, Timeframe, TokenMarketData } from "@/domain/market";
+import type { Candle, PriceView, Timeframe } from "@/domain/market";
 import type { ExecutableQuoteDTO, OrderView, SignedOrderRequest, TradeErrorCode, TradeProviderId, TradeQuoteSummary, TradeSide } from "@/domain/trade";
 import type { ResolvedRecipient } from "@/domain/gift";
 import type { PortfolioExecution, PortfolioPlan, PortfolioSnapshot, PortfolioTemplate, Allocation } from "@/domain/portfolio";
@@ -79,11 +79,8 @@ export interface AssetsResponse {
 export interface AssetResponse {
   asset: B20AssetDTO;
   price: PriceView | null;
-}
-
-export interface MarketResponse {
-  market: TokenMarketData | null;
-  enabled: boolean;
+  /** Chainlink ETH/USD, so a stock page need not poll the whole asset list for one number. */
+  ethUsd?: number | null;
 }
 
 export interface ChartResponse {

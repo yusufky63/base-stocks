@@ -5,6 +5,7 @@ import { formatUnits } from "viem";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { TradeProviderId, TradeQuoteAlternative, TradeSide } from "@/domain/trade";
 import { USDC_DECIMALS } from "@/config/chain";
+import { toScaled } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
 import { IntegrationMark } from "@/components/common/IntegrationMark";
@@ -43,7 +44,7 @@ export function failureLabel(a: TradeQuoteAlternative): string {
 interface Props {
   alternatives: TradeQuoteAlternative[];
   side: TradeSide;
-  asset: Pick<B20AssetDTO, "decimals" | "underlying">;
+  asset: Pick<B20AssetDTO, "decimals" | "underlying" | "multiplier" | "wadPrecision">;
   /** null = automatic (best net output). */
   selected: TradeProviderId | null;
   onSelect: (provider: TradeProviderId | null) => void;
@@ -62,7 +63,9 @@ export function RouteCompare({ alternatives, side, asset, selected, onSelect, lo
   const bestNet = best?.netUsd ?? 0;
   const effective = selected && quoted.some((a) => a.provider === selected) ? selected : null;
 
-  const amount = (a: TradeQuoteAlternative) => (side === "buy" ? `${formatTokenAmount(a.buyAmount, asset.decimals)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(a.buyAmount ?? "0"), USDC_DECIMALS))));
+  // Quotes are in raw token units; the user holds share-equivalents (raw × multiplier), which is what every balance on the page shows.
+  const shares = (raw: string | null) => formatTokenAmount(toScaled(BigInt(raw ?? "0"), BigInt(asset.multiplier), BigInt(asset.wadPrecision)), asset.decimals);
+  const amount = (a: TradeQuoteAlternative) => (side === "buy" ? `${shares(a.buyAmount)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(a.buyAmount ?? "0"), USDC_DECIMALS))));
   const delta = (a: TradeQuoteAlternative) => {
     if (a.best || bestNet <= 0 || a.netUsd === null) return null;
     return (a.netUsd / bestNet - 1) * 100;
@@ -115,7 +118,7 @@ export function RouteCompare({ alternatives, side, asset, selected, onSelect, lo
                     </span>
                   </span>
                   <span className="mt-0.5 block font-mono text-[10px] text-ink-muted truncate">
-                    {a.route || "direct"} · {a.latencyMs} ms{a.netUsd !== null ? ` · net ≈ ${formatUsd(a.netUsd)}` : ""}
+                    {a.route || "direct"} · {a.latencyMs} ms{a.netUsd !== null ? ` · net ≈ ${formatUsd(a.netUsd)}${a.networkFeeEstimated ? " (fee est.)" : ""}` : ""}
                   </span>
                 </span>
               </button>
@@ -133,7 +136,7 @@ export function RouteCompare({ alternatives, side, asset, selected, onSelect, lo
           </li>
         )}
       </ul>
-      <p className="px-3 py-2 text-[11px] text-ink-muted border-t border-line">Net = output at the current price minus the estimated network fee. Auto asks the best provider for the firm quote and falls back if it fails; a manual choice is used as-is.</p>
+      <p className="px-3 py-2 text-[11px] text-ink-muted border-t border-line">Net = output at the current price minus the network fee; &quot;fee est.&quot; marks a fee the app priced from a gas estimate rather than one the route reported. Auto asks the best provider for the firm quote and falls back if it fails; a manual choice is used as-is.</p>
     </div>
   );
 }

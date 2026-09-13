@@ -104,6 +104,9 @@ export class B20GuardService {
     if (params.chainId !== undefined) this.validateChain(params.chainId);
     const asset = await this.validateCanonicalAsset(params.assetAddress);
     this.checkTransferState(asset);
+    // Nothing minted means nothing to route: every provider answers "no route" and the breakers
+    // count it. Say so here, once, before anyone is asked.
+    if (asset.totalSupply === 0n) throw new AppError("ROUTE_UNAVAILABLE", `${asset.underlying ?? asset.symbol} has not been issued on Base yet; there is nothing to trade until Coinbase mints it.`, 409);
     if (params.side === "buy") {
       await this.checkUserAuthorization(asset, { receiver: params.recipient ?? params.taker });
     } else {

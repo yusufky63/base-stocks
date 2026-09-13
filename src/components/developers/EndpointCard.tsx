@@ -52,7 +52,7 @@ export function EndpointCard({ endpoint }: { endpoint: V1Endpoint }) {
     <Module>
       <div className="px-4 py-3 border-b border-line flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[10px] uppercase tracking-[0.08em] px-1.5 h-5 inline-flex items-center rounded-[4px] border border-line text-ink-muted shrink-0">GET</span>
+          <span className="font-mono text-[11px] uppercase tracking-[0.08em] px-1.5 h-5 inline-flex items-center rounded-[4px] border border-line text-ink-muted shrink-0">GET</span>
           <code className="font-mono text-[13px] text-ink truncate">{endpoint.path}</code>
         </div>
         {endpoint.paid ? <Badge tone="primary">0.10 USDC</Badge> : <Badge tone="positive">Free</Badge>}
@@ -83,7 +83,7 @@ export function EndpointCard({ endpoint }: { endpoint: V1Endpoint }) {
             {copied ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={1.75} />}
             {copied ? "Copied" : "Copy curl"}
           </button>
-          {!endpoint.paid && <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-muted">cached {endpoint.cacheSeconds}s</span>}
+          {!endpoint.paid && <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-muted">cached {endpoint.cacheSeconds}s</span>}
         </div>
 
         {status && (

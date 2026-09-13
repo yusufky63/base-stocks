@@ -10,6 +10,8 @@ import { discoverDexPoolOpportunities } from "@/providers/earn/geckoterminal-poo
 import { getAsset } from "./b20-asset-service";
 import { USDC_ADDRESS, USDC_DECIMALS } from "@/config/chain";
 import { AppError } from "@/lib/errors";
+import { metrics } from "@/lib/http";
+import { getRepos } from "@/db/repositories";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { aaveDataProviderAbi, erc4626Abi } from "@/lib/earn/abis";
 
@@ -182,6 +184,31 @@ function usdcDiscovery(): Promise<EarnDiscoveryResult> {
   return cached("earn:usdc:raw", EARN_CACHE, () => discoverFor(USDC_ADDRESS, 1, undefined));
 }
 
+/** The raw USDC discovery, for the readers that must know every venue, not the ones worth offering. */
+export function discoverUsdcEarnRaw(): Promise<EarnDiscoveryResult> {
+  return usdcDiscovery();
+}
+
+const isMorphoVaultId = (id: string) => /^morpho:vault:0x[0-9a-fA-F]{40}$/.test(id);
+const vaultOf = (id: string) => id.slice("morpho:vault:".length) as Address;
+
+/**
+ * The Morpho vaults this wallet has a record of depositing into that discovery no longer lists.
+ *
+ * Discovery is the top twenty vaults by deposits. A vault that slips to twenty-first still holds
+ * the wallet's USDC; reading positions from the list alone made that balance vanish from the page
+ * along with the only button that could withdraw it.
+ */
+async function rememberedVaults(user: Address, known: ReadonlySet<string>): Promise<Address[]> {
+  const actions = await getRepos().earnActions.listByOwner(user).catch(() => []);
+  const out = new Map<string, Address>();
+  for (const a of actions) {
+    if (a.provider !== "morpho" || !isMorphoVaultId(a.opportunityId) || known.has(a.opportunityId.toLowerCase())) continue;
+    out.set(a.opportunityId.toLowerCase(), vaultOf(a.opportunityId));
+  }
+  return [...out.values()];
+}
+
 /**
  * A stock pool this thin cannot be joined usefully: any position is dust next to the spread, and
  * the "APY" a few dollars of volume implies is noise rather than a rate.
@@ -218,20 +245,51 @@ export function rankStockVenues<T extends EarnOpportunity>(items: T[], stocks: R
     .sort((a, b) => quoteRank(a) - quoteRank(b) || poolDepth(b) - poolDepth(a));
 }
 
-/** Build deposit / withdraw calls for an opportunity id. The client executes them with the wallet. */
+/**
+ * Build deposit / withdraw calls for an opportunity id. The client executes them with the wallet.
+ *
+ * The id has to be one this server knows: a vault discovery lists, or, for a withdrawal, one this
+ * wallet's own records say it deposited into. The adapters used to build calls for any address
+ * shaped like a vault, which made this route a way to get a wallet to approve and deposit into a
+ * contract nobody here had ever looked at.
+ */
 export async function prepareEarn(input: EarnIntent): Promise<EarnExecution> {
-  if (input.opportunityId.startsWith("morpho:")) return morphoProvider.prepare(input);
-  if (input.opportunityId.startsWith("aave:")) return aaveProvider.prepare(input);
-  if (input.opportunityId.startsWith("compound:")) return compoundProvider.prepare(input);
-  throw new AppError("PROVIDER_UNAVAILABLE", "This opportunity is completed in the venue's own interface.", 501);
+  const id = input.opportunityId.toLowerCase();
+  if (!id.startsWith("morpho:") && !id.startsWith("aave:") && !id.startsWith("compound:")) throw new AppError("PROVIDER_UNAVAILABLE", "This opportunity is completed in the venue's own interface.", 501);
+  const { opportunities } = await usdcDiscovery();
+  const known = new Set(opportunities.filter((o) => o.provider === "morpho" || o.provider === "aave" || o.provider === "compound").map((o) => o.id.toLowerCase()));
+  let allowed = known.has(id);
+  if (!allowed && input.action === "withdraw" && id.startsWith("morpho:")) {
+    // Money already in a de-listed vault must still be able to come out.
+    const remembered = await rememberedVaults(input.user, known);
+    allowed = remembered.some((v) => `morpho:vault:${v.toLowerCase()}` === id);
+  }
+  if (!allowed) {
+    metrics.count("earn.prepare.unknown", false, id.slice(0, 60));
+    throw new AppError("NOT_FOUND", "That Earn venue is not one this app lists.", 404);
+  }
+  if (id.startsWith("morpho:")) return morphoProvider.prepare(input);
+  if (id.startsWith("aave:")) return aaveProvider.prepare(input);
+  return compoundProvider.prepare(input);
 }
 
-/** Current positions in the USDC opportunities (vault shares → assets, aToken balance). */
+/**
+ * Current positions in the USDC opportunities (vault shares → assets, aToken balance), plus any
+ * Morpho vault this wallet's records show a deposit into that discovery has since dropped.
+ */
 export async function getEarnPositions(user: Address): Promise<EarnPosition[]> {
   const { opportunities } = await usdcDiscovery();
   const client = getServerPublicClient();
   const positions: EarnPosition[] = [];
-  const vaults = opportunities.filter((o) => o.provider === "morpho" && o.type === "vault").map((o) => ({ o, vault: String(o.metadata.vault) as Address }));
+  const listed = opportunities.filter((o) => o.provider === "morpho" && o.type === "vault").map((o) => ({ o, vault: String(o.metadata.vault) as Address }));
+  const remembered = await rememberedVaults(user, new Set(listed.map((v) => v.o.id.toLowerCase())));
+  // A de-listed vault has no discovery row to take a name or a rate from: the vault's own symbol
+  // names it and the rate is left blank rather than invented.
+  const names = remembered.length ? await client.multicall({ contracts: remembered.map((vault) => ({ address: vault, abi: erc20Abi, functionName: "symbol" as const })), allowFailure: true }) : [];
+  const vaults: Array<{ o: Pick<EarnOpportunity, "id" | "title" | "variableApy">; vault: Address }> = [
+    ...listed,
+    ...remembered.map((vault, i) => ({ vault, o: { id: `morpho:vault:${vault.toLowerCase()}`, title: names[i]?.status === "success" ? String(names[i]!.result) : `Morpho vault ${vault.slice(0, 6)}…${vault.slice(-4)}`, variableApy: undefined } })),
+  ];
   const aave = opportunities.find((o) => o.provider === "aave");
   const contracts = vaults.map((v) => ({ address: v.vault, abi: erc4626Abi, functionName: "balanceOf" as const, args: [user] as const }));
   const shares = contracts.length ? await client.multicall({ contracts, allowFailure: true }) : [];

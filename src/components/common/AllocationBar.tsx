@@ -1,5 +1,3 @@
-"use client";
-
 import { assetColor } from "@/lib/colors";
 import { bpsToPct } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";

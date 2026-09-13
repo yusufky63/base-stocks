@@ -44,6 +44,8 @@ export function GET() {
         version: "1",
         name: "BaseStocks",
         homeUrl: `${APP_URL}/`,
+        // The Vercel alias serves the same app; this names the domain that counts.
+        canonicalDomain: new URL(APP_URL).host,
         iconUrl: `${APP_URL}/brand/icon-1024.png`,
         splashImageUrl: `${APP_URL}/brand/splash-200.png`,
         splashBackgroundColor: "#0370fd",

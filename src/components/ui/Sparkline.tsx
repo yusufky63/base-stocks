@@ -1,5 +1,3 @@
-"use client";
-
 import { cx } from "./primitives";
 
 interface Props {

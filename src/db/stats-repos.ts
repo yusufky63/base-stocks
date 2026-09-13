@@ -1,3 +1,4 @@
+import type { Address } from "viem";
 import type { DayRollup } from "@/domain/stats";
 import { getSupabaseAdmin } from "./supabase";
 
@@ -12,6 +13,14 @@ export interface StatsDailyRepo {
   upsert(rollup: DayRollup): Promise<void>;
   /** The latest stored day (YYYY-MM-DD), or null when nothing has been rolled up yet. */
   latestDay(): Promise<string | null>;
+  /**
+   * Distinct wallet counts, done by the database (`stats_distinct_wallets()`): wallets with a
+   * portfolio snapshot, and every wallet any table names. Null when the function is not installed,
+   * and the caller counts the slow way.
+   */
+  distinctWallets(): Promise<{ portfolioWallets: number; knownWallets: number } | null>;
+  /** Every wallet any table names, lowercase, from `stats_known_wallets()`; null when not installed. */
+  listKnownWallets(): Promise<Address[] | null>;
 }
 
 export class MemoryStatsDailyRepo implements StatsDailyRepo {
@@ -25,6 +34,12 @@ export class MemoryStatsDailyRepo implements StatsDailyRepo {
   async latestDay() {
     const days = [...this.items.keys()].sort();
     return days[days.length - 1] ?? null;
+  }
+  async distinctWallets() {
+    return null; // the memory backend has no tables to count across; the caller scans its repos
+  }
+  async listKnownWallets() {
+    return null;
   }
 }
 
@@ -56,5 +71,25 @@ export class SupabaseStatsDailyRepo implements StatsDailyRepo {
     const { data, error } = await this.sb().from("stats_daily").select("day").order("day", { ascending: false }).limit(1).maybeSingle();
     if (error) throw error;
     return data ? String((data as Row).day) : null;
+  }
+  async distinctWallets() {
+    const { data, error } = await this.sb().rpc("stats_distinct_wallets");
+    if (error) {
+      // Not installed yet: say so, rather than fail the statistics over a count.
+      if (/does not exist|PGRST202|schema cache/i.test(error.message)) return null;
+      throw error;
+    }
+    const row = (Array.isArray(data) ? data[0] : data) as Row | undefined;
+    if (!row) return null;
+    return { portfolioWallets: Number(row.portfolio_wallets ?? 0), knownWallets: Number(row.known_wallets ?? 0) };
+  }
+  async listKnownWallets() {
+    const { data, error } = await this.sb().rpc("stats_known_wallets");
+    if (error) {
+      if (/does not exist|PGRST202|schema cache/i.test(error.message)) return null;
+      throw error;
+    }
+    if (!Array.isArray(data)) return null;
+    return (data as Array<Row | string>).map((r) => String(typeof r === "string" ? r : (r.wallet ?? r.stats_known_wallets ?? "")).toLowerCase()).filter((w) => /^0x[0-9a-f]{40}$/.test(w)) as Address[];
   }
 }

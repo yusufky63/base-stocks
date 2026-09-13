@@ -1,7 +1,9 @@
 import type { Address, Hash, Hex } from "viem";
 
 export type TradeSide = "buy" | "sell";
-export type TradeProviderId = "zeroX" | "kyber" | "okx" | "uniswap" | "velora" | "aerodrome" | "cow";
+/** Every route the app can quote; the only values a trade record may name as its provider. */
+export const TRADE_PROVIDER_IDS = ["zeroX", "kyber", "okx", "uniswap", "velora", "aerodrome", "cow"] as const;
+export type TradeProviderId = (typeof TRADE_PROVIDER_IDS)[number];
 
 /** App-owned trade request. Always exact-in. */
 export interface TradeIntent {
@@ -119,6 +121,8 @@ export interface TradeQuoteAlternative {
   /** Output valued in USD before fees (null when no price basis). */
   outUsd: number | null;
   estimatedNetworkFeeUsd: number | null;
+  /** True when the fee above was priced by the app (gas estimate × gas price), not reported by the provider. */
+  networkFeeEstimated?: boolean;
   /** USD per token implied by this provider's output. */
   executablePriceUsd: number | null;
 }
@@ -140,8 +144,12 @@ export interface TradeQuoteSummary {
   /** Percent difference of executable price vs basis price (positive = worse for user). */
   priceImpactPct: number | null;
   priceImpactBasis: "reference" | "market" | null;
+  /** Executable price vs the Chainlink reference (positive = worse for user); null when the reference is stale, paused or absent. */
+  referenceGapPct?: number | null;
   estimatedNetworkFeeWei: string | null;
   estimatedNetworkFeeUsd: number | null;
+  /** True when the fee above is the app's estimate rather than the provider's own figure. */
+  networkFeeEstimated?: boolean;
   /** BaseStocks' own fee on this route, already inside the amounts above; null when this route charges none. */
   integratorFee: { bps: number; usd: number | null } | null;
   liquidityAvailable: boolean;
@@ -172,6 +180,8 @@ export interface ExecutableQuoteDTO extends TradeQuoteSummary {
 /** Normalized CoW order as shown in "Your orders" and polled after submission. */
 export interface OrderView {
   uid: string;
+  /** The wallet that signed the order, as the order book reports it. */
+  owner: Address | null;
   provider: "cow";
   status: "open" | "fulfilled" | "cancelled" | "expired" | "presignaturePending";
   orderClass: "market" | "limit" | "liquidity";

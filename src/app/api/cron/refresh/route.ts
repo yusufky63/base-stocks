@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { route, json, parseQuery } from "@/lib/api";
+import { route, json, parseQuery, requireCron } from "@/lib/api";
 import { serverEnv } from "@/config/env";
-import { AppError } from "@/lib/errors";
 import { JOBS, DEFAULT_SWEEP_BLOCKS, runJobs, type Job } from "@/services/maintenance-service";
 
 export const maxDuration = 60;
@@ -22,9 +21,7 @@ const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional(), blocks:
  * The jobs themselves live in `maintenance-service`, so the admin console can run the same ones.
  */
 export const GET = route({}, async (req) => {
-  const secret = serverEnv().CRON_SECRET;
-  const auth = req.headers.get("authorization") ?? "";
-  if (!secret || auth !== `Bearer ${secret}`) throw new AppError("UNAUTHORIZED", "Cron secret required", 401);
+  requireCron(req, serverEnv().CRON_SECRET);
   const { job, blocks } = parseQuery(req, querySchema);
   const started = Date.now();
   const jobs: Job[] = !job || job === "all" ? [...JOBS] : [job];

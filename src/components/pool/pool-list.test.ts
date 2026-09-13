@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Address, Hex } from "viem";
 import type { PoolLegView, PoolView } from "@/domain/pool";
-import { remainingShares, shareLabel } from "./PoolList";
+import { claimedShares, remainingShares, shareLabel } from "./PoolList";
 
 const leg = (underlying: string, scaledPerClaim: string): PoolLegView => ({
   token: `0x${underlying.padEnd(40, "0")}` as Address,
@@ -76,5 +76,24 @@ describe("pool list helpers", () => {
   it("falls back to the claim count when the chain has not answered", () => {
     expect(remainingShares(view({ claimCount: 4 }))).toBe(6);
     expect(remainingShares(view({ claimCount: 99 }))).toBe(0); // never negative
+  });
+
+  /** A cancelled pool has no remaining slots, but that does not mean every share was taken. */
+  it("counts claimed shares from the chain's counter, not from what is left", () => {
+    const onchain = {
+      exists: true,
+      creator: "0x78de409a6306550882328E2a67160471368387FF" as Address,
+      gate: "0x0000000000000000000000000000000000000000" as Address,
+      slots: 10,
+      claimed: 2,
+      expiry: Date.now() - 1,
+      lockedUntil: 0,
+      cancelled: true,
+      remainingSlots: 0,
+      legs: [],
+    };
+    expect(claimedShares(view({ onchain, claimCount: 2, pool: { status: "cancelled" } as never }))).toBe(2);
+    expect(claimedShares(view({ claimCount: 3 }))).toBe(3);
+    expect(claimedShares(view({ claimCount: 40 }))).toBe(10); // never above the pool's size
   });
 });

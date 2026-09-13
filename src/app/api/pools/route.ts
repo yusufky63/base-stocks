@@ -3,108 +3,29 @@ import type { Address } from "viem";
 import { route, json, parseBody, parseQuery, addressSchema } from "@/lib/api";
 import { getRepos } from "@/db/repositories";
 import { b20Guard } from "@/services/b20-guard-service";
-import { buildPoolView, listPublicPools } from "@/services/pool-service";
+import { buildPoolViews, listPublicPools } from "@/services/pool-service";
 import { gateSignerAddress, isGateSignerConfigured } from "@/lib/pool/gate";
-import { GIFT_POOL_ADDRESS, MAX_POOL_LEGS, MAX_POOL_QUESTS, MAX_POOL_SLOTS, MAX_POOL_DURATION_S, ZERO_ADDRESS, isPoolDeployed, onchainIdFor, poolMemo, poolSalt } from "@/lib/pool";
-import { sessionAddress } from "@/lib/auth/session";
-import { isXPostUrl, normalizeXHandle } from "@/content/social";
-import { isHttpUrl } from "@/lib/url";
+import { checkPoolCreate, poolCreateSchema } from "@/lib/pool/create";
+import { GIFT_POOL_ADDRESS, isPoolDeployed, onchainIdFor, poolMemo, poolSalt } from "@/lib/pool";
+import { requireOwner } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import type { PoolRecord } from "@/domain/pool";
-
-const xHandleSchema = z
-  .string()
-  .trim()
-  .transform((v) => normalizeXHandle(v))
-  .refine((v) => v.length >= 1, "Enter an X handle");
-const xPostSchema = z
-  .string()
-  .trim()
-  .url()
-  .refine((v) => isXPostUrl(v), "Paste the link to a post on X, not a profile");
-
-const questSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("sign-in") }),
-  z.object({ type: z.literal("hold-basename") }),
-  z.object({ type: z.literal("hold-asset"), assetAddress: addressSchema, minRawAmount: z.string().regex(/^\d+$/) }),
-  z.object({
-    type: z.literal("buy-asset"),
-    assetAddress: addressSchema,
-    minUsd: z.number().positive().max(100_000),
-    withinDays: z.number().int().min(1).max(90).optional(),
-  }),
-  // Self-declared X steps: the claimant confirms these about themselves (see quest-service).
-  z.object({ type: z.literal("follow-bstocks") }),
-  z.object({ type: z.literal("follow-x"), handle: xHandleSchema }),
-  z.object({ type: z.literal("repost-x"), tweetUrl: xPostSchema }),
-  z.object({ type: z.literal("like-x"), tweetUrl: xPostSchema }),
-  z.object({
-    type: z.literal("visit-url"),
-    // `.url()` alone would accept `javascript:`; these links go to `window.open`.
-    url: z.string().trim().max(500).refine(isHttpUrl, "Links must start with https://"),
-    label: z.string().trim().max(60).optional(),
-  }),
-]);
-
-const createSchema = z.object({
-  creator: addressSchema,
-  gateMode: z.enum(["open", "link", "signer"]),
-  /** `link` pools pass the ephemeral key's ADDRESS; the key itself never leaves the browser. */
-  gateAddress: addressSchema.optional(),
-  slots: z.number().int().min(1).max(MAX_POOL_SLOTS),
-  legs: z
-    .array(z.object({ token: addressSchema, amountPerClaim: z.string().regex(/^\d+$/) }))
-    .min(1)
-    .max(MAX_POOL_LEGS),
-  expiry: z.number().int().positive(),
-  lockedUntil: z.number().int().min(0).default(0),
-  visibility: z.enum(["public", "unlisted"]).default("unlisted"),
-  title: z.string().max(80).optional(),
-  message: z.string().max(280).optional(),
-  quests: z.array(questSchema).max(MAX_POOL_QUESTS).default([]),
-});
 
 /**
  * Create the app-side record for a pool. Nothing is locked yet: the client takes the returned
  * `salt` and `memo`, sends `approve` + `create` to GiftPool, then PATCHes the transaction hash
  * back. The record is a draft until it does.
+ *
+ * The creator signs in first. A draft is a row anyone could otherwise write under any wallet, and
+ * the creator's own pool list is served by session, so the session has to exist anyway.
  */
 export const POST = route({ rateLimit: { key: "pools.write", limit: 20, windowMs: 60_000, durable: true } }, async (req) => {
   if (!isPoolDeployed()) throw new AppError("POOL_UNAVAILABLE", "Gift pools are not enabled on this deployment yet.", 503);
-  const body = await parseBody(req, createSchema);
+  const body = await parseBody(req, poolCreateSchema);
+  requireOwner(req, body.creator);
 
-  const now = Date.now();
-  if (body.expiry <= now || body.expiry > now + MAX_POOL_DURATION_S * 1000) {
-    throw new AppError("BAD_REQUEST", "The claim window must end within the next year.", 400);
-  }
-  if (body.lockedUntil > body.expiry) throw new AppError("BAD_REQUEST", "A lock cannot outlast the claim window.", 400);
-
-  const tokens = body.legs.map((l) => l.token.toLowerCase());
-  if (new Set(tokens).size !== tokens.length) throw new AppError("BAD_REQUEST", "Each stock can only appear once in a pool.", 400);
-  if (body.legs.some((l) => BigInt(l.amountPerClaim) <= 0n)) throw new AppError("BAD_REQUEST", "Every share must be greater than zero.", 400);
-
-  // Resolve the gate the contract will store.
-  let gateAddress: Address = ZERO_ADDRESS;
-  if (body.gateMode === "link") {
-    if (!body.gateAddress || body.gateAddress === ZERO_ADDRESS) throw new AppError("BAD_REQUEST", "A link pool needs its claim key address.", 400);
-    gateAddress = body.gateAddress;
-  } else if (body.gateMode === "signer") {
-    const signer = gateSignerAddress();
-    if (!signer || !isGateSignerConfigured()) throw new AppError("POOL_UNAVAILABLE", "Quest-gated pools are not enabled on this deployment.", 503);
-    if (body.quests.length === 0) throw new AppError("BAD_REQUEST", "A quest pool needs at least one requirement.", 400);
-    gateAddress = signer;
-  } else if (body.quests.length > 0) {
-    throw new AppError("BAD_REQUEST", "Quests need a signer-gated pool; an open pool cannot check anything.", 400);
-  }
-
-  // Listing a pool publicly is the one thing worth proving ownership for — it is the surface a
-  // spammer would want. Everything else is recoverable by the creator alone.
-  if (body.visibility === "public") {
-    const signedIn = sessionAddress(req);
-    if (!signedIn || signedIn.toLowerCase() !== body.creator.toLowerCase()) {
-      throw new AppError("UNAUTHORIZED", "Sign in with the creating wallet to list a pool publicly.", 401);
-    }
-  }
+  const signer = gateSignerAddress();
+  const { gateAddress } = checkPoolCreate(body, { now: Date.now(), gateSigner: signer && isGateSignerConfigured() ? signer : null });
 
   // The deposit is creator → pool, so the guard checks exactly that path for every leg.
   const warnings: string[] = [];
@@ -139,13 +60,16 @@ export const POST = route({ rateLimit: { key: "pools.write", limit: 20, windowMs
 
 const listSchema = z.object({ creator: addressSchema.optional(), scope: z.enum(["public", "mine"]).optional(), limit: z.coerce.number().int().min(1).max(60).optional() });
 
-/** `?creator=0x…` for a creator's own pools, otherwise the public directory. */
+/**
+ * `?creator=0x…` for a creator's own pools (unlisted ones included, so only that wallet's session
+ * may ask), otherwise the public directory.
+ */
 export const GET = route({ rateLimit: { key: "pools.read", limit: 120, windowMs: 60_000 } }, async (req) => {
   const { creator, limit } = parseQuery(req, listSchema);
   if (creator) {
+    requireOwner(req, creator);
     const records = await getRepos().pools.listByCreator(creator).catch(() => []);
-    const pools = await Promise.all(records.filter((r) => r.status !== "draft").map((r) => buildPoolView(r)));
-    return json({ pools });
+    return json({ pools: await buildPoolViews(records.filter((r) => r.status !== "draft")) });
   }
   return json({ pools: await listPublicPools(limit ?? 40) }, { cacheSeconds: 20, staleSeconds: 120 });
 });

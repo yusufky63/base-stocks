@@ -142,6 +142,26 @@ export async function errorCount(sinceMs = 3600_000): Promise<number> {
 }
 
 /**
+ * The same count split by where the error came from. The server side is what the health alert
+ * watches; browsers report through a public route and any visitor can invent twenty messages, so
+ * client errors get their own, higher threshold instead of sharing the server one.
+ */
+export async function errorCountBySource(sinceMs = 3600_000): Promise<{ server: number; client: number }> {
+  const rows = await recentErrors(200, sinceMs);
+  let client = 0;
+  for (const r of rows) if (r.source === "client") client += 1;
+  return { server: rows.length - client, client };
+}
+
+/**
+ * Retention: rows nobody will read again. A console keeps a fortnight of distinct errors, which
+ * covers a postmortem; beyond that the table only grows. Returns how many rows went.
+ */
+export async function pruneErrors(olderThanMs = 14 * 24 * 3600_000): Promise<number> {
+  return clearErrors({ olderThan: Date.now() - olderThanMs });
+}
+
+/**
  * Forget errors: one fingerprint, or every row last seen before `olderThan`.
  *
  * A fixed error keeps its row for a day, which is right for a postmortem and wrong for a console

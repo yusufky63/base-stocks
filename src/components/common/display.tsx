@@ -6,7 +6,6 @@ import type { Address } from "viem";
 import { formatPct, shortenAddress } from "@/lib/format";
 import { cx } from "@/components/ui/primitives";
 import { BASE_EXPLORER_URL } from "@/config/chain";
-import { useBasename } from "@/hooks/queries";
 
 /** Token / stock logo with a typographic fallback (no emoji, no 3D). */
 export function AssetLogo({ src, symbol, size = 36, className }: { src?: string; symbol: string; size?: number; className?: string }) {
@@ -19,8 +18,10 @@ export function AssetLogo({ src, symbol, size = 36, className }: { src?: string;
       </span>
     );
   }
+  // Lazy and async: a markets list draws dozens of these, most below the fold, and none of them
+  // should hold up the first paint.
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" width={size} height={size} onError={() => setFailed(true)} className={cx("rounded-[6px] border border-line bg-canvas object-cover shrink-0", className)} style={{ width: size, height: size }} />;
+  return <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailed(true)} className={cx("rounded-[6px] border border-line bg-canvas object-cover shrink-0", className)} style={{ width: size, height: size }} />;
 }
 
 /** Signed percentage with color AND sign, plus a screen-reader label. */
@@ -64,12 +65,6 @@ export function AddressLabel({ address, basename, showCopy = true, explorer = fa
       )}
     </span>
   );
-}
-
-/** Identity: Basename first, address second (resolved client-side, cached). */
-export function Identity({ address, className }: { address: Address; className?: string }) {
-  const { data } = useBasename(address);
-  return <AddressLabel address={address} basename={data?.name} showCopy={false} className={className} />;
 }
 
 export function ErrorBanner({ message, detail, onRetry, className }: { message: string; detail?: string; onRetry?: () => void; className?: string }) {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BadgeCheck, ExternalLink } from "lucide-react";
 import type { ResolvedRecipient } from "@/domain/gift";
 import { BASE_EXPLORER_URL } from "@/config/chain";
+import { isBrandLikeName } from "@/lib/gift/format";
 import { shortenAddress } from "@/lib/format";
 import { assetColor } from "@/lib/colors";
 import { cx } from "@/components/ui/primitives";
@@ -13,10 +14,12 @@ import { cx } from "@/components/ui/primitives";
  * address), Basename avatar, and the BaseStocks profile when the recipient has signed in here.
  */
 export function RecipientCard({ r, className, compact = false }: { r: ResolvedRecipient; className?: string; compact?: boolean }) {
-  const name = r.basename ?? r.profile?.displayName ?? null;
+  // The Basename is the identity; a display name is only a label, dropped when it reads like the brand.
+  const displayName = r.profile?.displayName && !isBrandLikeName(r.profile.displayName) ? r.profile.displayName : null;
+  const name = r.basename ?? displayName;
   const member = !!r.profile;
   const profileHref = r.profile && r.profile.isPublic ? `/u/${r.address}` : null;
-  const secondary = [shortenAddress(r.address, 6), r.basename && name !== r.basename ? r.basename : null].filter(Boolean).join(" · ");
+  const secondary = [shortenAddress(r.address, 6), r.basename && displayName ? displayName : null].filter(Boolean).join(" · ");
   return (
     <div className={cx("flex items-center gap-3 min-w-0", !compact && "border border-line rounded-[8px] px-3 py-2 bg-surface", className)}>
       <Avatar src={r.avatar} seed={r.address} label={name ?? r.address.slice(2)} size={compact ? 28 : 36} />

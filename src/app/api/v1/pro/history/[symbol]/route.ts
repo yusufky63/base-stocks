@@ -30,7 +30,7 @@ async function handler(req: NextRequest): Promise<Response> {
   const asset = findStock(assets, symbol);
   if (!asset) return v1Error(404, "UNKNOWN_STOCK", `No listed stock matches "${symbol.slice(0, 12)}". Nothing was charged.`);
 
-  const series = await getChartSeries(asset, tf);
+  const series = await getChartSeries({ address: asset.address, feed: asset.oracle?.feed ?? null }, tf);
   return v1Json(
     {
       symbol: asset.underlying,

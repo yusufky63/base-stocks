@@ -7,6 +7,9 @@ import { veloraProvider } from "./velora/adapter";
 import { aerodromeTradeProvider } from "./aerodrome/adapter";
 import { cowProvider } from "./cow/adapter";
 
+export { isKnownTarget, knownTargets } from "./targets";
+export { COMPARE_TIMEOUT_MS, INDICATIVE_TIMEOUT_MS } from "./budget";
+
 /**
  * Ordered provider chain with hedged fallback (lib/fallback.ts):
  * 0x (when configured and not refusing the asset) → KyberSwap → OKX (when keys are set and entitled) → Uniswap Trading API (when a key is set) → Velora → Aerodrome direct route → CoW Protocol.

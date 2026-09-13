@@ -28,6 +28,28 @@ export async function readOnchainPlan(planId: bigint): Promise<OnchainPlan | nul
   return decodePlan(planId, tuple, legs as ReadonlyArray<{ asset: Address; weightBps: number }>);
 }
 
+/** Several plans by id in one multicall; a plan that does not exist comes back null in its slot. */
+export async function readOnchainPlans(planIds: readonly bigint[]): Promise<Array<OnchainPlan | null>> {
+  if (planIds.length === 0) return [];
+  const client = getServerPublicClient();
+  const address = contract();
+  const results = await client.multicall({
+    allowFailure: true,
+    contracts: planIds.flatMap((id) => [
+      { address, abi: autoInvestAbi, functionName: "plans" as const, args: [id] as const },
+      { address, abi: autoInvestAbi, functionName: "legsOf" as const, args: [id] as const },
+    ]),
+  });
+  return planIds.map((id, i) => {
+    const plan = results[i * 2];
+    const legs = results[i * 2 + 1];
+    if (plan?.status !== "success" || legs?.status !== "success") return null;
+    const tuple = plan.result as unknown as PlanTuple;
+    if (tuple[0].toLowerCase() === "0x0000000000000000000000000000000000000000") return null;
+    return decodePlan(id, tuple, legs.result as ReadonlyArray<{ asset: Address; weightBps: number }>);
+  });
+}
+
 export async function readOnchainPlansOf(owner: Address): Promise<OnchainPlan[]> {
   const client = getServerPublicClient();
   const address = contract();
@@ -55,6 +77,21 @@ export async function readFunding(owner: Address, amountPerRun: bigint): Promise
     ],
   });
   return assessFunding(balance as bigint, allowance as bigint, amountPerRun);
+}
+
+/** Funding for several (owner, amount) pairs in one multicall, in the order asked. */
+export async function readFundingMany(items: ReadonlyArray<{ owner: Address; amountPerRun: bigint }>): Promise<PlanFunding[]> {
+  if (items.length === 0) return [];
+  const client = getServerPublicClient();
+  const address = contract();
+  const results = await client.multicall({
+    allowFailure: false,
+    contracts: items.flatMap((it) => [
+      { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [it.owner] as const },
+      { address: USDC_ADDRESS, abi: erc20Abi, functionName: "allowance" as const, args: [it.owner, address] as const },
+    ]),
+  });
+  return items.map((it, i) => assessFunding(results[i * 2] as bigint, results[i * 2 + 1] as bigint, it.amountPerRun));
 }
 
 /** Whether a quote's router and approval target are on the contract's allow-list. */

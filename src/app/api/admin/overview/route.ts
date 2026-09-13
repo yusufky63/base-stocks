@@ -5,6 +5,7 @@ import { getRepos } from "@/db/repositories";
 import { indexStatus } from "@/services/chain-index-service";
 import { monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
 import { rpcRotation } from "@/lib/viem/server-client";
+import { geoPolicy } from "@/lib/geo";
 
 export const maxDuration = 30;
 
@@ -92,7 +93,9 @@ export const GET = route({ rateLimit: { key: "admin.overview", limit: 60, window
       geoblock: !!env.GEOBLOCK_COUNTRIES,
     },
     settings: {
-      geoblockMode: env.GEOBLOCK_MODE ?? "attest",
+      // The same resolution the proxy applies: block unless attest was asked for. This used to print
+      // "attest" for an unset variable, the opposite of what the deployment was doing.
+      geoblockMode: geoPolicy().mode,
       geoblockCountries: env.GEOBLOCK_COUNTRIES ?? "",
       integratorFeeBps: env.INTEGRATOR_FEE_BPS ?? 0,
       oracleStalenessSeconds: env.ORACLE_STALENESS_SECONDS,

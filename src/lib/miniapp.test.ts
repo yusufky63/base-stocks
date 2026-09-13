@@ -13,7 +13,7 @@ describe("the mini app embed tag", () => {
     expect(embed.version).toBe("1");
     expect(embed.button.action.type).toBe("launch_miniapp");
     expect(embed.button.action.url).toMatch(/\/$/);
-    expect(embed.imageUrl).toContain("/opengraph-image");
+    expect(embed.imageUrl).toContain("/miniapp-image");
   });
 
   it("launches the page that was shared, not the home page", () => {

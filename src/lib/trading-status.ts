@@ -1,5 +1,6 @@
 import type { B20AssetDTO } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
+import { formatUsdCompact } from "@/lib/format";
 
 /**
  * "Deployed != tradable" (integration guide §6–8). A stock is shown as live only when the token
@@ -25,12 +26,6 @@ const DEEP_USD = 1_000_000;
 const MAX_THIN_MOVE_PCT = 25;
 const THIN_USD = 10_000;
 
-function compactUsd(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `$${Math.round(n / 1_000)}k`;
-  return `$${Math.round(n)}`;
-}
-
 type SupplyFacts = Pick<B20AssetDTO, "totalSupply"> & { supplyKnown?: boolean };
 
 /**
@@ -52,12 +47,12 @@ export function tradingStatus(asset: Pick<B20AssetDTO, "status" | "totalSupply">
   if (isNotIssued(asset)) return { status: "not-issued", label: "Not issued yet", detail: "No tokens minted on Base yet", tone: "neutral", rank: 4 };
   const liq = price?.liquidityUsd ?? 0;
   const vol = price?.volume24hUsd ?? null;
-  const volText = vol !== null && vol > 0 ? ` · ${compactUsd(vol)} 24h` : "";
-  if (liq >= LIQUID_USD) return { status: "tradable", label: "Live", detail: `${compactUsd(liq)} liquidity${volText}`, tone: "positive", rank: 0 };
-  if (liq >= THIN_USD) return { status: "thin", label: "Thin", detail: `${compactUsd(liq)} liquidity${volText}`, tone: "warning", rank: 1 };
+  const volText = vol !== null && vol > 0 ? ` · ${formatUsdCompact(vol)} 24h` : "";
+  if (liq >= LIQUID_USD) return { status: "tradable", label: "Live", detail: `${formatUsdCompact(liq)} liquidity${volText}`, tone: "positive", rank: 0 };
+  if (liq >= THIN_USD) return { status: "thin", label: "Thin", detail: `${formatUsdCompact(liq)} liquidity${volText}`, tone: "warning", rank: 1 };
   // A pool that exists but is tiny is not "no pool yet" — saying so while printing its size in the
   // same breath reads as a bug, and it is the state most of a freshly listed stock's day is spent in.
-  if (liq > 0) return { status: "very-thin", label: "Very thin", detail: `${compactUsd(liq)} liquidity — expect heavy slippage${volText}`, tone: "warning", rank: 2 };
+  if (liq > 0) return { status: "very-thin", label: "Very thin", detail: `${formatUsdCompact(liq)} liquidity — expect heavy slippage${volText}`, tone: "warning", rank: 2 };
   return { status: "no-pool", label: "No pool yet", detail: "Issued, but no DEX pool with liquidity", tone: "neutral", rank: 3 };
 }
 

@@ -24,6 +24,8 @@ describe("compliance geoblock", () => {
     expect(blocked("/api/trade/price", { ...US, method: "POST" })).toBe(true);
     expect(blocked("/api/earn/prepare", { ...US, method: "POST" })).toBe(true);
     expect(blocked("/api/portfolio/plan", { ...US, method: "POST" })).toBe(true);
+    expect(blocked("/api/portfolio/intent", { ...US, method: "POST" })).toBe(true);
+    expect(blocked("/api/automation/prepare-run", { ...US, method: "POST" })).toBe(true);
   });
 
   /** Giving a tokenized stock away, or signing a ticket that lets someone take one, is distribution. */

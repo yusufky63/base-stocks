@@ -1,10 +1,11 @@
 import { route, json, parseBody } from "@/lib/api";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { requestCountry } from "@/lib/geo";
 import { getAssets } from "@/services/b20-asset-service";
 import { buildUniverseContext, cleanText, sanitizePrompt } from "@/services/basket-intent-service";
-import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
+import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv, serviceIdentity } from "@/lib/ai-quota";
 import { sessionAddress } from "@/lib/auth/session";
 import { aiConfigFromEnv } from "@/lib/ai-provider";
 import { runAssistantTurn } from "@/lib/assistant/loop";
@@ -25,10 +26,18 @@ const MAX_HISTORY_CHARS = 6_000;
  * their wallet. Hardened the same way as /api/portfolio/intent — fixed system prompt, symbols
  * only, per-IP/per-wallet/global quotas, monthly budget — with one quota unit per user turn
  * regardless of how many tool rounds it takes (the round cap bounds the cost).
+ *
+ * A trusted service (the Telegram bot, proving itself with `ASSISTANT_SERVICE_TOKEN` and naming
+ * the end user in `x-end-user`) is metered per end user and per service instead of per IP: one
+ * bot IP would otherwise hit the burst limit on the fifth person to say hello. The route's own
+ * per-IP limiter still applies to the bot's IP, so it is sized for a service, not a browser.
  */
-export const POST = route({ rateLimit: { key: "assistant.chat", limit: 10, windowMs: 60_000 } }, async (req) => {
+export const POST = route({ rateLimit: { key: "assistant.chat", limit: 60, windowMs: 60_000 } }, async (req) => {
   const cfg = aiConfigFromEnv();
   if (!cfg) throw new AppError("PROVIDER_UNAVAILABLE", "AI assistance is not enabled on this deployment.", 503);
+  const service = serviceIdentity(req);
+  // A browser gets a browser's share of the minute; the relaxed route limit above is for the service.
+  if (!service) enforceRateLimit(req, "assistant.chat.browser", { limit: 10, windowMs: 60_000 });
   const body = await parseBody(req, chatBodySchema);
   const owner = body.owner ? ((body.owner.toLowerCase() as typeof body.owner)) : undefined;
   if (body.messages[body.messages.length - 1]!.role !== "user") throw new AppError("BAD_REQUEST", "The last message must be from the user.", 400);
@@ -46,7 +55,8 @@ export const POST = route({ rateLimit: { key: "assistant.chat", limit: 10, windo
 
   const limits = quotaLimitsFromEnv();
   const ip = clientIp(req);
-  const [quota, spent] = await Promise.all([checkQuota(ip, sessionAddress(req)?.toLowerCase() as typeof owner, limits), monthlySpendUsd()]);
+  const quotaWallet = sessionAddress(req)?.toLowerCase() as typeof owner;
+  const [quota, spent] = await Promise.all([checkQuota(ip, quotaWallet, limits, service), monthlySpendUsd()]);
   const budget = monthlyBudgetUsd();
   if (budget > 0 && spent >= budget) {
     metrics.count("ai.budget", false, `monthly budget reached: $${spent.toFixed(2)} / $${budget}`);
@@ -58,7 +68,11 @@ export const POST = route({ rateLimit: { key: "assistant.chat", limit: 10, windo
         ? "Too many messages in a minute. Please wait a moment."
         : quota.reason === "global"
           ? "The assistant reached today's shared limit. Try again tomorrow."
-          : "You reached today's assistant limit for this wallet.";
+          : quota.reason === "service"
+            ? "The assistant reached today's limit for this channel. Try again tomorrow."
+            : quota.reason === "service-user"
+              ? "You reached today's assistant limit. Try again tomorrow."
+              : "You reached today's assistant limit for this wallet.";
     return json({ ok: false, errors: [msg], quota: { remainingForWallet: quota.remainingForWallet, remainingForIp: quota.remainingForIp } }, { status: 429 });
   }
 
@@ -71,13 +85,14 @@ export const POST = route({ rateLimit: { key: "assistant.chat", limit: 10, windo
   // unauthenticated, so keying the daily allowance on it let anyone exhaust any address's 25 a day
   // by typing it. Reading that wallet's public data with the hint stays fine; spending its budget
   // does not. Without a session the request still counts against the IP bucket.
-  await consumeQuota(ip, sessionAddress(req)?.toLowerCase() as typeof owner);
+  await consumeQuota(ip, quotaWallet, service);
   const history: NormMessage[] = bounded.map((m) => ({ role: m.role, content: m.content }));
 
   try {
     const result = await runAssistantTurn(cfg, { system, history, tools: ALL_TOOLS.map((t) => ({ name: t.name, description: t.description, schema: t.schema })), ctx });
     void addSpend(result.costUsd);
-    metrics.count("ai.cost", true, `${cfg.model} $${result.costUsd.toFixed(5)} (${result.usage.inputTokens} in / ${result.usage.outputTokens} out, chat)`);
+    metrics.count("ai.cost", true, `${cfg.model} $${result.costUsd.toFixed(5)} (${result.usage.inputTokens} in / ${result.usage.outputTokens} out, chat${service ? ", via: service" : ""})`);
+    if (service) metrics.count("assistant.service", true);
     return json({
       ok: true,
       // Some models ignore the plain-text rule; markdown emphasis and headings are stripped here,

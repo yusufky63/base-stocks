@@ -59,10 +59,22 @@ class UpstashStore implements SharedStore {
     return 0; // Redis expires keys on its own.
   }
   async dropPrefix(prefix: string) {
-    const keys = await this.command<string[]>(["KEYS", `${prefix}*`]);
-    if (!keys?.length) return 0;
-    await this.command(["DEL", ...keys]);
-    return keys.length;
+    // SCAN, not KEYS: KEYS walks the whole keyspace in one blocking call and Upstash bills and
+    // throttles it accordingly; SCAN pages through and lets other commands interleave.
+    let cursor = "0";
+    let removed = 0;
+    let rounds = 0;
+    do {
+      const [next, keys] = await this.command<[string, string[]]>(["SCAN", cursor, "MATCH", `${prefix}*`, "COUNT", 500]);
+      cursor = String(next);
+      if (keys?.length) {
+        await this.command(["DEL", ...keys]);
+        removed += keys.length;
+      }
+      // A cursor that never returns to 0 would loop forever; a thousand pages is more than any prefix here holds.
+      if (++rounds > 1_000) break;
+    } while (cursor !== "0");
+    return removed;
   }
 }
 

@@ -9,7 +9,7 @@ import type { PriceView } from "@/domain/market";
 import type { TradeProviderId, TradeQuoteAlternative, TradeSide } from "@/domain/trade";
 import type { TradeQuoteSummary } from "@/lib/client-api";
 import { BASE_CHAIN_ID, DEFAULT_SLIPPAGE_BPS, NATIVE_ETH_DECIMALS, USDC_DECIMALS } from "@/config/chain";
-import { parseAmountSafe, toRaw, bpsOf } from "@/lib/b20/math";
+import { parseAmountSafe, toRaw, toScaled, bpsOf } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd, formatPct } from "@/lib/format";
 import { useTradePrice } from "@/hooks/useTradePrice";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
@@ -30,9 +30,16 @@ import { RouteCompare, PROVIDER_LABEL, ProviderMark } from "./RouteCompare";
 import { Segmented } from "@/components/ui/Segmented";
 import { SlippageControl } from "./SlippageControl";
 import { TRADE_ERROR_COPY } from "@/lib/errors";
-import { isNotIssued } from "@/lib/trading-status";
+import { isNotIssued, tradingStatus, MAX_LEG_POOL_SHARE } from "@/lib/trading-status";
 
 const PCT_CHIPS = [25, 50, 75, 100];
+
+/**
+ * ETH pays its own gas, so "Max" cannot be the whole balance: a swap for everything leaves nothing
+ * to pay for itself and the wallet refuses it. A flat 0.0005 ETH covers a swap on Base many times
+ * over at today's gas; the presets below 100% leave far more than that anyway.
+ */
+const ETH_GAS_RESERVE_WEI = 500_000_000_000_000n;
 
 interface Props {
   asset: B20AssetDTO;
@@ -81,22 +88,33 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
 
   const payEth = side === "buy" && payWith === "ETH";
   const usdInput = Number(usd || 0);
-  const sellAmount = payEth ? (ethUsd && usdInput > 0 ? parseUnits((usdInput / ethUsd).toFixed(NATIVE_ETH_DECIMALS), NATIVE_ETH_DECIMALS) : 0n) : computeSellAmount(side, usd, shares, asset.decimals, multiplier, wad, balances.raw);
-  const priceState = useTradePrice(sellAmount > 0n && !restricted && (!giftMode || !!recipient) ? { side, payWith: side === "buy" ? payWith : undefined, assetAddress: asset.address, sellAmount, taker: address, recipient: recipient?.address, slippageBps } : null);
+  /** What was typed, before any clamp: the balance test below has to see this number, not the clamped one. */
+  const typedSellAmount = payEth ? (ethUsd && usdInput > 0 ? parseUnits((usdInput / ethUsd).toFixed(NATIVE_ETH_DECIMALS), NATIVE_ETH_DECIMALS) : 0n) : computeSellAmount(side, usd, shares, asset.decimals, multiplier, wad);
+  // A sell for more than the position is quoted at the position (the only amount that can actually
+  // be sold) and says so below; the typed amount still fails the balance test, so the CTA stays off
+  // until the user takes the cap. Clamping silently used to mean a sell could never be "insufficient".
+  const sellCapped = side === "sell" && isConnected && !balances.isLoading && typedSellAmount > balances.raw;
+  const sellAmount = sellCapped ? balances.raw : typedSellAmount;
+  const priceState = useTradePrice(sellAmount > 0n && !restricted && !isNotIssued(asset) && (!giftMode || !!recipient) ? { side, payWith: side === "buy" ? payWith : undefined, assetAddress: asset.address, sellAmount, taker: address, recipient: recipient?.address, slippageBps } : null);
   const s = priceState.summary;
   const chosenAlt = providerChoice && s?.alternatives ? (s.alternatives.find((a) => a.provider === providerChoice && a.buyAmount) ?? null) : null;
   /** What the panel and the review show: the best quote, or the chosen provider's numbers. */
   const view = s && chosenAlt ? withAlternative(s, chosenAlt) : s;
   const paused = asset.status === "paused";
-  const insufficient = side === "buy" ? isConnected && sellAmount > (payEth ? ethWei : balances.usdc) : isConnected && sellAmount > balances.raw;
+  const insufficient = side === "buy" ? isConnected && sellAmount > (payEth ? ethWei : balances.usdc) : isConnected && typedSellAmount > balances.raw;
   const usdcBalanceUsd = Number(formatUnits(balances.usdc, USDC_DECIMALS));
   const ethBalanceUsd = ethUsd ? Number(formatUnits(ethWei, NATIVE_ETH_DECIMALS)) * ethUsd : 0;
   const payBalanceUsd = payEth ? ethBalanceUsd : usdcBalanceUsd;
+  const spendableEthWei = ethWei > ETH_GAS_RESERVE_WEI ? ethWei - ETH_GAS_RESERVE_WEI : 0n;
+  /** What the balance presets divide: the USDC balance, or the ETH balance less the gas it will need. */
+  const spendableUsd = payEth ? (ethUsd ? Number(formatUnits(spendableEthWei, NATIVE_ETH_DECIMALS)) * ethUsd : 0) : usdcBalanceUsd;
+  const status = tradingStatus(asset, price);
   const displayPrice = price?.displayUsd ?? null;
   const buySliderMax = isConnected && payBalanceUsd >= 1 ? Math.floor(payBalanceUsd) : 1000;
   const usdNumber = Number(usd || 0);
 
-  const estimateShares = view && side === "buy" ? formatTokenAmount(view.buyAmount, asset.decimals) : null;
+  // Quotes are in raw token units; the position and every balance on the page are share-equivalents (raw × multiplier).
+  const estimateShares = view && side === "buy" ? formatTokenAmount(toScaled(BigInt(view.buyAmount), multiplier, wad), asset.decimals) : null;
   const estimateUsdNumber = view && side === "sell" ? Number(formatUnits(BigInt(view.buyAmount), USDC_DECIMALS)) : null;
 
   const setPct = (p: number) => {
@@ -170,10 +188,10 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
               value={buyPct}
               onChange={(p) => {
                 setBuyPct(p);
-                const amount = Math.floor(payBalanceUsd * p) / 100;
+                const amount = Math.floor(spendableUsd * p) / 100;
                 setUsd(amount > 0 ? amount.toFixed(2).replace(/\.00$/, "") : "0");
               }}
-              options={[25, 50, 75, 100].map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: !isConnected || payBalanceUsd < 1, title: !isConnected ? "Connect a wallet to use balance presets" : payBalanceUsd < 1 ? "No balance to spend" : `${p}% of your ${payEth ? "ETH" : "USDC"} balance` }))}
+              options={[25, 50, 75, 100].map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: !isConnected || payBalanceUsd < 1, title: !isConnected ? "Connect a wallet to use balance presets" : payBalanceUsd < 1 ? "No balance to spend" : `${p}% of your ${payEth ? "ETH balance, less a gas reserve" : "USDC balance"}` }))}
             />
             <div className="flex items-center justify-between text-[13px] text-ink-secondary">
               <span>{payEth ? "ETH balance" : "USDC balance"}</span>
@@ -231,6 +249,11 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
               <span>Your position</span>
               <span className="font-mono num">{isConnected ? `${formatTokenAmount(balances.scaled, asset.decimals)} ${asset.underlying}` : "—"}</span>
             </div>
+            {sellCapped && (
+              <p className="text-[12px] text-warning-fg">
+                {balances.raw === 0n ? `You hold no ${asset.underlying} to sell.` : `Quote capped to your balance: ${formatTokenAmount(balances.scaled, asset.decimals)} ${asset.underlying}. Enter up to that, or press Max.`}
+              </p>
+            )}
           </>
         )}
 
@@ -244,9 +267,10 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
             {`The pool prices ${asset.underlying} ${price.deviationPct > 0 ? `${price.deviationPct.toFixed(0)}% above` : `${Math.abs(price.deviationPct).toFixed(0)}% below`} the stock's own price. You ${side === "buy" ? "buy" : "sell"} at the pool price${price.deviationPct > 0 ? " — a premium this large can shrink at any time, whatever the stock does" : ""}.`}
           </p>
         )}
-        {price?.liquidityUsd !== null && price?.liquidityUsd !== undefined && price.liquidityUsd < 50_000 && (
+        {/* The same status and thresholds the list and the cards use, so a stock is "thin" here iff it is "thin" there; the size hint is the batched-leg line (a share of the pool), not a number of its own. */}
+        {(status.status === "thin" || status.status === "very-thin") && (
           <p className="text-[12px] text-ink-muted border border-dashed border-line rounded-[6px] px-3 py-2">
-            Thin market: about {formatUsd(price.liquidityUsd)} of DEX liquidity for {asset.underlying}. Orders above roughly {formatUsd(Math.max(1, price.liquidityUsd * 0.1))} may fail or move the price a lot.
+            {status.label} market: {status.detail} for {asset.underlying}. Orders above roughly {formatUsd(Math.max(1, (price?.liquidityUsd ?? 0) * MAX_LEG_POOL_SHARE))} ({(MAX_LEG_POOL_SHARE * 100).toFixed(0)}% of the pool) start moving the price against you.
           </p>
         )}
         <div className="border-t border-line pt-3 min-h-[92px]" aria-live="polite">
@@ -273,9 +297,11 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
                   </span>
                 }
               />
-              <KeyValue k="Executable price" v={view.executablePriceUsd !== null ? `${formatUsd(view.executablePriceUsd, { precise: true })}` : "—"} />
-              <KeyValue k={`Price impact${view.priceImpactBasis ? ` vs ${view.priceImpactBasis}` : ""}`} v={view.priceImpactPct !== null ? formatPct(view.priceImpactPct, { sign: true }) : "—"} />
-              <KeyValue k="Est. network fee" v={view.estimatedNetworkFeeUsd !== null ? formatUsd(view.estimatedNetworkFeeUsd, { precise: true }) : "—"} />
+              <KeyValue k="Executable price" v={view.executablePricePerShareUsd !== null ? `${formatUsd(view.executablePricePerShareUsd, { precise: true })} / share` : "—"} />
+              {/* Impact is what this trade does to the pool; the gap to the Chainlink reference is the pool's premium or discount. Without a trusted pool price the impact figure is itself the gap. */}
+              <KeyValue k={view.priceImpactBasis === "market" ? "Price impact" : "vs reference"} v={view.priceImpactPct !== null ? formatPct(view.priceImpactPct, { sign: true }) : "—"} />
+              {view.priceImpactBasis === "market" && view.referenceGapPct !== null && view.referenceGapPct !== undefined && <KeyValue k="vs reference" v={formatPct(view.referenceGapPct, { sign: true })} />}
+              <KeyValue k="Est. network fee" v={view.estimatedNetworkFeeUsd !== null ? `${view.networkFeeEstimated ? "≈ " : ""}${formatUsd(view.estimatedNetworkFeeUsd, { precise: true })}` : "—"} />
               {view.integratorFee && <KeyValue k={`BaseStocks fee · ${(view.integratorFee.bps / 100).toFixed(2)}%`} v={view.integratorFee.usd !== null ? `${formatUsd(view.integratorFee.usd, { precise: true })} · included above` : "included above"} />}
               {insufficient && <p className="mt-1 text-[13px] text-danger-fg">{TRADE_ERROR_COPY.INSUFFICIENT_BALANCE}</p>}
               {!view.liquidityAvailable && <p className="mt-1 text-[13px] text-danger-fg">{TRADE_ERROR_COPY.ROUTE_UNAVAILABLE}</p>}
@@ -301,7 +327,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         {s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
         <Collapsible title="Execution details">
           <KeyValue k="Market price" v={displayPrice !== null ? formatUsd(displayPrice, { precise: true }) : "—"} />
-          <KeyValue k="Buy now / Sell now" v={view?.executablePriceUsd !== null && view?.executablePriceUsd !== undefined ? formatUsd(view.executablePriceUsd, { precise: true }) : "—"} />
+          <KeyValue k="Buy now / Sell now · per token" v={view?.executablePriceUsd !== null && view?.executablePriceUsd !== undefined ? formatUsd(view.executablePriceUsd, { precise: true }) : "—"} />
           <KeyValue k="Route" v={view?.route.length ? view.route.map((r) => r.source).join(", ") : "—"} />
           <KeyValue k="Provider" v={view ? `${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : " · best net"}` : "—"} />
           <KeyValue k="Slippage tolerance" v={`${(slippageBps / 100).toFixed(2)}%`} />
@@ -342,12 +368,12 @@ function routeLabel(route: Array<{ source: string }>): string {
   return names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
 }
 
-function computeSellAmount(side: TradeSide, usd: string, shares: string, decimals: number, multiplier: bigint, wad: bigint, rawBalance: bigint): bigint {
+/** The typed amount in base units of what is sold: USDC for a buy, raw stock units for a sell (the input is in share-equivalents). */
+function computeSellAmount(side: TradeSide, usd: string, shares: string, decimals: number, multiplier: bigint, wad: bigint): bigint {
   if (side === "buy") return parseAmountSafe(usd, USDC_DECIMALS);
   const scaled = parseAmountSafe(shares, decimals);
   if (scaled === 0n) return 0n;
-  const raw = toRaw(scaled, multiplier, wad);
-  return raw > rawBalance ? rawBalance : raw;
+  return toRaw(scaled, multiplier, wad);
 }
 
 export function usdcToUsd(v: bigint): number {
@@ -364,11 +390,11 @@ function withAlternative(s: TradeQuoteSummary, a: TradeQuoteAlternative): TradeQ
   const signedImpact = s.priceImpactPct === null ? null : s.side === "buy" ? s.priceImpactPct : -s.priceImpactPct;
   const basis = s.executablePriceUsd !== null && signedImpact !== null ? s.executablePriceUsd / (1 + signedImpact / 100) : null;
   const exec = a.executablePriceUsd;
-  let priceImpactPct: number | null = null;
-  if (exec !== null && basis !== null && basis > 0) {
-    const raw = ((exec - basis) / basis) * 100;
-    priceImpactPct = s.side === "buy" ? raw : -raw;
-  }
+  const sign = s.side === "buy" ? 1 : -1;
+  const against = (basisPrice: number | null) => (exec !== null && basisPrice !== null && basisPrice > 0 ? sign * ((exec - basisPrice) / basisPrice) * 100 : null);
+  const priceImpactPct = against(basis);
+  // The reference price is recovered the same way from the best quote's gap, so the chosen route's gap is measured against the same number.
+  const reference = s.executablePriceUsd !== null && s.referenceGapPct !== null && s.referenceGapPct !== undefined ? s.executablePriceUsd / (1 + (sign * s.referenceGapPct) / 100) : null;
   return {
     ...s,
     provider: a.provider,
@@ -377,8 +403,10 @@ function withAlternative(s: TradeQuoteSummary, a: TradeQuoteAlternative): TradeQ
     executablePriceUsd: exec,
     executablePricePerShareUsd: exec !== null && s.executablePriceUsd !== null && s.executablePriceUsd > 0 && s.executablePricePerShareUsd !== null ? (exec * s.executablePricePerShareUsd) / s.executablePriceUsd : null,
     priceImpactPct,
+    referenceGapPct: against(reference),
     estimatedNetworkFeeWei: null,
     estimatedNetworkFeeUsd: a.estimatedNetworkFeeUsd,
+    networkFeeEstimated: a.networkFeeEstimated,
     route: a.route ? a.route.split(", ").map((source) => ({ source, proportionBps: null })) : [],
     allowanceSpender: null,
   };

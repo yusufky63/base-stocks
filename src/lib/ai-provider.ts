@@ -1,5 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
@@ -98,6 +96,9 @@ export async function describeHttpError(provider: string, res: Response): Promis
 export async function generateStructured<T>(cfg: AiConfig, opts: { system: string; user: string; schema: z.ZodType<T>; timeoutMs?: number; /** Per-call output cap; defaults to AI_MAX_OUTPUT_TOKENS. */ maxTokens?: number }): Promise<StructuredResult<T>> {
   const started = Date.now();
   if (cfg.provider === "anthropic") {
+    // Loaded only on this branch: the SDK is a large module that every route importing this file
+    // would otherwise carry, including deployments that talk to an OpenAI-compatible endpoint.
+    const [{ default: Anthropic }, { zodOutputFormat }] = await Promise.all([import("@anthropic-ai/sdk"), import("@anthropic-ai/sdk/helpers/zod")]);
     const client = new Anthropic({ apiKey: cfg.apiKey, maxRetries: 1, timeout: opts.timeoutMs ?? 30_000 });
     const response = await client.messages.parse({
       model: cfg.model,

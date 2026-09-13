@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cx } from "./primitives";
 
@@ -21,6 +21,8 @@ interface SheetProps {
  */
 export function Sheet({ open, onClose, title, children, locked, footer, wide }: SheetProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Two sheets can be mounted at once (a share sheet over a trade review), so the title id is unique per instance.
+  const titleId = useId();
 
   useEffect(() => {
     const el = ref.current;
@@ -43,7 +45,7 @@ export function Sheet({ open, onClose, title, children, locked, footer, wide }: 
   return (
     <dialog
       ref={ref}
-      aria-labelledby="sheet-title"
+      aria-labelledby={titleId}
       onClick={(e) => {
         if (e.target === ref.current && !locked) onClose();
       }}
@@ -57,7 +59,7 @@ export function Sheet({ open, onClose, title, children, locked, footer, wide }: 
     >
       <div className="flex flex-col max-h-[92dvh] md:max-h-[90vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 id="sheet-title" className="display text-[20px]">
+          <h2 id={titleId} className="display text-[20px]">
             {title}
           </h2>
           <button type="button" aria-label="Close" disabled={locked} onClick={onClose} className="h-11 w-11 -mr-3 inline-flex items-center justify-center rounded-[6px] text-ink-secondary hover:text-ink disabled:opacity-40">

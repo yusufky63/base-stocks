@@ -8,7 +8,7 @@ import { apiGet } from "@/lib/client-api";
 import { formatUsdCompact, bpsToPct, timeAgo } from "@/lib/format";
 import { Module, ModuleHeader, PageTitle, Skeleton, LinkButton, Badge } from "@/components/ui/primitives";
 import { useAssets } from "@/hooks/queries";
-import { AssetLogo } from "@/components/common/display";
+import { AssetLogo, ErrorBanner } from "@/components/common/display";
 
 export function CommunityView({ embedded = false }: { embedded?: boolean } = {}) {
   const pulse = useQuery({ queryKey: ["community", "pulse"], queryFn: () => apiGet<CommunityPulse>("/api/community/pulse"), staleTime: 60_000 });
@@ -32,9 +32,11 @@ export function CommunityView({ embedded = false }: { embedded?: boolean } = {})
       />
       )}
 
+      {/* A failed request is said so, with a way to try again; a skeleton that never resolves would read as "still loading". */}
+      {pulse.isError && <ErrorBanner message="The 7-day pulse could not be loaded." onRetry={() => void pulse.refetch()} />}
       <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
-        <PulseList title="Most bought · 7d" items={pulse.data?.mostBought ?? []} loading={pulse.isLoading} byId={byId} />
-        <PulseList title="Most sold · 7d" items={pulse.data?.mostSold ?? []} loading={pulse.isLoading} byId={byId} />
+        <PulseList title="Most bought · 7d" items={pulse.data?.mostBought ?? []} loading={pulse.isLoading} failed={pulse.isError} byId={byId} />
+        <PulseList title="Most sold · 7d" items={pulse.data?.mostSold ?? []} loading={pulse.isLoading} failed={pulse.isError} byId={byId} />
         <div className="p-4 flex flex-col gap-2">
           <div className="eyebrow">Active traders · 7d</div>
           <div className="display num text-[44px] leading-none">{pulse.data?.traders ?? "—"}</div>
@@ -51,6 +53,7 @@ export function CommunityView({ embedded = false }: { embedded?: boolean } = {})
               <Skeleton className="h-14" />
             </div>
           )}
+          {baskets.isError && <ErrorBanner className="m-4" message="Community baskets could not be loaded." onRetry={() => void baskets.refetch()} />}
           {baskets.data?.map((b, i) => (
             <BasketRow key={b.id} basket={b} rank={i + 1} byId={byId} />
           ))}
@@ -59,6 +62,13 @@ export function CommunityView({ embedded = false }: { embedded?: boolean } = {})
         <div className="flex flex-col gap-6">
           <Module>
             <ModuleHeader index="B" title="Newest baskets" />
+            {fresh.isLoading && (
+              <div className="p-4 flex flex-col gap-2">
+                <Skeleton className="h-10" />
+                <Skeleton className="h-10" />
+              </div>
+            )}
+            {fresh.isError && <ErrorBanner className="m-4" message="The newest baskets could not be loaded." onRetry={() => void fresh.refetch()} />}
             {fresh.data?.slice(0, 6).map((b) => (
               <BasketRow key={b.id} basket={b} byId={byId} compact />
             ))}
@@ -70,12 +80,13 @@ export function CommunityView({ embedded = false }: { embedded?: boolean } = {})
   );
 }
 
-function PulseList({ title, items, loading, byId }: { title: string; items: CommunityPulse["mostBought"]; loading: boolean; byId: Map<string, { logoURI?: string; symbol: string; address: string }> }) {
+function PulseList({ title, items, loading, failed, byId }: { title: string; items: CommunityPulse["mostBought"]; loading: boolean; failed: boolean; byId: Map<string, { logoURI?: string; symbol: string; address: string }> }) {
   return (
     <div className="p-4 flex flex-col gap-2">
       <div className="eyebrow">{title}</div>
       {loading && <Skeleton className="h-16" />}
-      {!loading && items.length === 0 && <p className="text-[13px] text-ink-secondary">No trades in this window yet.</p>}
+      {failed && <p className="text-[13px] text-ink-muted">Unavailable right now.</p>}
+      {!loading && !failed && items.length === 0 && <p className="text-[13px] text-ink-secondary">No trades in this window yet.</p>}
       <ul className="flex flex-col gap-1.5">
         {items.map((it, i) => {
           const a = byId.get(it.assetAddress.toLowerCase());

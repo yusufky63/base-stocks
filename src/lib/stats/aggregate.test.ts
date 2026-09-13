@@ -50,13 +50,38 @@ describe("one (transaction, stock, side) is one trade", () => {
     expect(stats.strategies.executions).toMatchObject({ started: 1, complete: 1, legsConfirmed: 4, usd: 7.2 });
   });
 
-  it("still counts a leg whose trade row never arrived", () => {
+  /**
+   * A leg counts the way its trade row counts. The row is what the server matched to the receipt
+   * (stock arrived, USDC paid); a successful receipt on its own proves nothing about *this* wallet
+   * or *this* amount, and anyone could PATCH one in with any `targetUsd`.
+   */
+  it("leaves a leg whose trade row never arrived pending, whatever its receipt says", () => {
     const steps = [{ id: "s0", assetAddress: AAPL, symbol: "AAPLc", side: "buy" as const, targetUsd: 2, sellAmountUsdc: "2000000", status: "confirmed" as const, txHash: hash(1) }];
     const exec: PortfolioExecution = { id: "e1", owner: A, status: "COMPLETE", totalUsd: 2, steps, createdAt: NOW - DAY, updatedAt: NOW - DAY };
     const stats = aggregateStats(base({ executions: [exec], receipts: new Map([ok(1)]) }));
+    expect(stats.windows.all.trades).toBe(0);
+    expect(stats.windows.all.tradeVolumeUsd).toBe(0);
+    expect(stats.windows.all.basketsBuilt).toBe(0);
+    expect(stats.strategies.executions).toMatchObject({ started: 1, complete: 0, failed: 1, legsConfirmed: 0 });
+    expect(stats.trading.byProvider).toEqual([]);
+  });
+
+  it("counts a leg once its trade row is verified, at the row's own USD rather than the leg's claim", () => {
+    const steps = [{ id: "s0", assetAddress: AAPL, symbol: "AAPLc", side: "buy" as const, targetUsd: 2_000, sellAmountUsdc: "2000000000", status: "confirmed" as const, txHash: hash(1) }];
+    const exec: PortfolioExecution = { id: "e1", owner: A, status: "COMPLETE", totalUsd: 2_000, steps, createdAt: NOW - DAY, updatedAt: NOW - DAY };
+    const stats = aggregateStats(base({ executions: [exec], trades: [trade({ id: "t1", txHash: hash(1), assetAddress: AAPL, usdValue: 2 })], receipts: new Map([ok(1)]) }));
     expect(stats.windows.all.trades).toBe(1);
     expect(stats.windows.all.tradeVolumeUsd).toBe(2);
-    expect(stats.trading.byProvider[0]).toMatchObject({ provider: "basket", count: 1, usd: 2 });
+    expect(stats.windows.all.basketsBuilt).toBe(1);
+    expect(stats.strategies.executions).toMatchObject({ started: 1, complete: 1, legsConfirmed: 1, usd: 2 });
+  });
+
+  it("does not count a leg whose trade row the server has not matched yet", () => {
+    const steps = [{ id: "s0", assetAddress: AAPL, symbol: "AAPLc", side: "buy" as const, targetUsd: 2, sellAmountUsdc: "2000000", status: "confirmed" as const, txHash: hash(1) }];
+    const exec: PortfolioExecution = { id: "e1", owner: A, status: "COMPLETE", totalUsd: 2, steps, createdAt: NOW - DAY, updatedAt: NOW - DAY };
+    const stats = aggregateStats(base({ executions: [exec], trades: [trade({ id: "t1", txHash: hash(1), assetAddress: AAPL, verifiedAt: undefined })], receipts: new Map([ok(1)]) }));
+    expect(stats.windows.all.trades).toBe(0);
+    expect(stats.strategies.executions.legsConfirmed).toBe(0);
   });
 
   /** An AutoInvest run: one hash, three rows, three stocks — three trades, one transaction. */

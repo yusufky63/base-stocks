@@ -3,18 +3,18 @@
 import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAccount, usePublicClient, useReadContract, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useReadContracts, useWalletClient } from "wagmi";
 import { encodeFunctionData, type Address, type Hash, type Hex } from "viem";
-import { base } from "viem/chains";
 import { Gift, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
 import type { PoolView, QuestStatus } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
 import { apiGet, apiPost, ApiError } from "@/lib/client-api";
-import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { GIFT_POOL_ADDRESS, giftPoolAbi, isPoolDeployed, parsePoolFragment, signPoolTicket, type ClaimTicket } from "@/lib/pool";
-import { humanizeError, type HumanError } from "@/lib/errors";
+import { postWithRetry } from "@/lib/gift/record";
+import { explainClaimError, pollWhenVisible, probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
+import { type HumanError } from "@/lib/errors";
 import { useAuth } from "@/hooks/useAuth";
+import { useNow } from "@/hooks/useNow";
 import { useRegion } from "@/hooks/queries";
 import { formatTokenAmount, formatUsd, shortenAddress } from "@/lib/format";
 import { Badge, Button, LinkButton, Module } from "@/components/ui/primitives";
@@ -36,6 +36,7 @@ const PHASE_COPY: Record<Phase, string> = {
   failed: "Try again",
 };
 
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const subscribeNoop = () => () => {};
 
 /**
@@ -72,40 +73,33 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
   const secret = useMemo(() => parsePoolFragment(hash), [hash]);
   const linkMatches = !!secret && secret.gateAddress.toLowerCase() === pool.gateAddress.toLowerCase();
 
-  const chain = useReadContract({
-    abi: giftPoolAbi,
-    address: GIFT_POOL_ADDRESS as Address,
-    functionName: "pools",
-    args: [onchainId],
-    chainId: BASE_CHAIN_ID,
-    query: { enabled: deployed, refetchInterval: 10_000 },
+  // The three reads this page needs, as one multicall, paused while the tab is hidden. Three
+  // separate polls used to cost three round trips every ten seconds, in a background tab too.
+  const contract = { abi: giftPoolAbi, address: GIFT_POOL_ADDRESS as Address, chainId: BASE_CHAIN_ID } as const;
+  const chain = useReadContracts({
+    contracts: [
+      { ...contract, functionName: "pools", args: [onchainId] },
+      { ...contract, functionName: "remainingSlots", args: [onchainId] },
+      { ...contract, functionName: "hasClaimed", args: [onchainId, address ?? ZERO] },
+    ],
+    allowFailure: true,
+    query: { enabled: deployed, refetchInterval: pollWhenVisible(15_000) },
   });
-  const remaining = useReadContract({
-    abi: giftPoolAbi,
-    address: GIFT_POOL_ADDRESS as Address,
-    functionName: "remainingSlots",
-    args: [onchainId],
-    chainId: BASE_CHAIN_ID,
-    query: { enabled: deployed, refetchInterval: 10_000 },
-  });
-  const mine = useReadContract({
-    abi: giftPoolAbi,
-    address: GIFT_POOL_ADDRESS as Address,
-    functionName: "hasClaimed",
-    args: [onchainId, (address ?? "0x0000000000000000000000000000000000000000") as Address],
-    chainId: BASE_CHAIN_ID,
-    query: { enabled: deployed && !!address, refetchInterval: 15_000 },
-  });
+  const poolData = chain.data?.[0]?.status === "success" ? chain.data[0].result : undefined;
+  const remainingData = chain.data?.[1]?.status === "success" ? chain.data[1].result : undefined;
+  const mineData = !!address && chain.data?.[2]?.status === "success" ? chain.data[2].result : undefined;
 
-  const slots = chain.data ? Number(chain.data[2]) : pool.slots;
-  const claimed = chain.data ? Number(chain.data[3]) : view.onchain?.claimed ?? 0;
-  const cancelled = chain.data ? chain.data[6] : (view.onchain?.cancelled ?? false);
-  const lockedUntil = chain.data ? Number(chain.data[5]) * 1000 : pool.lockedUntil;
-  const remainingSlots = remaining.data !== undefined ? Number(remaining.data) : Math.max(0, slots - claimed);
-  const alreadyMine = mine.data === true;
+  const slots = poolData ? Number(poolData[2]) : pool.slots;
+  const claimed = poolData ? Number(poolData[3]) : (view.onchain?.claimed ?? 0);
+  const cancelled = poolData ? poolData[6] : (view.onchain?.cancelled ?? false);
+  const lockedUntil = poolData ? Number(poolData[5]) * 1000 : pool.lockedUntil;
+  const expiry = poolData ? Number(poolData[4]) * 1000 : pool.expiry;
+  const remainingSlots = remainingData !== undefined ? Number(remainingData) : Math.max(0, slots - claimed);
+  const alreadyMine = mineData === true;
   const isCreator = !!address && address.toLowerCase() === pool.creator.toLowerCase();
-  const [loadedAt] = useState(() => Date.now());
-  const expired = loadedAt > pool.expiry;
+  // A ticking clock: a window that closes while the page is open should say so.
+  const now = useNow(30_000);
+  const expired = now > 0 && now > expiry;
   const restricted = region.data?.restricted === true;
 
   const [phase, setPhase] = useState<Phase>("idle");
@@ -122,8 +116,6 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
 
   const refresh = () => {
     void chain.refetch();
-    void remaining.refetch();
-    void mine.refetch();
     void qc.invalidateQueries({ queryKey: ["pool", id] });
     void qc.invalidateQueries({ queryKey: ["pool-quests", id] });
   };
@@ -133,7 +125,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
     if (pool.gateMode === "open") return { deadline: "0", v: 0, r: `0x${"0".repeat(64)}`, s: `0x${"0".repeat(64)}` };
     if (pool.gateMode === "link") {
       if (!secret) throw new ApiError("BAD_REQUEST", "This link has no claim key. Open the full link you were sent.", 400);
-      const deadline = BigInt(Math.min(Math.floor(pool.expiry / 1000), Math.floor(Date.now() / 1000) + 3600));
+      const deadline = BigInt(Math.min(Math.floor(expiry / 1000), Math.floor(Date.now() / 1000) + 3600));
       return signPoolTicket(secret.privateKey, GIFT_POOL_ADDRESS as Address, onchainId, recipient, deadline);
     }
     await ensureSignedIn();
@@ -156,47 +148,27 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
         functionName: "claim",
         args: [onchainId, address, BigInt(ticket.deadline), ticket.v, ticket.r, ticket.s],
       });
-
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
-
+      const caps = await probeWalletCapabilities(walletClient, address);
       setPhase("awaiting");
-      let hash: Hash | undefined;
-      if (atomic) {
-        const { id: callsId } = await walletClient.sendCalls({
-          account: address,
-          chain: base,
-          calls: [{ to: GIFT_POOL_ADDRESS as Address, data: withAttribution(data) }],
-          capabilities: { ...attributionCapabilities(), ...(paymaster ? { paymasterService: { url: publicEnv.paymasterUrl } } : {}) },
-        });
-        setPhase("submitted");
-        const result = await walletClient.waitForCallsStatus({ id: callsId, timeout: 180_000 });
-        if (result.status === "failure") throw new Error("The claim transaction failed onchain.");
-        hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
-      } else {
-        await publicClient.call({ account: address, to: GIFT_POOL_ADDRESS as Address, data });
-        hash = await walletClient.sendTransaction({ account: address, chain: base, to: GIFT_POOL_ADDRESS as Address, data: withAttribution(data) });
-        setPhase("submitted");
-        await publicClient.waitForTransactionReceipt({ hash });
-      }
-
+      // Gas is sponsored only where a gate already limits who can claim. On an open pool a free
+      // claim is a free sybil: one passkey per share, at nobody's expense but the sponsor's.
+      const { last: hash } = await sendCallsOrSequential({
+        walletClient,
+        publicClient,
+        address,
+        caps,
+        sponsor: pool.gateMode !== "open",
+        calls: [{ to: GIFT_POOL_ADDRESS as Address, data }],
+        preflight: () => publicClient.call({ account: address, to: GIFT_POOL_ADDRESS as Address, data }).then(() => undefined),
+        onSubmitted: () => setPhase("submitted"),
+      });
       setClaimTx(hash);
-      if (hash) void apiPost(`/api/pools/${id}/claims`, { claimant: address, txHash: hash }).catch(() => undefined);
+      // The report is what lets the creator's roster and the claimant's timeline show this share; written, with retries.
+      if (hash) await postWithRetry(`/api/pools/${id}/claims`, { claimant: address, txHash: hash });
       setPhase("confirmed");
       refresh();
     } catch (err) {
-      const h = err instanceof ApiError ? { code: "UNKNOWN" as const, message: err.message } : humanizeError(err);
-      if (/insufficient funds/i.test(("detail" in h && h.detail) || "")) {
-        h.message = "This wallet has no ETH for gas. Claim with a Base Account (passkey) instead — the fee is covered for you.";
-      }
-      setError(h);
+      setError(err instanceof ApiError ? { code: "UNKNOWN", message: err.message } : explainClaimError(err));
       setPhase("failed");
     }
   };
@@ -244,7 +216,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
                 </span>
               </Badge>
             )}
-            {lockedUntil > loadedAt && (
+            {now > 0 && lockedUntil > now && (
               <Badge>
                 <span className="inline-flex items-center gap-1.5">
                   <Lock size={12} strokeWidth={2} /> {`Locked until ${new Date(lockedUntil).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
@@ -317,7 +289,8 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
             <>
               <ConnectButton full size="lg" />
               <p className="text-[12px] text-ink-muted text-center flex items-center justify-center gap-1.5">
-                <Sparkles size={13} strokeWidth={1.75} className="text-primary" /> New to this? Pick Base Account: a wallet from your fingerprint, ready in seconds, claim fee covered.
+                <Sparkles size={13} strokeWidth={1.75} className="text-primary" />{" "}
+                {pool.gateMode === "open" ? "New to this? Pick Base Account: a wallet from your fingerprint, ready in seconds." : "New to this? Pick Base Account: a wallet from your fingerprint, ready in seconds, claim fee covered."}
               </p>
             </>
           ) : (
@@ -350,7 +323,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
         </span>
       </div>
 
-      {isCreator && <PoolManagePanel view={view} onChanged={refresh} lockedUntil={lockedUntil} cancelled={cancelled} claimed={claimed} slots={slots} />}
+      {isCreator && <PoolManagePanel view={view} onChanged={refresh} lockedUntil={lockedUntil} cancelled={cancelled} claimed={claimed} slots={slots} expiry={expiry} />}
 
       <p className="text-[11px] text-ink-muted text-center">
         Coinbase Tokenized Stocks are for eligible persons outside the United States. Not investment advice.{" "}

@@ -15,7 +15,7 @@ import { EarnDepositSheet } from "./EarnDepositSheet";
 import { LpMintSheet, lpMintTarget } from "./LpMintSheet";
 import { ProtocolLogo } from "@/components/common/ProtocolLogo";
 
-export const PROVIDER_LABEL: Record<EarnOpportunity["provider"], string> = { morpho: "Morpho", aave: "Aave", aerodrome: "Aerodrome", compound: "Compound", uniswap: "Uniswap" };
+import { EARN_PROVIDER_LABEL as PROVIDER_LABEL } from "@/lib/earn/labels";
 export const TYPE_LABEL: Record<EarnOpportunity["type"], string> = { supply: "Supply", vault: "Vault", liquidity: "Liquidity", borrow: "Borrow" };
 
 interface Props {

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/db/supabase";
 import { metrics } from "@/lib/http";
+import { secretEquals } from "@/lib/api";
+import { clientIp, hashIp } from "@/lib/rate-limit";
+
+/** One definition of "who is calling" for every limiter; re-exported so existing imports keep working. */
+export { clientIp, hashIp };
 
 /**
  * Hard spending guard for the AI helper: per-IP, per-wallet and global daily caps plus a
@@ -12,6 +17,10 @@ export interface QuotaLimits {
   perWalletPerDay: number;
   globalPerDay: number;
   perIpPerMinute: number;
+  /** A trusted service (the Telegram bot) relays many end users from one IP: each gets this many a day. */
+  perServiceUserPerDay: number;
+  /** And the service as a whole gets this many, so a compromised token cannot drain the global cap alone. */
+  perServicePerDay: number;
 }
 
 export function quotaLimitsFromEnv(): QuotaLimits {
@@ -24,7 +33,32 @@ export function quotaLimitsFromEnv(): QuotaLimits {
     perWalletPerDay: n("AI_DAILY_LIMIT_PER_WALLET", 25),
     globalPerDay: n("AI_GLOBAL_DAILY_LIMIT", 500),
     perIpPerMinute: n("AI_BURST_LIMIT_PER_IP", 5),
+    perServiceUserPerDay: n("AI_DAILY_LIMIT_PER_SERVICE_USER", 40),
+    perServicePerDay: n("AI_DAILY_LIMIT_PER_SERVICE", 400),
   };
+}
+
+/**
+ * A service identity for the assistant: a server-to-server caller (the Telegram bot) that proves
+ * itself with `ASSISTANT_SERVICE_TOKEN` and names the end user it is relaying. Its quota is then
+ * keyed on that end user, not on the bot's one IP, which would otherwise be exhausted by the
+ * fifth person to say hello. The end-user id is hashed before it becomes a key: the counter table
+ * never learns a Telegram id.
+ */
+export interface ServiceIdentity {
+  /** `svc:<hash of end user>`: the per-user daily counter. */
+  userKey: string;
+  /** Fixed per-service counter, so one token cannot use the whole global allowance. */
+  serviceKey: string;
+}
+
+export function serviceIdentity(req: Request): ServiceIdentity | null {
+  const expected = process.env.ASSISTANT_SERVICE_TOKEN?.trim();
+  if (!expected || expected.length < 16) return null;
+  const provided = req.headers.get("x-bstocks-service");
+  const endUser = req.headers.get("x-end-user")?.trim();
+  if (!provided || !endUser || !secretEquals(provided, expected)) return null;
+  return { userKey: `svc:${createHash("sha256").update(endUser).digest("hex").slice(0, 16)}`, serviceKey: "svc:all" };
 }
 
 const memoryDaily = new Map<string, { day: string; count: number }>();
@@ -32,10 +66,6 @@ const memoryBurst = new Map<string, number[]>();
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-export function hashIp(ip: string): string {
-  return createHash("sha256").update(ip).digest("hex").slice(0, 16);
 }
 
 async function increment(key: string): Promise<number> {
@@ -74,13 +104,22 @@ async function peek(key: string): Promise<number> {
 
 export interface QuotaDecision {
   allowed: boolean;
-  reason?: "burst" | "ip" | "wallet" | "global";
+  reason?: "burst" | "ip" | "wallet" | "global" | "service-user" | "service";
   remainingForWallet: number;
   remainingForIp: number;
 }
 
-/** Check limits without consuming. */
-export async function checkQuota(ip: string, wallet: string | undefined, limits: QuotaLimits): Promise<QuotaDecision> {
+/** Check limits without consuming. A service identity replaces the IP counters with its own two. */
+export async function checkQuota(ip: string, wallet: string | undefined, limits: QuotaLimits, service?: ServiceIdentity | null): Promise<QuotaDecision> {
+  if (service) {
+    const [userCount, serviceCount, globalCount] = await Promise.all([peek(service.userKey), peek(service.serviceKey), peek("global")]);
+    const remaining = Math.max(0, limits.perServiceUserPerDay - userCount);
+    const decision = { remainingForWallet: remaining, remainingForIp: Math.max(0, limits.perServicePerDay - serviceCount) };
+    if (userCount >= limits.perServiceUserPerDay) return { allowed: false, reason: "service-user", ...decision };
+    if (serviceCount >= limits.perServicePerDay) return { allowed: false, reason: "service", ...decision };
+    if (globalCount >= limits.globalPerDay) return { allowed: false, reason: "global", ...decision };
+    return { allowed: true, ...decision };
+  }
   const ipKey = `ip:${hashIp(ip)}`;
   const now = Date.now();
   const burst = (memoryBurst.get(ipKey) ?? []).filter((t) => now - t < 60_000);
@@ -96,17 +135,16 @@ export async function checkQuota(ip: string, wallet: string | undefined, limits:
 }
 
 /** Consume one unit on every counter (call only after a successful model request is about to run). */
-export async function consumeQuota(ip: string, wallet: string | undefined): Promise<void> {
+export async function consumeQuota(ip: string, wallet: string | undefined, service?: ServiceIdentity | null): Promise<void> {
+  if (service) {
+    await Promise.all([increment(service.userKey), increment(service.serviceKey), increment("global")]);
+    return;
+  }
   const ipKey = `ip:${hashIp(ip)}`;
   const burst = memoryBurst.get(ipKey) ?? [];
   burst.push(Date.now());
   memoryBurst.set(ipKey, burst);
   await Promise.all([increment(ipKey), wallet ? increment(`wallet:${wallet.toLowerCase()}`) : Promise.resolve(0), increment("global")]);
-}
-
-export function clientIp(req: Request): string {
-  const fwd = req.headers.get("x-forwarded-for");
-  return fwd?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
 }
 
 /* ---------------- Monthly spend guard ---------------- */

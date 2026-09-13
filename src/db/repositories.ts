@@ -47,6 +47,8 @@ export interface TradeRecord {
   status: "submitted" | "confirmed" | "failed";
   recipient?: Address;
   createdAt: number;
+  /** A signed order's uid (CoW), for a record filed before the order settled; the sweep asks the order book what became of it. */
+  orderUid?: string;
   /** Integrator fee the route charged, in basis points of the trade; set by the server from its own configuration. */
   feeBps?: number;
   /**
@@ -140,7 +142,8 @@ export interface TradeRepo {
   create(t: TradeRecord): Promise<TradeRecord>;
   update(id: string, patch: Partial<TradeRecord>): Promise<TradeRecord | null>;
   get(id: string): Promise<TradeRecord | null>;
-  listByOwner(owner: Address): Promise<TradeRecord[]>;
+  /** Newest first. The default page is what a history view shows; the cost basis asks for everything (`limit` up to `LIST_ALL_MAX`). */
+  listByOwner(owner: Address, limit?: number): Promise<TradeRecord[]>;
   /** Submitted trades (with tx hash) since a timestamp, for community aggregates. */
   listSince(sinceMs: number, limit?: number): Promise<TradeRecord[]>;
   listAll(limit?: number): Promise<TradeRecord[]>;
@@ -148,6 +151,8 @@ export interface TradeRepo {
   listBetween(fromMs: number, toMs: number, limit?: number): Promise<TradeRecord[]>;
   /** Records with a hash the server has not matched to the chain yet, oldest first. */
   listUnverified(limit?: number): Promise<TradeRecord[]>;
+  /** Signed orders filed before settlement and still without a hash, oldest first. */
+  listOpenOrders(limit?: number): Promise<TradeRecord[]>;
 }
 export interface EarnActionRepo {
   create(a: EarnActionRecord): Promise<EarnActionRecord>;
@@ -156,6 +161,11 @@ export interface EarnActionRepo {
   listAll(limit?: number): Promise<EarnActionRecord[]>;
   listBetween(fromMs: number, toMs: number, limit?: number): Promise<EarnActionRecord[]>;
   listUnverified(limit?: number): Promise<EarnActionRecord[]>;
+  /**
+   * Every distinct (opportunity, provider) any wallet has ever acted on. A vault that has fallen
+   * out of discovery is still a venue somebody's money sits in; this is how the app keeps knowing it.
+   */
+  listOpportunityIds(): Promise<Array<{ opportunityId: string; provider: string }>>;
 }
 export interface DigestRepo {
   get(key: string): Promise<DigestRecord | null>;
@@ -295,8 +305,8 @@ class MemoryTradeRepo implements TradeRepo {
     this.items.set(id, next);
     return next;
   }
-  async listByOwner(owner: Address) {
-    return [...this.items.values()].filter((t) => lower(t.owner) === lower(owner)).sort((a, b) => b.createdAt - a.createdAt);
+  async listByOwner(owner: Address, limit = 200) {
+    return [...this.items.values()].filter((t) => lower(t.owner) === lower(owner)).sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
   async listSince(sinceMs: number, limit = 2000) {
     return [...this.items.values()]
@@ -315,6 +325,12 @@ class MemoryTradeRepo implements TradeRepo {
   }
   async listUnverified(limit = 200) {
     return [...this.items.values()].filter((t) => t.txHash && !t.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
+  }
+  async listOpenOrders(limit = 200) {
+    return [...this.items.values()]
+      .filter((t) => t.orderUid && !t.txHash && !t.verifiedAt && t.status === "submitted")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit);
   }
 }
 
@@ -345,6 +361,11 @@ class MemoryEarnActionRepo implements EarnActionRepo {
   }
   async listUnverified(limit = 200) {
     return [...this.items.values()].filter((a) => a.txHash && !a.verifiedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
+  }
+  async listOpportunityIds() {
+    const seen = new Map<string, { opportunityId: string; provider: string }>();
+    for (const a of this.items.values()) seen.set(a.opportunityId, { opportunityId: a.opportunityId, provider: a.provider });
+    return [...seen.values()];
   }
 }
 
@@ -718,6 +739,7 @@ class SupabaseTradeRepo implements TradeRepo {
     if (t.verifiedAt !== undefined) r.verified_at = t.verifiedAt === null ? null : new Date(t.verifiedAt).toISOString();
     if (t.verifyNote !== undefined) r.verify_note = t.verifyNote;
     if (t.feeBps !== undefined) r.fee_bps = t.feeBps;
+    if (t.orderUid !== undefined) r.order_uid = t.orderUid;
     return r;
   }
   private fromRow(r: Row): TradeRecord {
@@ -737,6 +759,7 @@ class SupabaseTradeRepo implements TradeRepo {
       verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
       verifyNote: (r.verify_note as string | null) ?? undefined,
       feeBps: r.fee_bps === null || r.fee_bps === undefined ? undefined : Number(r.fee_bps),
+      orderUid: (r.order_uid as string | null) ?? undefined,
     };
   }
   async create(t: TradeRecord) {
@@ -754,10 +777,19 @@ class SupabaseTradeRepo implements TradeRepo {
     if (error) throw error;
     return data ? this.fromRow(data as Row) : null;
   }
-  async listByOwner(owner: Address) {
-    const { data, error } = await sb().from("trade_records").select("*").eq("wallet_address", owner.toLowerCase()).order("created_at", { ascending: false }).limit(200);
-    if (error) throw error;
-    return (data ?? []).map((r) => this.fromRow(r as Row));
+  async listByOwner(owner: Address, limit = 200) {
+    // PostgREST answers at most 1,000 rows per request; a larger ask pages, newest first.
+    const out: TradeRecord[] = [];
+    const page = 1_000;
+    for (let from = 0; from < limit; from += page) {
+      const to = Math.min(from + page, limit) - 1;
+      const { data, error } = await sb().from("trade_records").select("*").eq("wallet_address", owner.toLowerCase()).order("created_at", { ascending: false }).range(from, to);
+      if (error) throw error;
+      const rows = (data ?? []) as Row[];
+      out.push(...rows.map((r) => this.fromRow(r)));
+      if (rows.length < to - from + 1) break;
+    }
+    return out;
   }
   async listSince(sinceMs: number, limit = 2000) {
     const { data, error } = await sb().from("trade_records").select("*").not("tx_hash", "is", null).gte("created_at", new Date(sinceMs).toISOString()).order("created_at", { ascending: false }).limit(limit);
@@ -772,6 +804,11 @@ class SupabaseTradeRepo implements TradeRepo {
   }
   async listUnverified(limit = 200) {
     const { data, error } = await sb().from("trade_records").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
+    if (error) throw error;
+    return (data ?? []).map((r) => this.fromRow(r as Row));
+  }
+  async listOpenOrders(limit = 200) {
+    const { data, error } = await sb().from("trade_records").select("*").not("order_uid", "is", null).is("tx_hash", null).is("verified_at", null).eq("status", "submitted").order("created_at", { ascending: true }).limit(limit);
     if (error) throw error;
     return (data ?? []).map((r) => this.fromRow(r as Row));
   }
@@ -836,6 +873,21 @@ class SupabaseEarnActionRepo implements EarnActionRepo {
     const { data, error } = await sb().from("earn_actions").select("*").is("verified_at", null).not("tx_hash", "is", null).order("created_at", { ascending: true }).limit(limit);
     if (error) throw error;
     return (data ?? []).map((r) => this.fromRow(r as Row));
+  }
+  async listOpportunityIds() {
+    // The SQL function does the DISTINCT; until the migration that adds it has run, the two columns
+    // are paged and reduced here, which is the same answer for more bytes.
+    const { data, error } = await sb().rpc("earn_distinct_opportunities");
+    if (!error && Array.isArray(data)) return (data as Row[]).map((r) => ({ opportunityId: String(r.opportunity_id), provider: String(r.provider) }));
+    const seen = new Map<string, { opportunityId: string; provider: string }>();
+    for (let from = 0; from < LIST_ALL_MAX; from += 1_000) {
+      const page = await sb().from("earn_actions").select("opportunity_id, provider").range(from, from + 999);
+      if (page.error) throw page.error;
+      const rows = (page.data ?? []) as Row[];
+      for (const r of rows) seen.set(String(r.opportunity_id), { opportunityId: String(r.opportunity_id), provider: String(r.provider) });
+      if (rows.length < 1_000) break;
+    }
+    return [...seen.values()];
   }
 }
 
@@ -1005,7 +1057,7 @@ export function getRepos(): Repos {
       baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [], countWallets: 0, listWallets: [] }),
       automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], listAuto: [], listAll: [], create: (r: unknown) => r, update: null, remove: undefined }),
-      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [] }),
+      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [], listOpportunityIds: [] }),
       digests: resilient("digests", new SupabaseDigestRepo(), { get: null, put: undefined, latest: null, summary: { count: 0, costUsd: 0 } }),
       pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [], listBetween: [], listUnverified: [] }),
       // `claimOnce` falls back to allowing the claim: the contract, not this table, is what stops
@@ -1018,7 +1070,7 @@ export function getRepos(): Repos {
       chainTransfers: resilient("chainTransfers", new SupabaseChainTransferRepo(), { insertMany: 0, listByWallet: [] }),
       walletIndex: resilient("walletIndex", new SupabaseWalletIndexRepo(), { get: null, upsert: undefined, listWallets: [] }),
       // Without stored rollups the statistics read every record again: slower, never wrong.
-      statsDaily: resilient("statsDaily", new SupabaseStatsDailyRepo(), { list: [], upsert: undefined, latestDay: null }),
+      statsDaily: resilient("statsDaily", new SupabaseStatsDailyRepo(), { list: [], upsert: undefined, latestDay: null, distinctWallets: null, listKnownWallets: null }),
     };
   } else {
     metrics.count("db.memoryBackend");

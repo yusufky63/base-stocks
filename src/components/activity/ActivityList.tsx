@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, Check, Gift, Layers, Repeat, Sparkles } from "lucide-react";
 import type { ActivityItem } from "@/domain/activity";
 import { formatTokenAmount, formatUsd, shortenAddress, timeAgo } from "@/lib/format";
+import { scaledAmount } from "@/lib/gift/format";
 import { Badge, cx } from "@/components/ui/primitives";
 import { TxLink } from "@/components/common/display";
 import { ShareButton } from "@/components/common/ShareSheet";
@@ -76,6 +77,12 @@ const CONTRACT_LABEL: Record<string, string> = {
 };
 
 /** Basename, then the app's own contracts by name, then the short address. */
+
+/** Raw B20 units as share-equivalents when the multiplier is known; raw units otherwise (identical while every multiplier is 1×). */
+function shares(raw: string, decimals: number, multiplier?: string, wadPrecision?: string): string {
+  return formatTokenAmount(multiplier && wadPrecision ? scaledAmount(raw, multiplier, wadPrecision) : raw, decimals);
+}
+
 export function counterpartyLabel(it: Pick<ActivityItem, "counterparty" | "counterpartyBasename">): string {
   if (it.counterpartyBasename) return it.counterpartyBasename;
   if (!it.counterparty) return "";
@@ -139,7 +146,7 @@ function legsLine(it: ActivityItem): string | null {
     .map((l) => {
       const s = displaySymbol(l.symbol);
       if (l.status === "failed") return `${s} failed`;
-      const amount = l.amountUsd !== undefined ? formatUsd(l.amountUsd) : l.rawAmount && l.decimals !== undefined ? formatTokenAmount(l.rawAmount, l.decimals) : "";
+      const amount = l.amountUsd !== undefined ? formatUsd(l.amountUsd) : l.rawAmount && l.decimals !== undefined ? shares(l.rawAmount, l.decimals, l.multiplier, l.wadPrecision) : "";
       return `${s}${amount ? ` ${amount}` : ""}${l.status === "pending" ? " (pending)" : ""}`;
     })
     .join(" · ");
@@ -188,7 +195,7 @@ export function ActivityList({ items, compact = false, emptyHint }: { items: Act
         const isGift = Boolean(giftId) || kind === "claim-link" || it.type === "pool-create" || it.type === "pool-claim";
         const message = compact ? null : str(it.metadata?.message);
         const symbol = displaySymbol(it.symbol);
-        const amount = it.rawAmount && it.decimals !== undefined ? `${formatTokenAmount(it.rawAmount, it.decimals)} ${symbol}` : symbol;
+        const amount = it.rawAmount && it.decimals !== undefined ? `${shares(it.rawAmount, it.decimals, it.multiplier, it.wadPrecision)} ${symbol}` : symbol;
         const who = counterpartyLabel(it);
         const failed = it.metadata?.status === "failed" || (it.source === "app" && Boolean(it.metadata?.failed));
         const reclaimed = it.metadata?.status === "reclaimed";
@@ -197,7 +204,7 @@ export function ActivityList({ items, compact = false, emptyHint }: { items: Act
         // and "+$2.00" on a buy that reverted reads as money that arrived.
         const sign = failed ? "" : direction === "in" ? "+" : direction === "out" ? "−" : "";
         const pending = !failed && !it.verified && it.source === "app";
-        const tokenAmount = it.rawAmount && it.decimals !== undefined ? formatTokenAmount(it.rawAmount, it.decimals) : null;
+        const tokenAmount = it.rawAmount && it.decimals !== undefined ? shares(it.rawAmount, it.decimals, it.multiplier, it.wadPrecision) : null;
         const { title, aside } = headline(it);
         const legs = compact ? null : legsLine(it);
         const shareText = it.type === "receive" ? `I received ${amount} as a gift from ${who} on BaseStocks — tokenized stocks on Base.` : `I just sent ${amount} (a tokenized stock on Base) to ${who} with BaseStocks.`;

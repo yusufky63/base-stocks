@@ -10,6 +10,7 @@ import { metrics } from "@/lib/http";
 import { cached } from "@/lib/cache";
 import { timeAgo } from "@/lib/format";
 import { addSpend, checkQuota, clientIp, consumeQuota, monthlyBudgetUsd, monthlySpendUsd, quotaLimitsFromEnv } from "@/lib/ai-quota";
+import { sessionAddress } from "@/lib/auth/session";
 import { aiConfigFromEnv, generateStructured } from "@/lib/ai-provider";
 
 /** Serverless budget: upstream providers and the model may take longer than the 10 s default. */
@@ -46,7 +47,7 @@ const bodySchema = z.object({
   prompt: z.string().max(MAX_PROMPT_CHARS * 2).optional(),
   /** Structured choices from the guided UI; composed into the request server-side. */
   guided: guidedSchema.optional(),
-  /** Connected wallet (for the per-wallet quota). Not authenticated; the IP cap is the backstop. */
+  /** Connected wallet, kept for compatibility with older clients. The quota is keyed on the session, never on this. */
   owner: addressSchema.optional(),
 });
 
@@ -123,7 +124,10 @@ export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, win
 
   const limits = quotaLimitsFromEnv();
   const ip = clientIp(req);
-  const [quota, spent] = await Promise.all([checkQuota(ip, body.owner, limits), monthlySpendUsd()]);
+  // The wallet's daily allowance is charged only to a wallet that proved itself with a signature:
+  // keyed on the body's `owner`, anyone could spend any address's drafts by typing it.
+  const quotaWallet = sessionAddress(req)?.toLowerCase();
+  const [quota, spent] = await Promise.all([checkQuota(ip, quotaWallet, limits), monthlySpendUsd()]);
   const budget = monthlyBudgetUsd();
   if (budget > 0 && spent >= budget) {
     metrics.count("ai.budget", false, `monthly budget reached: $${spent.toFixed(2)} / $${budget}`);
@@ -163,7 +167,7 @@ export const POST = route({ rateLimit: { key: "portfolio.intent", limit: 12, win
   const cacheKey = `ai:intent:v2:${cfg.provider}:${cfg.model}:${prompt.toLowerCase()}`;
   let charged = false;
   const out = await cached(cacheKey, { ttlMs: 10 * 60_000 }, async () => {
-    await consumeQuota(ip, body.owner);
+    await consumeQuota(ip, quotaWallet);
     charged = true;
     const result = await generateStructured(cfg, {
       system: systemPrompt(universe),

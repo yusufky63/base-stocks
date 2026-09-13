@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/page-meta";
 import Link from "next/link";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderMarkdown } from "@/lib/markdown";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "Technical reference",
   description: "The full technical reference for BaseStocks, generated from docs/HOW_IT_WORKS.md: contracts, data sources, providers, environment, routes and operations.",
-};
+  path: "/docs/reference",
+});
 
 /**
  * `docs/HOW_IT_WORKS.md`, rendered. The Markdown file is the maintained source — it changes with
@@ -28,8 +30,8 @@ export default function ReferencePage() {
         </p>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-6 items-start">
-        <nav aria-label="Sections" className="lg:sticky lg:top-6 border border-line rounded-[8px] bg-canvas p-3 max-h-[80vh] overflow-y-auto">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted mb-2">Sections</div>
+        <nav aria-label="Sections" className="lg:sticky lg:top-header border border-line rounded-[8px] bg-canvas p-3 max-h-[80vh] overflow-y-auto">
+          <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted mb-2">Sections</div>
           <ol className="flex flex-col gap-0.5">
             {toc.map((h) => (
               <li key={h.id} className={h.level === 3 ? "pl-3" : ""}>

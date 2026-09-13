@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/page-meta";
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, Coins, Globe, Zap } from "lucide-react";
 import { V1_CAVEATS, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
 import { PRO_PRICE_USD, paymentInfo } from "@/lib/api-v1/x402";
 import { Module, ModuleHeader, PageTitle } from "@/components/ui/primitives";
 import { EndpointCard } from "@/components/developers/EndpointCard";
+import { Cell, SectionHead } from "@/components/common/DocSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "API",
   description: "A public, read-only API for Coinbase Tokenized Stocks on Base: prices, Chainlink references, liquidity, news, USDC yield venues and wallet positions. No key, open CORS, and two paid endpoints priced per call in USDC over x402.",
-};
+  path: "/developers",
+});
 
 /** Revalidated hourly: the page is a document, and the live parts are fetched by the reader. */
 export const revalidate = 3600;
@@ -152,28 +155,6 @@ export default function DevelopersPage() {
         Coinbase tokenized stocks are available only to eligible persons outside the United States. This API reports public chain data and does not offer or execute a trade. Prices and rates change; the
         app publishes what it reads and marks what it could not.
       </p>
-    </div>
-  );
-}
-
-function SectionHead({ n, id, title, sub }: { n: number; id: string; title: string; sub?: string }) {
-  return (
-    <div id={id} className="scroll-mt-24 flex flex-wrap items-baseline justify-between gap-2">
-      <div className="flex items-baseline gap-3">
-        <span className="display num text-[28px] md:text-[34px] text-primary leading-none">{String(n).padStart(2, "0")}</span>
-        <h2 className="display-medium text-[22px] md:text-[26px]">{title}</h2>
-      </div>
-      {sub && <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">{sub}</span>}
-    </div>
-  );
-}
-
-function Cell({ icon: Icon, title, children }: { icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>; title: string; children: React.ReactNode }) {
-  return (
-    <div className="p-5 flex flex-col gap-2">
-      <Icon size={18} strokeWidth={1.75} className="text-primary" />
-      <div className="text-[15px] font-medium">{title}</div>
-      <p className="text-[13px] text-ink-secondary leading-relaxed">{children}</p>
     </div>
   );
 }

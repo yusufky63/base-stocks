@@ -35,7 +35,18 @@ const serverSchema = z.object({
   AI_API_KEY: z.string().min(1).optional(),
   AI_BASE_URL: z.string().url().optional(),
   AI_MONTHLY_BUDGET_USD: z.coerce.number().min(0).optional(),
-  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(200).max(2000).optional(),
+  /** Same ceiling as `aiConfigFromEnv` clamps to (lib/ai-provider.ts); the two used to disagree and a value one accepted the other refused. */
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(200).max(3000).optional(),
+  /**
+   * Shared secret a server-to-server caller of the assistant (the Telegram bot) presents in
+   * `x-bstocks-service`, together with the end user it relays in `x-end-user`. Quotas are then
+   * metered per end user and per service instead of per IP. Unset means no service path exists.
+   */
+  ASSISTANT_SERVICE_TOKEN: z.string().min(16).optional(),
+  /** Assistant turns one relayed end user may take a day (default 40). */
+  AI_DAILY_LIMIT_PER_SERVICE_USER: z.coerce.number().int().min(0).optional(),
+  /** Assistant turns the whole service may take a day (default 400), so one token cannot drain the global cap. */
+  AI_DAILY_LIMIT_PER_SERVICE: z.coerce.number().int().min(0).optional(),
   MORPHO_API_URL: z.string().url().default("https://api.morpho.org/graphql"),
   /** Chainlink stock feeds heartbeat every 24h (spec); 26h leaves a margin before a reading counts as stale. */
   ORACLE_STALENESS_SECONDS: z.coerce.number().int().positive().default(93_600),
@@ -52,7 +63,7 @@ const serverSchema = z.object({
     .optional(),
   /** Comma-separated ISO country codes refused on trade/earn execution routes (compliance: US persons are ineligible). */
   GEOBLOCK_COUNTRIES: z.string().optional(),
-  /** block = hard 451 for blocked countries; attest (default) = warning + self-certification cookie. */
+  /** block (default) = hard 451 for blocked countries; attest = warning + self-certification cookie, and has to be asked for. */
   GEOBLOCK_MODE: z.enum(["block", "attest"]).optional(),
   ADMIN_API_TOKEN: z.string().min(16).optional(),
   /** Shared secret Vercel Cron sends as a Bearer token to /api/cron/refresh. */
@@ -85,21 +96,68 @@ const serverSchema = z.object({
 export type ServerEnv = z.infer<typeof serverSchema>;
 
 let cached: ServerEnv | null = null;
+let warnings: string[] = [];
+
+/** Which keys may be dropped when malformed: anything the schema accepts as absent. */
+function isOptionalKey(key: string): boolean {
+  const field = (serverSchema.shape as Record<string, z.ZodType | undefined>)[key];
+  return !!field && field.safeParse(undefined).success;
+}
+
+/**
+ * Parse the environment, tolerating a malformed optional value.
+ *
+ * One bad optional setting used to take every route down: a `DRPC_RPC_URL` with a stray space or
+ * an `AI_MAX_OUTPUT_TOKENS` one over the ceiling threw from `serverEnv()`, which every handler
+ * calls, so the whole site answered 500 over a key it could have done without. An optional field
+ * that fails now becomes undefined with a warning (logged once by `instrumentation.register`);
+ * only a required or defaulted field that is genuinely broken still throws. Pure, for tests.
+ */
+export function parseServerEnv(source: Record<string, string | undefined>): { env: ServerEnv; warnings: string[] } {
+  // dotenv loads `KEY=` as an empty string; treat blanks as unset so optional keys stay optional.
+  const raw: Record<string, string | undefined> = Object.fromEntries(Object.entries(source).map(([k, v]) => [k, v === undefined || v.trim() === "" ? undefined : v]));
+  const dropped: string[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const parsed = serverSchema.safeParse(raw);
+    if (parsed.success) return { env: parsed.data, warnings: dropped };
+    let droppedAny = false;
+    for (const issue of parsed.error.issues) {
+      const key = String(issue.path[0] ?? "");
+      if (key && raw[key] !== undefined && isOptionalKey(key)) {
+        dropped.push(`${key}: ${issue.message} (ignored, treated as unset)`);
+        delete raw[key];
+        droppedAny = true;
+      }
+    }
+    if (!droppedAny) {
+      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`Invalid server environment: ${issues}`);
+    }
+  }
+  const final = serverSchema.safeParse(raw);
+  if (!final.success) throw new Error(`Invalid server environment: ${final.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+  return { env: final.data, warnings: dropped };
+}
 
 export function serverEnv(): ServerEnv {
   if (typeof window !== "undefined") {
     throw new Error("serverEnv() must not be called in the browser");
   }
   if (cached) return cached;
-  // dotenv loads `KEY=` as an empty string; treat blanks as unset so optional keys stay optional.
-  const raw = Object.fromEntries(Object.entries(process.env).map(([k, v]) => [k, v === undefined || v.trim() === "" ? undefined : v]));
-  const parsed = serverSchema.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new Error(`Invalid server environment: ${issues}`);
-  }
-  cached = parsed.data;
+  const result = parseServerEnv(process.env);
+  cached = result.env;
+  warnings = result.warnings;
   return cached;
+}
+
+/**
+ * The optional settings that were ignored because they were malformed. Empty when everything
+ * parsed. Read after `serverEnv()`; `instrumentation.register` logs it once at boot so a typo in
+ * the dashboard is seen instead of silently costing a provider.
+ */
+export function serverEnvWarnings(): string[] {
+  serverEnv();
+  return [...warnings];
 }
 
 /** Public (browser-safe) environment. Only NEXT_PUBLIC_ values. */

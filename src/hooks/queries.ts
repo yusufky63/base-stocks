@@ -47,6 +47,8 @@ export const qk = {
   gifts: (o: string) => ["gifts", o.toLowerCase()] as const,
   region: ["region"] as const,
   lp: (o: string) => ["earn", "lp", o.toLowerCase()] as const,
+  pools: (a: string) => ["market", "pools", a.toLowerCase()] as const,
+  launchpad: (a: string) => ["launchpad-markets", a.toLowerCase()] as const,
 };
 
 export function useSparklines() {
@@ -77,6 +79,8 @@ export function useAsset(address: string, initialData?: AssetResponse) {
     queryKey: qk.asset(address),
     queryFn: () => apiGet<AssetResponse>(`/api/assets/${address}`),
     initialData,
+    // The server just rendered this; without a stale window the hook refetched it the moment it hydrated.
+    staleTime: 15_000,
     refetchInterval: 20_000,
     enabled: !!address,
   });
@@ -87,6 +91,8 @@ export function useChart(address: string, timeframe: Timeframe) {
     queryKey: qk.chart(address, timeframe),
     queryFn: () => apiGet<ChartResponse>(`/api/market/${address}/ohlcv?timeframe=${timeframe}`),
     staleTime: 60_000,
+    // A day chart moves with the minute; the longer windows change by the candle, not by the tick.
+    refetchInterval: timeframe === "1D" ? 60_000 : 5 * 60_000,
     placeholderData: keepPreviousData,
     enabled: !!address,
   });
@@ -172,7 +178,19 @@ export function useGifts(owner?: Address) {
   });
 }
 
-/** Poll transaction status until terminal (Submitted → Preconfirmed → Confirmed). */
+/**
+ * How often to ask the order book about an open order, by its age. Market orders fill within a
+ * minute or not at all, so the first minute is polled closely; a limit order can sit for hours,
+ * and polling it every three seconds for all of them was hundreds of requests for an order that
+ * had not changed. Pure, for tests.
+ */
+export function orderPollInterval(createdAt: number | null | undefined, now = Date.now()): number {
+  const ageMs = createdAt ? Math.max(0, now - createdAt) : 0;
+  if (ageMs < 60_000) return 3_000;
+  if (ageMs < 10 * 60_000) return 15_000;
+  return 60_000;
+}
+
 /** One signed order, polled while it is open (CoW solvers usually fill within a minute). */
 export function useOrderStatus(uid?: string) {
   return useQuery({
@@ -180,8 +198,10 @@ export function useOrderStatus(uid?: string) {
     queryFn: () => apiGet<{ order: OrderView }>(`/api/trade/orders/${uid}`).then((r) => r.order),
     enabled: !!uid,
     refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      return s === "open" || s === "presignaturePending" || s === undefined ? 3_000 : false;
+      const o = q.state.data;
+      const s = o?.status;
+      if (!(s === "open" || s === "presignaturePending" || s === undefined)) return false;
+      return orderPollInterval(o?.createdAt);
     },
   });
 }

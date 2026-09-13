@@ -14,7 +14,7 @@ import { poolTokensAbi, slipstreamMintAbi, slipstreamPoolSlot0Abi, uniswapV3Mint
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
 import { alignTick, amountsForOneSide, priceToTick, sqrtPriceX96ToSqrtPrice } from "@/lib/earn/lp-math";
 import { equityPricePerShare, parseAmountSafe } from "@/lib/b20/math";
-import { callAfterApproval, simulateBundle } from "@/lib/trade/execute";
+import { callAfterApproval, simulateBundle, walletCapabilities } from "@/lib/trade/execute";
 import { humanizeError, type HumanError } from "@/lib/errors";
 import { formatTokenAmount, formatUsd } from "@/lib/format";
 import { qk, useAssets, useRegion } from "@/hooks/queries";
@@ -229,15 +229,7 @@ export function LpMintSheet({ open, onClose, opportunity, target, symbol }: { op
 
       await simulateBundle(publicClient, address, calls);
 
-      let atomic = false;
-      let paymaster = false;
-      try {
-        const caps = (await walletClient.getCapabilities({ account: address, chainId: BASE_CHAIN_ID })) as { atomic?: { status?: string }; paymasterService?: { supported?: boolean } };
-        atomic = caps.atomic?.status === "supported" || caps.atomic?.status === "ready";
-        paymaster = !!publicEnv.paymasterUrl && !!caps.paymasterService?.supported;
-      } catch {
-        atomic = false;
-      }
+      const { atomic, paymaster } = await walletCapabilities(walletClient, address);
 
       setPhase("awaiting");
       let hash: Hash | undefined;

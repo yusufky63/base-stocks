@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/page-meta";
 import Link from "next/link";
 import { ArrowUpRight, Blocks, Boxes, Coins, Database, EyeOff, GitBranch, KeyRound, Network, Send, ShieldCheck, Smartphone, Timer, Wallet, Zap } from "lucide-react";
 import { PRO_PRICE_USD, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
@@ -17,14 +18,17 @@ import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow/index";
 import { GPV2_SETTLEMENT, GPV2_VAULT_RELAYER } from "@/providers/trading/cow/adapter";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
 import { IntegrationMark } from "@/components/common/IntegrationMark";
+import { Cell, SectionHead } from "@/components/common/DocSection";
+import { integrationsNamed } from "@/content/integrations";
 import { LinkButton } from "@/components/ui/primitives";
 import { Dither } from "@/components/fx/lazy";
 import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "Technical docs",
   description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, gas sponsorship and card funding, the Copilot assistant, the public read-only API and the contract addresses it talks to.",
-};
+  path: "/docs",
+});
 
 /* ------------------------------------------------------------------ data */
 
@@ -44,18 +48,9 @@ const NAV = [
   ["contracts", "Contracts"],
 ] as const;
 
-const TRADE_MARKS = [
-  { name: "OKX DEX", mark: "okx-dex", color: "#000000" },
-  { name: "KyberSwap", mark: "kyberswap", color: "#31cb9e" },
-  { name: "Velora", mark: "velora", color: "#1a56db" },
-  { name: "Uniswap", mark: "uniswap", color: "#ff007a" },
-  { name: "Aerodrome", mark: "aerodrome", color: "#2563eb" },
-];
-const EARN_MARKS = [
-  { name: "Morpho", mark: "morpho", color: "#2470ff" },
-  { name: "Aave", mark: "aave", color: "#b6509e" },
-  { name: "Compound", mark: "compound-v3", color: "#00d395" },
-];
+/** Marks and colours come from the one integrations list, so a rebrand is changed in one place. */
+const TRADE_MARKS = integrationsNamed(["OKX DEX", "KyberSwap", "Velora", "Uniswap", "Aerodrome"]);
+const EARN_MARKS = integrationsNamed(["Morpho", "Aave", "Compound"]);
 
 const COW_SPEC: Array<[string, string]> = [
   ["Order type", "EIP-712 signed intent, settled by solvers — no gas on placement"],
@@ -138,32 +133,10 @@ const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
 
 /* ------------------------------------------------------------------ atoms */
 
-function SectionHead({ n, id, title, sub }: { n: number; id: string; title: string; sub?: string }) {
-  return (
-    <div id={id} className="scroll-mt-24 flex flex-wrap items-baseline justify-between gap-2">
-      <div className="flex items-baseline gap-3">
-        <span className="display num text-[28px] md:text-[34px] text-primary leading-none">{String(n).padStart(2, "0")}</span>
-        <h2 className="display-medium text-[22px] md:text-[26px]">{title}</h2>
-      </div>
-      {sub && <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">{sub}</span>}
-    </div>
-  );
-}
-
-function Cell({ icon: Icon, title, children }: { icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>; title: string; children: React.ReactNode }) {
-  return (
-    <article className="rail p-4 md:p-5 flex flex-col gap-2">
-      <Icon size={18} strokeWidth={1.75} className="text-primary" />
-      <div className="font-medium">{title}</div>
-      <p className="text-[13px] text-ink-secondary leading-relaxed">{children}</p>
-    </article>
-  );
-}
-
 function Formula({ label, lines }: { label: string; lines: string[] }) {
   return (
     <article className="rail p-4 md:p-5 flex flex-col justify-center gap-2 bg-surface-muted/40">
-      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</div>
+      <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">{label}</div>
       {lines.map((l) => (
         <div key={l} className="font-mono num text-[13px] lg:text-[15px] text-ink">
           {l}
@@ -245,7 +218,7 @@ export default function DocsPage() {
             </Link>
             {NAV.map(([id, title], i) => (
               <a key={id} href={`#${id}`} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-canvas/70 text-[12px] font-medium text-ink-secondary hover:border-primary hover:text-primary transition-fast">
-                <span className="font-mono num text-[10px] text-ink-muted">{String(i + 1).padStart(2, "0")}</span> {title}
+                <span className="font-mono num text-[11px] text-ink-muted">{String(i + 1).padStart(2, "0")}</span> {title}
               </a>
             ))}
           </nav>
@@ -287,14 +260,14 @@ export default function DocsPage() {
         <SectionHead n={3} id="prices" title="Price model" sub="two prices, one checks the other" />
         <div className="module-grid grid-cols-1 md:grid-cols-2 ticks">
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Display price · live market</div>
+            <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Display price · live market</div>
             <div className="flex items-center gap-2 text-[14px] font-medium">
               DexScreener <span className="text-ink-muted">→</span> GeckoTerminal
             </div>
             <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down. Only pools quoted in USDC or ETH are priced from, and the figure has to agree with the reference to be the headline.</p>
           </article>
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>
+            <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>
             <div className="flex items-center gap-2 text-[14px] font-medium">
               8 decimals · total-return · 24/5
             </div>
@@ -415,8 +388,8 @@ export default function DocsPage() {
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-line bg-surface-muted/40">
-                <th className="px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted font-medium">Contract</th>
-                <th className="px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted font-medium">Address · role</th>
+                <th className="px-4 py-2 text-left font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted font-medium">Contract</th>
+                <th className="px-4 py-2 text-left font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted font-medium">Address · role</th>
               </tr>
             </thead>
             <tbody>

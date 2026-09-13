@@ -7,9 +7,6 @@ import { aggregateStats, buildDayRollup, dayKey, type StatsInput } from "@/lib/s
 import { getAssets } from "./b20-asset-service";
 import { getPriceViews } from "./price-service";
 import { getReceiptStates } from "./receipt-service";
-import { sweepEarn } from "./earn-reconcile-service";
-import { verifyPendingRecords } from "./verify-records-service";
-import { metrics } from "@/lib/http";
 
 /**
  * Platform-wide statistics, verified against Base and aggregated by `aggregateStats`.
@@ -36,9 +33,14 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   return cached("stats:platform", CACHE, compute);
 }
 
-/** The records whose events can fall in [fromMs, toMs), plus everything needed to value and verify them. */
+/**
+ * The records whose events can fall in [fromMs, toMs), plus everything needed to value and verify
+ * them. The distinct wallet counts come from the database when the functions are installed
+ * (`stats_distinct_wallets()`), and from paging the snapshots table when they are not.
+ */
 async function loadWindow(fromMs: number, toMs: number, now: number): Promise<Omit<StatsInput, "rollups" | "liveSince">> {
   const repos = getRepos();
+  const counts = await repos.statsDaily.distinctWallets().catch(() => null);
   const [assets, trades, gifts, executions, earnActions, pools, poolClaims, rules, profiles, baskets, watchlists, portfolioWallets, digests, aiSpendUsd] = await Promise.all([
     getAssets(),
     repos.trades.listBetween(fromMs - RECORD_SLACK_MS, toMs),
@@ -51,7 +53,7 @@ async function loadWindow(fromMs: number, toMs: number, now: number): Promise<Om
     repos.profiles.listAll(),
     repos.baskets.list({ sort: "new", limit: 1_000 }),
     repos.watchlists.summary(),
-    repos.snapshots.countWallets(),
+    counts ? Promise.resolve(counts.portfolioWallets) : repos.snapshots.countWallets(),
     repos.digests.summary(),
     monthlySpendUsd().catch(() => 0),
   ]);
@@ -89,20 +91,21 @@ async function loadWindow(fromMs: number, toMs: number, now: number): Promise<Om
     aiSpendUsd,
     receipts,
     unchecked: Math.max(0, all.length - MAX_RECEIPTS),
+    knownWalletCount: counts?.knownWallets,
   };
 }
 
 const startOfDay = (ms: number) => Date.UTC(new Date(ms).getUTCFullYear(), new Date(ms).getUTCMonth(), new Date(ms).getUTCDate());
 const dayStartMs = (day: string) => Date.parse(`${day}T00:00:00.000Z`);
 
+/**
+ * The live computation reads records and receipts only. The verification sweep and the Earn
+ * reconciliation used to run here first, which made every five-minute recompute a chain scan over
+ * every known wallet; both run from the cron on their own schedule (`maintenance-service`), and a
+ * record they settle shows up here on the next recompute.
+ */
 async function compute(): Promise<PlatformStats> {
   const now = Date.now();
-  // Before anything is counted: records filed while their receipt was pending are matched to the
-  // chain, and deposits the browser never recorded are filled in from the venues' own events.
-  // Both are incremental (cursors, unverified rows only), so this is a handful of reads.
-  await verifyPendingRecords().catch((err) => metrics.count("verify.sweep", false, err instanceof Error ? err.message : String(err)));
-  await sweepEarn().catch((err) => metrics.count("earn.sweep", false, err instanceof Error ? err.message : String(err)));
-
   const rollups = await getRepos().statsDaily.list();
   // Everything after the last rollup is live. Rollups are only ever written contiguously from the
   // first day, so "the day after the latest" is the boundary; no rollups means everything is live.
@@ -131,9 +134,14 @@ export async function rollupStats({ maxDays = 14 }: { maxDays?: number } = {}): 
     dayMs = startOfDay(earliest);
   }
   const written: string[] = [];
-  while (dayMs < cutoff && written.length < maxDays) {
+  if (dayMs >= cutoff) return { written, through: latest };
+  // One load for the whole span of days this run will reduce, then one reduction per day over it:
+  // `buildDayRollup` keeps the events whose block time falls on its day, so a wider window costs
+  // nothing in accuracy and saves a full set of table reads per day.
+  const days = Math.min(maxDays, Math.ceil((cutoff - dayMs) / DAY_MS));
+  const input = await loadWindow(dayMs, dayMs + days * DAY_MS, now);
+  for (let i = 0; i < days; i++) {
     const day = dayKey(dayMs);
-    const input = await loadWindow(dayMs, dayMs + DAY_MS, now);
     const rollup: DayRollup = buildDayRollup(input, day);
     await repos.statsDaily.upsert(rollup);
     written.push(day);

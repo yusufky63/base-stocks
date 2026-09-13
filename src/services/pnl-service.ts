@@ -44,10 +44,15 @@ export interface PortfolioPnl {
   readAt: number;
 }
 
+/** Enough for years of daily plans; the repository pages underneath. */
+const COST_BASIS_ROWS = 20_000;
+
 export async function getPortfolioPnl(owner: Address): Promise<PortfolioPnl> {
   const [snapshot, trades] = await Promise.all([
     getPortfolioSnapshot(owner),
-    getRepos().trades.listByOwner(owner).catch(() => []),
+    // The whole ledger, not the history page: a basis built from the newest 200 rows loses the
+    // oldest buys first and reads every later sell as a sale of nothing.
+    getRepos().trades.listByOwner(owner, COST_BASIS_ROWS).catch(() => []),
   ]);
   const basis = computeCostBasis(trades);
 

@@ -1,9 +1,11 @@
+import { timingSafeEqual } from "node:crypto";
 import { touchActivity } from "@/lib/activity-pulse";
 import { z } from "zod";
 import { AppError, errorResponse } from "@/lib/errors";
 import { recordError } from "@/lib/error-sink";
 import { enforceDurableRateLimit, enforceRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
 import { normalizeAddress } from "@/lib/address";
+import { publicEnv } from "@/config/env";
 import type { Address } from "viem";
 
 export const addressSchema = z
@@ -26,10 +28,45 @@ interface RouteOptions {
 }
 
 /** Wrap a route handler with error mapping + optional rate limiting. */
+/**
+ * Cross-site writes are refused. The session cookies travel `SameSite=None` so the Base app can
+ * embed the site, which means a form on any other site could post them here; the browser's
+ * `Origin` header (sent on every cross-origin write, and on same-origin fetches) is the check
+ * Lax used to do for free. A request without one (curl, the cron, the Telegram bot) is not a
+ * browser and is left to the bearer or session it carries.
+ */
+function assertSameOrigin(req: Request): void {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return;
+  const origin = req.headers.get("origin");
+  if (!origin) return;
+  let host: string;
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    throw new AppError("UNAUTHORIZED", "Cross-site request refused.", 403);
+  }
+  const own = new Set<string>();
+  try {
+    own.add(new URL(req.url).host.toLowerCase());
+  } catch {
+    /* the request URL is always absolute in a route handler */
+  }
+  const forwarded = req.headers.get("x-forwarded-host");
+  if (forwarded) own.add(forwarded.split(",")[0]!.trim().toLowerCase());
+  try {
+    own.add(new URL(publicEnv.appUrl).host.toLowerCase());
+  } catch {
+    /* unset in a test */
+  }
+  if (own.has(host) || host.endsWith(".vercel.app") || host === "localhost" || host.startsWith("localhost:")) return;
+  throw new AppError("UNAUTHORIZED", "Cross-site request refused.", 403);
+}
+
 export function route<Ctx = unknown>(opts: RouteOptions, handler: Handler<Ctx>): Handler<Ctx> {
   return async (req, ctx) => {
     touchActivity();
     try {
+      assertSameOrigin(req);
       if (opts.rateLimit) {
         if (opts.rateLimit.durable) await enforceDurableRateLimit(req, opts.rateLimit.key, opts.rateLimit);
         else enforceRateLimit(req, opts.rateLimit.key, opts.rateLimit);
@@ -88,7 +125,31 @@ export function json(data: unknown, init?: { status?: number; cacheSeconds?: num
   return new Response(JSON.stringify(data, (_k, v) => (typeof v === "bigint" ? v.toString() : v)), { status: init?.status ?? 200, headers });
 }
 
+/**
+ * Constant-time comparison of two secrets. `!==` short-circuits on the first differing byte, and
+ * a caller that can time responses learns the token one character at a time; a mismatch in length
+ * is answered in the same time as a mismatch in content.
+ */
+export function secretEquals(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const x = Buffer.from(a, "utf8");
+  const y = Buffer.from(b, "utf8");
+  if (x.length !== y.length) {
+    // Compare something of equal length anyway so the length mismatch does not return early.
+    timingSafeEqual(x, x);
+    return false;
+  }
+  return timingSafeEqual(x, y);
+}
+
 export function requireAdmin(req: Request, token: string | undefined): void {
   const provided = req.headers.get("x-admin-token");
-  if (!token || !provided || provided !== token) throw new AppError("UNAUTHORIZED", "Admin token required", 401);
+  if (!token || !secretEquals(provided, token)) throw new AppError("UNAUTHORIZED", "Admin token required", 401);
+}
+
+/** Throws 401 unless the request carries `Authorization: Bearer <CRON_SECRET>`. Shared by every scheduled route. */
+export function requireCron(req: Request, secret: string | undefined): void {
+  const auth = req.headers.get("authorization") ?? "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+  if (!secret || !secretEquals(provided, secret)) throw new AppError("UNAUTHORIZED", "Cron secret required", 401);
 }
