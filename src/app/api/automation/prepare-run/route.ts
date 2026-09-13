@@ -4,7 +4,7 @@ import { route, json, parseBody } from "@/lib/api";
 import { requireSession } from "@/lib/auth/session";
 import { getRepos } from "@/db/repositories";
 import { AppError } from "@/lib/errors";
-import { isAutoInvestDeployed, swapToDto } from "@/lib/auto-invest";
+import { autoInvestAddressOf, isAutoInvestDeployed, swapToDto } from "@/lib/auto-invest";
 import { readOnchainPlan } from "@/services/auto-invest-chain";
 import { buildRunSwaps } from "@/services/auto-invest-keeper";
 
@@ -25,7 +25,8 @@ export const POST = route({ rateLimit: { key: "automation.prepare", limit: 20, w
   const { id } = await parseBody(req, bodySchema);
   const rule = (await getRepos().automation.list(owner)).find((r) => r.id === id);
   if (!rule?.config.onchain) throw new AppError("NOT_FOUND", "Not an auto plan", 404);
-  const plan = await readOnchainPlan(BigInt(rule.config.onchain.planId));
+  // The plan's own deployment: the swaps are built with that contract as taker and must be sent to it.
+  const plan = await readOnchainPlan(autoInvestAddressOf(rule), BigInt(rule.config.onchain.planId));
   if (!plan) throw new AppError("NOT_FOUND", "That plan does not exist onchain.", 404);
   if (plan.owner.toLowerCase() !== owner.toLowerCase()) throw new AppError("UNAUTHORIZED", "That plan belongs to another wallet.", 403);
   if (plan.status !== "active") throw new AppError("BAD_REQUEST", "The plan is paused or cancelled.", 400);
@@ -33,6 +34,8 @@ export const POST = route({ rateLimit: { key: "automation.prepare", limit: 20, w
   const prepared = await buildRunSwaps(plan);
   return json({
     planId: plan.planId.toString(),
+    /** Where `execute` has to go; a legacy plan is executed in the legacy contract. */
+    contract: plan.contract,
     total: prepared.total.toString(),
     legs: prepared.legs.map((l) => ({ index: l.index, assetAddress: l.assetAddress, symbol: l.symbol, amountIn: l.amountIn.toString(), usd: l.usd, provider: l.provider ?? null, expectedOut: l.expectedOut?.toString() ?? null, skipped: l.skipped ?? null })),
     swaps: prepared.swaps.map(swapToDto),

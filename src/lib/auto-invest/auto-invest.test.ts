@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Address } from "viem";
-import { assessFunding, cadenceToInterval, decodePlan, intervalToCadenceDays, legAmountIn, legsFromAllocations, usdToUsdc, usdcToUsd, type PlanTuple } from "./index";
+import { assessFunding, autoInvestAddressOf, cadenceToInterval, decodePlan, intervalToCadenceDays, isKnownAutoInvest, KNOWN_AUTO_INVEST_ADDRESSES, LEGACY_AUTO_INVEST_ADDRESSES, legAmountIn, legsFromAllocations, usdToUsdc, usdcToUsd, type PlanTuple } from "./index";
 
 const NVDA = "0xb20000000000000000000078ee7ce2fE4908108C" as Address;
 const AAPL = "0xb200000000000000000000C2e324d24d7eEcd1fb" as Address;
 const ALICE = "0x78de409a6306550882328E2a67160471368387FF" as Address;
+const V1 = "0xc767844F2D65ba241DBe2c04f9c01d05cCD9b60E" as Address;
+const V2 = "0x1111111111111111111111111111111111111111" as Address;
 
 describe("plan legs from a basket", () => {
   it("drops the cash share and re-normalises the stocks to 100%", () => {
@@ -63,8 +65,33 @@ describe("funding", () => {
 describe("decoding an onchain plan", () => {
   it("turns the tuple into named fields and a status word", () => {
     const tuple: PlanTuple = [ALICE, 25_000_000n, 604_800, 1_800_000_000, 0, 300, 3, 1_799_395_200, 1];
-    const plan = decodePlan(7n, tuple, [{ asset: NVDA, weightBps: 10_000 }]);
-    expect(plan).toMatchObject({ planId: 7n, owner: ALICE, amountPerRun: 25_000_000n, interval: 604_800, nextRunAt: 1_800_000_000, expiry: 0, maxSlippageBps: 300, runs: 3, status: "paused" });
+    const plan = decodePlan(V1, 7n, tuple, [{ asset: NVDA, weightBps: 10_000 }]);
+    expect(plan).toMatchObject({ contract: V1, planId: 7n, owner: ALICE, amountPerRun: 25_000_000n, interval: 604_800, nextRunAt: 1_800_000_000, expiry: 0, maxSlippageBps: 300, runs: 3, status: "paused" });
     expect(plan.legs).toEqual([{ asset: NVDA, weightBps: 10_000 }]);
+  });
+});
+
+describe("which contract a plan lives in", () => {
+  it("lists the first deployment as legacy and knows it whatever the env says", () => {
+    expect(LEGACY_AUTO_INVEST_ADDRESSES[0]).toBe(V1);
+    expect(KNOWN_AUTO_INVEST_ADDRESSES.map((a) => a.toLowerCase())).toContain(V1.toLowerCase());
+    expect(isKnownAutoInvest(V1)).toBe(true);
+    expect(isKnownAutoInvest(V1.toLowerCase())).toBe(true);
+    expect(isKnownAutoInvest(undefined)).toBe(false);
+    expect(isKnownAutoInvest("0x0000000000000000000000000000000000000000")).toBe(false);
+  });
+
+  it("never lists an address twice, however it is cased", () => {
+    const lower = KNOWN_AUTO_INVEST_ADDRESSES.map((a) => a.toLowerCase());
+    expect(new Set(lower).size).toBe(lower.length);
+  });
+
+  it("reads the contract a mirror recorded, and falls back to the first deployment when it has none", () => {
+    expect(autoInvestAddressOf({ config: { onchain: { contract: V2 } } })).toBe(V2);
+    // Mirrors written before the contract was recorded per plan all predate the second deployment.
+    expect(autoInvestAddressOf({ config: { onchain: {} } })).toBe(V1);
+    expect(autoInvestAddressOf({ config: {} })).toBe(V1);
+    expect(autoInvestAddressOf({ config: { onchain: { contract: "not an address" } } })).toBe(V1);
+    expect(autoInvestAddressOf({ config: { onchain: { contract: "0x0000000000000000000000000000000000000000" } } })).toBe(V1);
   });
 });

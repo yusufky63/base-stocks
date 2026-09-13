@@ -8,10 +8,10 @@ import { TOTAL_BPS, USDC_ALLOCATION_KEY } from "@/domain/portfolio";
 import { apiPatch, type AutomationRuleDTO } from "@/lib/client-api";
 import { useAssets } from "@/hooks/queries";
 import { useAutomation } from "@/hooks/useAutomation";
-import { useAutoInvest } from "@/hooks/useAutoInvest";
+import { planRefOf, useAutoInvest } from "@/hooks/useAutoInvest";
 import { useNow } from "@/hooks/useNow";
 import type { ManualRun } from "@/hooks/useManualRun";
-import { CADENCES, cadenceLabel, usdcToUsd } from "@/lib/auto-invest";
+import { CADENCES, cadenceLabel, isCurrentAutoInvest, usdcToUsd } from "@/lib/auto-invest";
 import { formatUsd, timeAgo, timeUntil } from "@/lib/format";
 import { BASE_EXPLORER_URL, MIN_TRADE_USD } from "@/config/chain";
 import { AssetLogo, ErrorBanner, InfoBanner, TxLink } from "@/components/common/display";
@@ -35,6 +35,10 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
   const now = useNow();
   const auto = rule.config.mode === "auto";
   const onchain = rule.config.onchain;
+  // Every wallet action on an existing plan goes to the deployment it lives in, which for plans
+  // created before V2 is not the contract new plans use.
+  const ref = planRefOf(rule);
+  const legacy = auto && !!ref && !isCurrentAutoInvest(ref.contract);
   const funding = onchain?.funding;
   const expired = !!rule.config.expiryAt && now > 0 && rule.config.expiryAt < now;
   const cancelled = rule.status === "cancelled";
@@ -61,7 +65,7 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
   const perRun = rule.config.amountUsd ?? 0;
 
   const saveTerms = async () => {
-    if (auto && onchain) await autoInvest.updatePlan(rule.id, onchain.planId, { amountUsd: amount, cadenceDays: cadence, expiryAt: rule.config.expiryAt ?? null, maxSlippageBps: rule.config.maxSlippageBps ?? onchain.maxSlippageBps });
+    if (auto && onchain && ref) await autoInvest.updatePlan(ref, { amountUsd: amount, cadenceDays: cadence, expiryAt: rule.config.expiryAt ?? null, maxSlippageBps: rule.config.maxSlippageBps ?? onchain.maxSlippageBps });
     else await patch.mutateAsync({ id: rule.id, action: "terms", amountUsd: amount, cadenceDays: cadence });
   };
 
@@ -87,9 +91,11 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
               })}
             </span>
             {auto ? <Badge tone="primary">automatic</Badge> : <Badge>you confirm</Badge>}
+            {legacy && <Badge>legacy contract</Badge>}
             {cancelled ? <Badge>cancelled</Badge> : expired ? <Badge>expired</Badge> : rule.status === "paused" ? <Badge tone="warning">paused</Badge> : rule.due ? <Badge tone="positive">due now</Badge> : <Badge tone="positive">active</Badge>}
             <span className="text-[12px] text-ink-secondary">{cadenceLabel(rule.config.cadenceDays ?? 7)}</span>
           </div>
+          {legacy && <p className="text-[12px] text-ink-secondary">This plan lives in the earlier AutoInvest contract and keeps running there, with the allowance you granted it; new plans are created in the new contract.</p>}
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-mono text-ink-secondary">
             {stocks.map((a) => (
               <li key={a.assetAddress}>
@@ -125,7 +131,7 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
           <section className="flex flex-col gap-2 border border-line rounded-[8px] p-3">
             <div className="eyebrow">Run</div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Button size="sm" variant={rule.due ? "primary" : "secondary"} loading={manual.preparing === rule.id} disabled={busy || (auto && !rule.due)} onClick={() => (auto ? void autoInvest.runNow(rule.id) : void manual.run(rule))}>
+              <Button size="sm" variant={rule.due ? "primary" : "secondary"} loading={manual.preparing === rule.id} disabled={busy || (auto && (!rule.due || !ref))} onClick={() => (auto ? ref && void autoInvest.runNow(ref) : void manual.run(rule))}>
                 {auto && <Zap size={13} strokeWidth={1.75} />}
                 {rule.due ? "Run now" : auto ? "Not due yet" : "Run early"}
               </Button>
@@ -182,7 +188,7 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
         )}
 
         {/* Funding (auto only) */}
-        {auto && onchain && !cancelled && (
+        {auto && onchain && ref && !cancelled && (
           <section className="flex flex-col gap-3 border border-line rounded-[8px] p-3">
             <div className="eyebrow">Funding</div>
             {funding ? (
@@ -197,13 +203,13 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
               <span className="text-[12px] text-ink-secondary">Approve USDC for more runs</span>
               <Segmented size="sm" ariaLabel="Runs to approve" value={runs} onChange={setRuns} options={RUN_PRESETS.map((n) => ({ value: n, label: `${n} runs` }))} />
               <div className="flex items-center gap-2 flex-wrap">
-                <Button size="sm" variant="secondary" loading={autoInvest.busy} disabled={busy} onClick={() => void autoInvest.setAllowance(runs * perRun, rule.id)}>
+                <Button size="sm" variant="secondary" loading={autoInvest.busy} disabled={busy} onClick={() => void autoInvest.setAllowance(runs * perRun, ref)}>
                   Approve {formatUsd(runs * perRun)}
                 </Button>
-                <Button size="sm" variant="danger" disabled={busy || !funding || BigInt(funding.allowance) === 0n} onClick={() => window.confirm("Revoke the USDC allowance? No auto plan can draw USDC until you approve again.") && void autoInvest.setAllowance(0, rule.id)}>
+                <Button size="sm" variant="danger" disabled={busy || !funding || BigInt(funding.allowance) === 0n} onClick={() => window.confirm(`Revoke the USDC allowance? No plan in ${legacy ? "the earlier" : "this"} contract can draw USDC until you approve again.`) && void autoInvest.setAllowance(0, ref)}>
                   Revoke USDC
                 </Button>
-                <span className="text-[12px] text-ink-muted">A normal ERC-20 allowance to the contract; revoking it stops every plan at once, whatever any server thinks.</span>
+                <span className="text-[12px] text-ink-muted">A normal ERC-20 allowance to {legacy ? "the earlier contract this plan lives in" : "the contract"}; revoking it stops every plan in that contract at once, whatever any server thinks.</span>
               </div>
             </div>
           </section>
@@ -214,7 +220,7 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
           <div className="eyebrow">Status</div>
           <div className="flex items-center gap-2 flex-wrap">
             {!cancelled && (
-              <Button size="sm" variant="secondary" disabled={busy} loading={patch.isPending && !auto} onClick={() => (auto && onchain ? void autoInvest.setActive(rule.id, onchain.planId, rule.status !== "active") : patch.mutate({ id: rule.id, action: rule.status === "active" ? "pause" : "resume" }))}>
+              <Button size="sm" variant="secondary" disabled={busy} loading={patch.isPending && !auto} onClick={() => (auto && ref ? void autoInvest.setActive(ref, rule.status !== "active") : patch.mutate({ id: rule.id, action: rule.status === "active" ? "pause" : "resume" }))}>
                 {rule.status === "active" ? <Pause size={13} strokeWidth={1.75} /> : <Play size={13} strokeWidth={1.75} />}
                 {rule.status === "active" ? "Pause" : "Resume"}
               </Button>
@@ -224,8 +230,8 @@ export function PlanManageSheet({ rule, open, onClose, manual }: { rule: Automat
               variant="danger"
               disabled={busy}
               onClick={() => {
-                if (auto && onchain && !cancelled) {
-                  if (window.confirm("Cancel this plan onchain? It cannot be resumed; you can always start a new one.")) void autoInvest.cancelPlan(rule.id, onchain.planId);
+                if (auto && ref && !cancelled) {
+                  if (window.confirm("Cancel this plan onchain? It cannot be resumed; you can always start a new one.")) void autoInvest.cancelPlan(ref);
                 } else if (window.confirm("Remove this plan from the list?")) {
                   patch.mutate({ id: rule.id, action: "delete" });
                   onClose();

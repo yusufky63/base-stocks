@@ -6,8 +6,8 @@ import { cached } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { USDC_ADDRESS } from "@/config/chain";
-import { GIFT_ESCROW_ADDRESS, giftEscrowAbi } from "@/lib/escrow";
-import { GIFT_POOL_ADDRESS, giftPoolAbi, isPoolDeployed } from "@/lib/pool";
+import { escrowAddressOf, giftEscrowAbi, isKnownEscrow } from "@/lib/escrow";
+import { giftPoolAbi, isKnownPoolContract, poolContractOf } from "@/lib/pool";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
 import { findEvent, initiatedBy, tokenMoves, touches, tradeFacts, type ReceiptLog, type TokenMove } from "@/lib/chain/receipt-checks";
 import { AAVE_SUPPLY, AAVE_WITHDRAW, COMET_SUPPLY, COMET_WITHDRAW, ERC4626_DEPOSIT, ERC4626_WITHDRAW, decodeVenueEvent } from "@/lib/earn/venue-events";
@@ -117,14 +117,25 @@ export interface GiftFacts {
   expiresAt?: number;
 }
 
+/**
+ * The escrow a claim-link gift's events must come from: the record's own contract, which has to be
+ * one of ours. A `GiftCreated` from any other address, however well formed, proves nothing.
+ */
+function escrowFor(gift: { escrowAddress?: Address | null }): Address | null {
+  const at = escrowAddressOf(gift);
+  return isKnownEscrow(at) ? at : null;
+}
+
 /** The funding or sending transaction of a gift, by kind. Returns the amount the chain shows. */
-export async function verifyGift(gift: Pick<GiftRecord, "kind" | "sender" | "recipient" | "assetAddress" | "escrowId">, txHash: Hash): Promise<Verdict<GiftFacts>> {
+export async function verifyGift(gift: Pick<GiftRecord, "kind" | "sender" | "recipient" | "assetAddress" | "escrowId" | "escrowAddress">, txHash: Hash): Promise<Verdict<GiftFacts>> {
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
   const logs = got.receipt.logs;
   if (gift.kind === "claim-link") {
     if (!gift.escrowId) return refuse("The gift has no escrow id to match.");
-    const ev = findEvent<{ id: Hex; sender: Address; token: Address; amount: bigint; expiry: bigint }>(logs, giftEscrowAbi as Abi, GIFT_ESCROW_ADDRESS, "GiftCreated", (a) => lower(a.id) === lower(gift.escrowId!));
+    const escrow = escrowFor(gift);
+    if (!escrow) return refuse("The gift names an escrow contract this app does not know.");
+    const ev = findEvent<{ id: Hex; sender: Address; token: Address; amount: bigint; expiry: bigint }>(logs, giftEscrowAbi as Abi, escrow, "GiftCreated", (a) => lower(a.id) === lower(gift.escrowId!));
     if (!ev) return refuse("No GiftCreated for this escrow id in that transaction.");
     if (lower(ev.sender) !== lower(gift.sender)) return refuse("The escrow names a different sender.");
     if (lower(ev.token) !== lower(gift.assetAddress)) return refuse("The escrow holds a different stock.");
@@ -143,21 +154,25 @@ export async function verifyGift(gift: Pick<GiftRecord, "kind" | "sender" | "rec
 }
 
 /** The claim of a claim-link gift: who the escrow paid, from its own log. */
-export async function verifyGiftClaim(gift: Pick<GiftRecord, "escrowId">, claimTx: Hash): Promise<Verdict<{ recipient: Address; amount: bigint }>> {
+export async function verifyGiftClaim(gift: Pick<GiftRecord, "escrowId" | "escrowAddress">, claimTx: Hash): Promise<Verdict<{ recipient: Address; amount: bigint }>> {
   if (!gift.escrowId) return refuse("The gift has no escrow id to match.");
+  const escrow = escrowFor(gift);
+  if (!escrow) return refuse("The gift names an escrow contract this app does not know.");
   const got = await receiptOrVerdict(claimTx);
   if ("verdict" in got) return got.verdict;
-  const ev = findEvent<{ id: Hex; recipient: Address; token: Address; amount: bigint }>(got.receipt.logs, giftEscrowAbi as Abi, GIFT_ESCROW_ADDRESS, "GiftClaimed", (a) => lower(a.id) === lower(gift.escrowId!));
+  const ev = findEvent<{ id: Hex; recipient: Address; token: Address; amount: bigint }>(got.receipt.logs, giftEscrowAbi as Abi, escrow, "GiftClaimed", (a) => lower(a.id) === lower(gift.escrowId!));
   if (!ev) return refuse("No GiftClaimed for this escrow id in that transaction.");
   return { ok: true, ...(await settled(claimTx, got.receipt)), recipient: ev.recipient, amount: ev.amount };
 }
 
 /** The sender taking an unclaimed gift back. */
-export async function verifyGiftReclaim(gift: Pick<GiftRecord, "escrowId" | "sender">, txHash: Hash): Promise<Verdict> {
+export async function verifyGiftReclaim(gift: Pick<GiftRecord, "escrowId" | "sender" | "escrowAddress">, txHash: Hash): Promise<Verdict> {
   if (!gift.escrowId) return refuse("The gift has no escrow id to match.");
+  const escrow = escrowFor(gift);
+  if (!escrow) return refuse("The gift names an escrow contract this app does not know.");
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
-  const ev = findEvent<{ id: Hex; sender: Address }>(got.receipt.logs, giftEscrowAbi as Abi, GIFT_ESCROW_ADDRESS, "GiftReclaimed", (a) => lower(a.id) === lower(gift.escrowId!));
+  const ev = findEvent<{ id: Hex; sender: Address }>(got.receipt.logs, giftEscrowAbi as Abi, escrow, "GiftReclaimed", (a) => lower(a.id) === lower(gift.escrowId!));
   if (!ev) return refuse("No GiftReclaimed for this escrow id in that transaction.");
   if (lower(ev.sender) !== lower(gift.sender)) return refuse("The escrow refunded a different sender.");
   return { ok: true, ...(await settled(txHash, got.receipt)) };
@@ -226,14 +241,25 @@ export interface PoolCreateFacts {
   legs: PoolLeg[];
 }
 
-export async function verifyPoolCreate(pool: Pick<PoolRecord, "onchainId" | "creator">, txHash: Hash): Promise<Verdict<PoolCreateFacts>> {
-  if (!isPoolDeployed()) return refuse("Gift pools are not enabled on this deployment.");
+/**
+ * The contract a pool's events must come from: the record's own, which has to be one of ours. A
+ * pool that predates the column lives in the first deployment; the current address only matters
+ * for pools created against it.
+ */
+function poolContractFor(pool: { contractAddress?: Address | null }): Address | null {
+  const at = poolContractOf(pool);
+  return isKnownPoolContract(at) ? at : null;
+}
+
+export async function verifyPoolCreate(pool: Pick<PoolRecord, "onchainId" | "creator" | "contractAddress">, txHash: Hash): Promise<Verdict<PoolCreateFacts>> {
+  const at = poolContractFor(pool);
+  if (!at) return refuse("The pool names a contract this app does not know.");
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
-  const ev = findEvent<{ id: Hex; creator: Address; gate: Address; slots: number | bigint; expiry: bigint; lockedUntil: bigint }>(got.receipt.logs, giftPoolAbi as Abi, GIFT_POOL_ADDRESS as Address, "PoolCreated", (a) => lower(a.id) === lower(pool.onchainId));
+  const ev = findEvent<{ id: Hex; creator: Address; gate: Address; slots: number | bigint; expiry: bigint; lockedUntil: bigint }>(got.receipt.logs, giftPoolAbi as Abi, at, "PoolCreated", (a) => lower(a.id) === lower(pool.onchainId));
   if (!ev) return refuse("No PoolCreated for this pool in that transaction.");
   if (lower(ev.creator) !== lower(pool.creator)) return refuse("The pool was created by a different wallet.");
-  const legs = poolLegEvents(got.receipt.logs, pool.onchainId);
+  const legs = poolLegEvents(got.receipt.logs, pool.onchainId, at);
   if (legs.length === 0) return refuse("The pool was created without any stock in it.");
   return {
     ok: true,
@@ -247,8 +273,8 @@ export async function verifyPoolCreate(pool: Pick<PoolRecord, "onchainId" | "cre
 }
 
 /** Every `PoolLeg` the contract emitted for this pool, in order. `findEvent` stops at the first match, so this walks the logs itself. */
-function poolLegEvents(logs: readonly ReceiptLog[], onchainId: Hex): PoolLeg[] {
-  const at = lower(GIFT_POOL_ADDRESS);
+function poolLegEvents(logs: readonly ReceiptLog[], onchainId: Hex, contract: Address): PoolLeg[] {
+  const at = lower(contract);
   const out: PoolLeg[] = [];
   for (const log of logs) {
     if (lower(log.address) !== at) continue;
@@ -265,21 +291,23 @@ function poolLegEvents(logs: readonly ReceiptLog[], onchainId: Hex): PoolLeg[] {
   return out;
 }
 
-export async function verifyPoolClaim(pool: Pick<PoolRecord, "onchainId">, claimant: Address, txHash: Hash): Promise<Verdict> {
-  if (!isPoolDeployed()) return refuse("Gift pools are not enabled on this deployment.");
+export async function verifyPoolClaim(pool: Pick<PoolRecord, "onchainId" | "contractAddress">, claimant: Address, txHash: Hash): Promise<Verdict> {
+  const at = poolContractFor(pool);
+  if (!at) return refuse("The pool names a contract this app does not know.");
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
-  const ev = findEvent<{ id: Hex; recipient: Address }>(got.receipt.logs, giftPoolAbi as Abi, GIFT_POOL_ADDRESS as Address, "PoolClaimed", (a) => lower(a.id) === lower(pool.onchainId) && lower(a.recipient) === lower(claimant));
+  const ev = findEvent<{ id: Hex; recipient: Address }>(got.receipt.logs, giftPoolAbi as Abi, at, "PoolClaimed", (a) => lower(a.id) === lower(pool.onchainId) && lower(a.recipient) === lower(claimant));
   if (!ev) return refuse("No PoolClaimed for this wallet and pool in that transaction.");
   return { ok: true, ...(await settled(txHash, got.receipt)) };
 }
 
 /** The creator closing a pool: `PoolCancelled` for this pool, by this creator. */
-export async function verifyPoolCancel(pool: Pick<PoolRecord, "onchainId" | "creator">, txHash: Hash): Promise<Verdict> {
-  if (!isPoolDeployed()) return refuse("Gift pools are not enabled on this deployment.");
+export async function verifyPoolCancel(pool: Pick<PoolRecord, "onchainId" | "creator" | "contractAddress">, txHash: Hash): Promise<Verdict> {
+  const at = poolContractFor(pool);
+  if (!at) return refuse("The pool names a contract this app does not know.");
   const got = await receiptOrVerdict(txHash);
   if ("verdict" in got) return got.verdict;
-  const ev = findEvent<{ id: Hex; creator: Address }>(got.receipt.logs, giftPoolAbi as Abi, GIFT_POOL_ADDRESS as Address, "PoolCancelled", (a) => lower(a.id) === lower(pool.onchainId));
+  const ev = findEvent<{ id: Hex; creator: Address }>(got.receipt.logs, giftPoolAbi as Abi, at, "PoolCancelled", (a) => lower(a.id) === lower(pool.onchainId));
   if (!ev) return refuse("No PoolCancelled for this pool in that transaction.");
   return { ok: true, ...(await settled(txHash, got.receipt)) };
 }

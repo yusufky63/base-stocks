@@ -175,19 +175,6 @@ export const autoInvestAbi = [
   },
   {
     "type": "function",
-    "name": "WAD",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
@@ -1126,6 +1113,17 @@ export const autoInvestAbi = [
     "type": "error",
     "name": "DuplicateAsset",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FloorUnavailable",
+    "inputs": [
+      {
+        "name": "leg",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

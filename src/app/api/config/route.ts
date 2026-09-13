@@ -7,6 +7,8 @@ import { marketDataProviderId } from "@/services/market-service";
 import { getRepos } from "@/db/repositories";
 import { MIN_TRADE_USD, DEFAULT_SLIPPAGE_BPS } from "@/config/chain";
 import { isGateSignerConfigured } from "@/lib/pool/gate";
+import { GIFT_POOL_ADDRESS, LEGACY_GIFT_POOL_ADDRESSES, isPoolDeployed } from "@/lib/pool";
+import { GIFT_ESCROW_ADDRESS, LEGACY_GIFT_ESCROW_ADDRESSES } from "@/lib/escrow";
 import { isAutoInvestDeployed, AUTO_INVEST_ADDRESS } from "@/lib/auto-invest";
 import { isKeeperConfigured, keeperAddress } from "@/lib/viem/keeper-client";
 
@@ -28,6 +30,9 @@ export const GET = route({}, async () => {
       /** Quest-gated pools need a campaign signer; without one the app hides that option
        *  instead of letting someone build a campaign that fails at the last step. */
       poolQuestsEnabled: isGateSignerConfigured(),
+      /** The contracts new gifts and pools go to, and the earlier deployments whose records still resolve. */
+      giftEscrow: { address: GIFT_ESCROW_ADDRESS, legacy: LEGACY_GIFT_ESCROW_ADDRESSES },
+      giftPool: { address: isPoolDeployed() ? GIFT_POOL_ADDRESS : null, legacy: LEGACY_GIFT_POOL_ADDRESSES },
       /** AutoInvest: plans that run without the owner present. `keeperConfigured` false means owners run due plans themselves. */
       autoInvest: { enabled: isAutoInvestDeployed(), address: isAutoInvestDeployed() ? AUTO_INVEST_ADDRESS : null, keeperConfigured: isKeeperConfigured(), keeper: keeperAddress() },
       // Card top-ups need the CDP credentials the x402 facilitator already uses; without them the

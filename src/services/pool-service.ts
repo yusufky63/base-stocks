@@ -1,4 +1,4 @@
-import { formatUnits, parseAbiItem, type Address, type Hex } from "viem";
+import { formatUnits, parseAbiItem, type Address } from "viem";
 import type { B20Asset } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
 import type { PoolClaim, PoolLeg, PoolLegView, PoolOnchainState, PoolRecord, PoolView } from "@/domain/pool";
@@ -7,7 +7,7 @@ import { getServerPublicClient, getLogPublicClient } from "@/lib/viem/server-cli
 import { getAssets } from "@/services/b20-asset-service";
 import { getPriceViews } from "@/services/price-service";
 import { reverseResolve } from "@/services/basename-service";
-import { GIFT_POOL_ADDRESS, giftPoolAbi, isPoolDeployed } from "@/lib/pool";
+import { giftPoolAbi, poolContractOf } from "@/lib/pool";
 import { findRecentLog } from "@/lib/gift/logs";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
@@ -28,28 +28,34 @@ export const POOL_ID_RE = /^pool_[a-z0-9_]{4,60}$/i;
 
 /* ------------------------------ onchain reads ----------------------------- */
 
+/** What a read needs to know about a pool: its id and the contract it lives in. */
+export type PoolRef = Pick<PoolRecord, "onchainId" | "contractAddress">;
+
 /**
  * The contract's own view of many pools in one multicall: three reads per pool, one round trip
- * for the whole directory. An entry is `null` when pools are not deployed or that pool's read
- * failed, so callers can fall back per pool.
+ * for the whole directory. Each pool is read from its own contract (`poolContractOf`), so a page
+ * that mixes pools from the old and the new deployment is still one round trip. An entry is
+ * `null` when that pool's read failed, so callers can fall back per pool.
  */
-export async function readPoolsOnchain(onchainIds: Hex[]): Promise<Map<string, PoolOnchainState | null>> {
+export async function readPoolsOnchain(pools: readonly PoolRef[]): Promise<Map<string, PoolOnchainState | null>> {
   const out = new Map<string, PoolOnchainState | null>();
-  if (onchainIds.length === 0) return out;
-  for (const id of onchainIds) out.set(id.toLowerCase(), null);
-  if (!isPoolDeployed()) return out;
-  const address = GIFT_POOL_ADDRESS as Address;
+  if (pools.length === 0) return out;
+  for (const p of pools) out.set(p.onchainId.toLowerCase(), null);
   const client = getServerPublicClient();
   try {
     const results = await client.multicall({
-      contracts: onchainIds.flatMap((id) => [
-        { address, abi: giftPoolAbi, functionName: "pools" as const, args: [id] as const },
-        { address, abi: giftPoolAbi, functionName: "legsOf" as const, args: [id] as const },
-        { address, abi: giftPoolAbi, functionName: "remainingSlots" as const, args: [id] as const },
-      ]),
+      contracts: pools.flatMap((p) => {
+        const address = poolContractOf(p);
+        const id = p.onchainId;
+        return [
+          { address, abi: giftPoolAbi, functionName: "pools" as const, args: [id] as const },
+          { address, abi: giftPoolAbi, functionName: "legsOf" as const, args: [id] as const },
+          { address, abi: giftPoolAbi, functionName: "remainingSlots" as const, args: [id] as const },
+        ];
+      }),
       allowFailure: true,
     });
-    onchainIds.forEach((id, i) => {
+    pools.forEach(({ onchainId: id }, i) => {
       const poolRes = results[i * 3]!;
       const legsRes = results[i * 3 + 1]!;
       const remainingRes = results[i * 3 + 2]!;
@@ -75,9 +81,9 @@ export async function readPoolsOnchain(onchainIds: Hex[]): Promise<Map<string, P
   return out;
 }
 
-/** One pool's onchain state. `null` when pools are not deployed or the read fails. */
-export async function readPoolOnchain(onchainId: Hex): Promise<PoolOnchainState | null> {
-  return (await readPoolsOnchain([onchainId])).get(onchainId.toLowerCase()) ?? null;
+/** One pool's onchain state, from the contract it lives in. `null` when the read fails. */
+export async function readPoolOnchain(pool: PoolRef): Promise<PoolOnchainState | null> {
+  return (await readPoolsOnchain([pool])).get(pool.onchainId.toLowerCase()) ?? null;
 }
 
 /** Live status for the UI: the chain wins over whatever the database last recorded. */
@@ -140,7 +146,7 @@ function legViews(record: PoolRecord, onchain: PoolOnchainState | null, market: 
 export async function buildPoolViews(records: PoolRecord[]): Promise<PoolView[]> {
   if (records.length === 0) return [];
   const repos = getRepos();
-  const [onchainById, market] = await Promise.all([readPoolsOnchain(records.map((r) => r.onchainId)), marketFor(records.map((r) => r.legs))]);
+  const [onchainById, market] = await Promise.all([readPoolsOnchain(records), marketFor(records.map((r) => r.legs))]);
   const unanswered = records.filter((r) => !onchainById.get(r.onchainId.toLowerCase())?.exists).map((r) => r.id);
   const [counts, names] = await Promise.all([
     unanswered.length > 0 ? repos.poolClaims.countByPools(unanswered).catch(() => new Map<string, number>()) : Promise.resolve(new Map<string, number>()),
@@ -226,10 +232,10 @@ export function poolFundingPatch(pool: PoolRecord, txHash: `0x${string}`, v: Ver
  * no such pool (never funded) or nothing could be found.
  */
 export async function repairDraftPool(pool: PoolRecord, gateSigner: Address | null = null): Promise<PoolRecord | null> {
-  if (pool.status !== "draft" || !isPoolDeployed()) return null;
-  const onchain = await readPoolOnchain(pool.onchainId);
+  if (pool.status !== "draft") return null;
+  const onchain = await readPoolOnchain(pool);
   if (!onchain?.exists) return null;
-  const log = await findRecentLog(getLogPublicClient(), { address: GIFT_POOL_ADDRESS as Address, event: POOL_CREATED_EVENT, args: { id: pool.onchainId } });
+  const log = await findRecentLog(getLogPublicClient(), { address: poolContractOf(pool), event: POOL_CREATED_EVENT, args: { id: pool.onchainId } });
   if (!log?.transactionHash) return null;
   const patch = poolFundingPatch(pool, log.transactionHash, await verifyPoolCreate(pool, log.transactionHash), gateSigner);
   const updated = await getRepos().pools.update(pool.id, patch);
@@ -239,7 +245,6 @@ export async function repairDraftPool(pool: PoolRecord, gateSigner: Address | nu
 
 /** Sweep step: every draft old enough to be stuck and young enough to be worth a read. */
 export async function repairDraftPools(gateSigner: Address | null, limit = 300): Promise<{ checked: number; repaired: number }> {
-  if (!isPoolDeployed()) return { checked: 0, repaired: 0 };
   const now = Date.now();
   const drafts = (await getRepos().pools.listAll(limit).catch(() => [])).filter((p) => p.status === "draft" && now - p.createdAt >= REPAIR_MIN_AGE_MS && now - p.createdAt <= REPAIR_MAX_AGE_MS);
   let repaired = 0;
@@ -263,7 +268,7 @@ export async function repairDraftPools(gateSigner: Address | null, limit = 300):
  * names ends up `reconciled`, which is the one status that counts as proof.
  */
 export async function reconcilePool(record: PoolRecord): Promise<{ found: number; added: number }> {
-  if (!isPoolDeployed() || !record.txHash) return { found: 0, added: 0 };
+  if (!record.txHash) return { found: 0, added: 0 };
   const client = getLogPublicClient();
   const repos = getRepos();
   try {
@@ -271,7 +276,8 @@ export async function reconcilePool(record: PoolRecord): Promise<{ found: number
     const head = await client.getBlockNumber();
     const fromBlock = receipt.blockNumber > head - MAX_RECONCILE_BLOCKS ? receipt.blockNumber : head - MAX_RECONCILE_BLOCKS;
     const logs = await client.getLogs({
-      address: GIFT_POOL_ADDRESS as Address,
+      // The pool's own contract: claims on a pool funded before the redeployment are logged there.
+      address: poolContractOf(record),
       event: POOL_CLAIMED_EVENT,
       args: { id: record.onchainId },
       fromBlock,
@@ -308,7 +314,6 @@ export async function reconcilePool(record: PoolRecord): Promise<{ found: number
 
 /** Cron entry point: reconcile the open pools visited longest ago, so every pool gets its turn. */
 export async function sweepOpenPools(limit = 25): Promise<{ pools: number; added: number }> {
-  if (!isPoolDeployed()) return { pools: 0, added: 0 };
   const records = await getRepos().pools.listOpen(limit).catch(() => []);
   let added = 0;
   for (const r of records) added += (await reconcilePool(r)).added;

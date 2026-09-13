@@ -9,7 +9,7 @@ import { Gift, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
 import type { PoolView, QuestStatus } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { apiGet, apiPost, ApiError } from "@/lib/client-api";
-import { GIFT_POOL_ADDRESS, giftPoolAbi, isPoolDeployed, parsePoolFragment, signPoolTicket, type ClaimTicket } from "@/lib/pool";
+import { giftPoolAbi, parsePoolFragment, poolContractOf, signPoolTicket, type ClaimTicket } from "@/lib/pool";
 import { postWithRetry } from "@/lib/gift/record";
 import { explainClaimError, pollWhenVisible, probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { type HumanError } from "@/lib/errors";
@@ -65,9 +65,9 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
   const view = viewQ.data;
   const pool = view.pool;
   const onchainId = pool.onchainId as Hex;
-
-  // Reads are pointless (and wagmi throws on an empty address) if this deployment has no contract.
-  const deployed = isPoolDeployed();
+  // The contract this pool was funded in, not the one new pools go to: a pool made before the
+  // redeployment is read, claimed and closed against the old contract.
+  const contractAddress = poolContractOf(pool);
 
   const hash = useSyncExternalStore(subscribeNoop, () => window.location.hash, () => "");
   const secret = useMemo(() => parsePoolFragment(hash), [hash]);
@@ -75,7 +75,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
 
   // The three reads this page needs, as one multicall, paused while the tab is hidden. Three
   // separate polls used to cost three round trips every ten seconds, in a background tab too.
-  const contract = { abi: giftPoolAbi, address: GIFT_POOL_ADDRESS as Address, chainId: BASE_CHAIN_ID } as const;
+  const contract = { abi: giftPoolAbi, address: contractAddress, chainId: BASE_CHAIN_ID } as const;
   const chain = useReadContracts({
     contracts: [
       { ...contract, functionName: "pools", args: [onchainId] },
@@ -83,7 +83,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
       { ...contract, functionName: "hasClaimed", args: [onchainId, address ?? ZERO] },
     ],
     allowFailure: true,
-    query: { enabled: deployed, refetchInterval: pollWhenVisible(15_000) },
+    query: { refetchInterval: pollWhenVisible(15_000) },
   });
   const poolData = chain.data?.[0]?.status === "success" ? chain.data[0].result : undefined;
   const remainingData = chain.data?.[1]?.status === "success" ? chain.data[1].result : undefined;
@@ -126,7 +126,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
     if (pool.gateMode === "link") {
       if (!secret) throw new ApiError("BAD_REQUEST", "This link has no claim key. Open the full link you were sent.", 400);
       const deadline = BigInt(Math.min(Math.floor(expiry / 1000), Math.floor(Date.now() / 1000) + 3600));
-      return signPoolTicket(secret.privateKey, GIFT_POOL_ADDRESS as Address, onchainId, recipient, deadline);
+      return signPoolTicket(secret.privateKey, contractAddress, onchainId, recipient, deadline);
     }
     await ensureSignedIn();
     const { ticket } = await apiPost<{ ticket: ClaimTicket }>(`/api/pools/${id}/ticket`, {});
@@ -158,8 +158,8 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
         address,
         caps,
         sponsor: pool.gateMode !== "open",
-        calls: [{ to: GIFT_POOL_ADDRESS as Address, data }],
-        preflight: () => publicClient.call({ account: address, to: GIFT_POOL_ADDRESS as Address, data }).then(() => undefined),
+        calls: [{ to: contractAddress, data }],
+        preflight: () => publicClient.call({ account: address, to: contractAddress, data }).then(() => undefined),
         onSubmitted: () => setPhase("submitted"),
       });
       setClaimTx(hash);
@@ -319,7 +319,7 @@ export function PoolClaimView({ initialView }: { initialView: PoolView }) {
         <ShieldCheck size={14} strokeWidth={1.75} />
         <span>
           Held by an ownerless pool contract on Base:&nbsp;
-          <AddressLabel address={GIFT_POOL_ADDRESS as Address} showCopy={false} explorer />
+          <AddressLabel address={contractAddress} showCopy={false} explorer />
         </span>
       </div>
 

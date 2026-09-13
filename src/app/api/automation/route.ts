@@ -6,7 +6,7 @@ import { createRule, invalidateRules, isDue, isAutoRule, isPlanRule, listRulesSy
 import { isKeeperConfigured, keeperAddress } from "@/lib/viem/keeper-client";
 import { readOnchainPlan } from "@/services/auto-invest-chain";
 import { outcomeFromReceipt, recordRun } from "@/services/auto-invest-keeper";
-import { isAutoInvestDeployed, AUTO_INVEST_ADDRESS } from "@/lib/auto-invest";
+import { isAutoInvestDeployed, AUTO_INVEST_ADDRESS, autoInvestAddressOf } from "@/lib/auto-invest";
 import { AppError } from "@/lib/errors";
 import type { Hash } from "viem";
 
@@ -28,6 +28,8 @@ const createSchema = z.object({
   towardTarget: z.boolean().optional(),
   onchainPlanId: z.string().regex(/^\d+$/).optional(),
   txHash: hashSchema.optional(),
+  /** The deployment the plan was created in; the service accepts only contracts it knows. */
+  onchainContract: addressSchema.optional(),
 });
 
 function decorate<T extends { nextRunAt?: number; type: string; status: string }>(r: T & Parameters<typeof isDue>[0]) {
@@ -98,7 +100,7 @@ export const PATCH = route({ rateLimit: { key: "automation.write", limit: 60, wi
     if (!rule.config.onchain) throw new AppError("BAD_REQUEST", "Not an auto plan", 400);
     if (!txHash) throw new AppError("BAD_REQUEST", "txHash is required", 400);
     if (rule.config.history?.some((h) => h.txHash?.toLowerCase() === txHash.toLowerCase())) return json({ rule: decorate(rule) });
-    const plan = await readOnchainPlan(BigInt(rule.config.onchain.planId));
+    const plan = await readOnchainPlan(autoInvestAddressOf(rule), BigInt(rule.config.onchain.planId));
     if (!plan) throw new AppError("NOT_FOUND", "That plan does not exist onchain.", 404);
     const outcome = await outcomeFromReceipt(plan, txHash as Hash, new Map((skipped ?? []).map((s) => [s.assetAddress.toLowerCase(), s.reason])));
     await recordRun(rule, plan, outcome, "wallet");

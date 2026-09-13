@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { concat, encodeAbiParameters, getAddress, hashTypedData, keccak256, stringToHex, verifyTypedData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
+  isKnownPoolContract,
+  LEGACY_GIFT_POOL_ADDRESSES,
   makePoolLinkSecret,
   onchainIdFor,
   parsePoolFragment,
+  poolContractOf,
   poolIdFor,
   poolMemo,
   poolPath,
@@ -20,6 +23,25 @@ const CREATOR = getAddress("0x00000000000000000000000000000000c4ea7043");
 const OTHER_CONTRACT = getAddress("0x0000000000000000000000000000000000001234");
 const RECIPIENT = getAddress("0x000000000000000000000000000000000000beef");
 const THIEF = getAddress("0x000000000000000000000000000000000000dead");
+
+/**
+ * Which GiftPool a pool lives in. Records written before the column exists are pools in the first
+ * deployment, so the fallback is that address and nothing else; `NEXT_PUBLIC_GIFT_POOL_ADDRESS`
+ * is only for pools being created now (unset under vitest, so only the legacy list is known here).
+ */
+describe("pool contract resolution for existing pools", () => {
+  const LEGACY = "0xBD23ABB61D80B88DacB1Dc56DC2641e4Bfb76E10";
+  it("uses the stored contract, and the first deployment when there is none", () => {
+    expect(LEGACY_GIFT_POOL_ADDRESSES[0]).toBe(LEGACY);
+    expect(poolContractOf({ contractAddress: CONTRACT })).toBe(CONTRACT);
+    expect(poolContractOf({})).toBe(LEGACY);
+    expect(poolContractOf({ contractAddress: null })).toBe(LEGACY);
+  });
+  it("knows every legacy contract, case-insensitively, and nothing it was not told about", () => {
+    expect(isKnownPoolContract(LEGACY.toLowerCase())).toBe(true);
+    expect(isKnownPoolContract(OTHER_CONTRACT)).toBe(false);
+  });
+});
 
 describe("pool ids", () => {
   it("derives the onchain id exactly like GiftPool.poolId (keccak of abi.encode(creator, salt))", () => {

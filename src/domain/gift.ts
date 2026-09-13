@@ -25,6 +25,12 @@ export interface GiftRecord {
   createdAt: number;
   /** Claim-link gifts: onchain escrow id (keccak of the ephemeral claim key). */
   escrowId?: Hex;
+  /**
+   * Claim-link gifts: the GiftEscrow contract the stock is locked in. Stamped by the server at
+   * creation; absent on gifts that predate the column, which all live in the first deployment
+   * (see `escrowAddressOf`). Every read, claim, reclaim and receipt check goes to this address.
+   */
+  escrowAddress?: Address;
   /** Claim-link gifts: unix ms after which only the sender can withdraw. */
   expiresAt?: number;
   /** Claim-link gifts: the claim transaction, once someone claimed. */

@@ -5,7 +5,7 @@ import { requirePool, readPoolOnchain } from "@/services/pool-service";
 import { questProof, readAttestations, toQuestStatus, verifyQuests } from "@/services/quest-service";
 import { b20Guard } from "@/services/b20-guard-service";
 import { issueTicket } from "@/lib/pool/gate";
-import { GIFT_POOL_ADDRESS } from "@/lib/pool";
+import { poolContractOf } from "@/lib/pool";
 import { requireSession } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import type { PoolClaim, PoolRecord } from "@/domain/pool";
@@ -16,7 +16,7 @@ import type { PoolClaim, PoolRecord } from "@/domain/pool";
  */
 async function assertClaimable(pool: PoolRecord, claimant: Address) {
   if (pool.gateMode !== "signer") throw new AppError("BAD_REQUEST", "This pool does not use quest tickets.", 400);
-  const onchain = await readPoolOnchain(pool.onchainId);
+  const onchain = await readPoolOnchain(pool);
   if (!onchain?.exists) throw new AppError("NOT_FOUND", "This pool is not funded onchain yet.", 404);
   if (onchain.cancelled) throw new AppError("POOL_CLOSED", "The creator closed this pool.", 409);
   if (Date.now() > onchain.expiry) throw new AppError("POOL_CLOSED", "The claim window for this pool has closed.", 409);
@@ -64,8 +64,10 @@ export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { ke
 
   // The issuer can still refuse the transfer: check the receiver policy for every leg before the
   // claimant spends gas on a transaction that would revert.
+  // The pool's own contract is the sender; an older pool pays out of the deployment it was funded in.
+  const contract = poolContractOf(pool);
   for (const leg of pool.legs) {
-    await b20Guard.preSendCheck({ assetAddress: leg.token, sender: GIFT_POOL_ADDRESS as Address, recipient: claimant });
+    await b20Guard.preSendCheck({ assetAddress: leg.token, sender: contract, recipient: claimant });
   }
 
   const proof = questProof(results, attested);
@@ -76,6 +78,7 @@ export const POST = route<{ params: Promise<{ id: string }> }>({ rateLimit: { ke
     await repos.poolClaims.claimOnce(claim).catch(() => null);
   }
 
-  const ticket = await issueTicket(pool.onchainId, claimant);
+  // Signed for the pool's contract: the ticket domain binds it to one deployment.
+  const ticket = await issueTicket(contract, pool.onchainId, claimant);
   return json({ ticket, poolId: pool.onchainId });
 });

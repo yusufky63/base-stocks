@@ -26,6 +26,7 @@ import {
   MemoryPoolRepo,
   SupabasePoolClaimRepo,
   SupabasePoolRepo,
+  insertTolerant,
   type PoolClaimRepo,
   type PoolRepo,
 } from "./pool-repos";
@@ -557,6 +558,7 @@ class SupabaseGiftRepo implements GiftRepo {
     if (g.txHash !== undefined) r.tx_hash = g.txHash;
     if (g.status !== undefined) r.status = g.status;
     if (g.escrowId !== undefined) r.escrow_id = g.escrowId;
+    if (g.escrowAddress !== undefined) r.escrow_address = g.escrowAddress.toLowerCase();
     if (g.expiresAt !== undefined) r.expires_at = g.expiresAt;
     if (g.claimTx !== undefined) r.claim_tx = g.claimTx;
     if (g.createdAt !== undefined) r.created_at = new Date(g.createdAt).toISOString();
@@ -579,6 +581,8 @@ class SupabaseGiftRepo implements GiftRepo {
       status: r.status as GiftRecord["status"],
       createdAt: new Date(String(r.created_at)).getTime(),
       escrowId: (r.escrow_id as GiftRecord["escrowId"] | null) ?? undefined,
+      // Absent on rows older than the column: a gift in the first escrow (see `escrowAddressOf`).
+      escrowAddress: (r.escrow_address as Address | null) ?? undefined,
       expiresAt: r.expires_at !== null && r.expires_at !== undefined ? Number(r.expires_at) : undefined,
       claimTx: (r.claim_tx as Hash | null) ?? undefined,
       verifiedAt: r.verified_at ? new Date(String(r.verified_at)).getTime() : undefined,
@@ -586,8 +590,8 @@ class SupabaseGiftRepo implements GiftRepo {
     };
   }
   async create(g: GiftRecord) {
-    const { error } = await sb().from("gifts").insert(this.toRow(g));
-    if (error) throw error;
+    // `escrow_address` may not exist yet; the gift is still written (see `insertTolerant`).
+    await insertTolerant("gifts", this.toRow(g), ["escrow_address"]);
     return g;
   }
   async update(id: string, patch: Partial<GiftRecord>) {

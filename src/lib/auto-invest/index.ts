@@ -8,13 +8,62 @@ export { autoInvestAbi } from "./abi";
  * BaseStocks AutoInvest (contracts/src/AutoInvest.sol): recurring purchases that run without the owner
  * present. The address comes from `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` so a preview or a fork can point
  * elsewhere; unset means "not deployed here" and the app offers only plans you confirm by hand.
+ *
+ * This is the contract **new plans are created in**. Plans already live in an earlier deployment
+ * stay there (see `LEGACY_AUTO_INVEST_ADDRESSES`): their owners' USDC allowances were granted to
+ * that address, and a plan cannot be moved between contracts.
  */
 export const AUTO_INVEST_ADDRESS = (process.env.NEXT_PUBLIC_AUTO_INVEST_ADDRESS ?? "") as Address | "";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
+function isUsableAddress(value: unknown): value is Address {
+  return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value) && value.toLowerCase() !== ZERO;
+}
+
 export function isAutoInvestDeployed(): boolean {
-  return /^0x[0-9a-fA-F]{40}$/.test(AUTO_INVEST_ADDRESS) && AUTO_INVEST_ADDRESS.toLowerCase() !== ZERO;
+  return isUsableAddress(AUTO_INVEST_ADDRESS);
+}
+
+/**
+ * Earlier AutoInvest deployments on Base mainnet, oldest first. Plans created there keep running
+ * there: the keeper reads and executes them at this address, and the owner pauses, edits, tops up
+ * or cancels them at this address. The first entry is also what a mirror stored before the
+ * contract was recorded per plan: every such mirror predates V2, so it can only live here.
+ *
+ * V1 (2026-09-05): reference floor computed on the total-return feed, so the floor went loose
+ * after a split; replaced by V2 with the corrected formula and a floor-availability check.
+ */
+export const LEGACY_AUTO_INVEST_ADDRESSES: readonly Address[] = ["0xc767844F2D65ba241DBe2c04f9c01d05cCD9b60E"];
+
+/** Current plus legacy, deduplicated case-insensitively; the current one first when it is set. */
+export const KNOWN_AUTO_INVEST_ADDRESSES: readonly Address[] = (() => {
+  const out: Address[] = [];
+  for (const a of [...(isAutoInvestDeployed() ? [AUTO_INVEST_ADDRESS as Address] : []), ...LEGACY_AUTO_INVEST_ADDRESSES]) {
+    if (!out.some((x) => x.toLowerCase() === a.toLowerCase())) out.push(a);
+  }
+  return out;
+})();
+
+/** A contract this app knows how to drive: the one new plans use, or an earlier deployment. */
+export function isKnownAutoInvest(address: string | null | undefined): address is Address {
+  return isUsableAddress(address) && KNOWN_AUTO_INVEST_ADDRESSES.some((a) => a.toLowerCase() === address.toLowerCase());
+}
+
+/** Whether an address is the contract new plans are created in (false for every legacy one). */
+export function isCurrentAutoInvest(address: string | null | undefined): boolean {
+  return isAutoInvestDeployed() && typeof address === "string" && address.toLowerCase() === AUTO_INVEST_ADDRESS.toLowerCase();
+}
+
+/**
+ * Which contract a mirrored plan lives in: what the mirror recorded, else the oldest deployment.
+ * The fallback is safe because the contract was recorded per plan from the first deployment on;
+ * a mirror without it can only have been written against that one. The shape is structural so the
+ * client-side DTO and the server-side rule both fit.
+ */
+export function autoInvestAddressOf(rule: { config: { onchain?: { contract?: string } } }): Address {
+  const stored = rule.config.onchain?.contract;
+  return isUsableAddress(stored) ? stored : LEGACY_AUTO_INVEST_ADDRESSES[0]!;
 }
 
 /* ------------------------------ contract constants ------------------------------ */
@@ -84,6 +133,8 @@ export interface OnchainLeg {
 }
 
 export interface OnchainPlan {
+  /** The AutoInvest deployment the plan was read from; every write about it goes back there. */
+  contract: Address;
   planId: bigint;
   owner: Address;
   amountPerRun: bigint;
@@ -102,8 +153,9 @@ export interface OnchainPlan {
 /** The `plans(id)` tuple as viem returns it. */
 export type PlanTuple = readonly [Address, bigint, number, number, number, number, number, number, number];
 
-export function decodePlan(planId: bigint, t: PlanTuple, legs: ReadonlyArray<{ asset: Address; weightBps: number }>): OnchainPlan {
+export function decodePlan(contract: Address, planId: bigint, t: PlanTuple, legs: ReadonlyArray<{ asset: Address; weightBps: number }>): OnchainPlan {
   return {
+    contract,
     planId,
     owner: t[0],
     amountPerRun: t[1],
@@ -209,6 +261,7 @@ export const AUTO_INVEST_ERROR_COPY: Record<string, string> = {
   RouteNotAllowed: "That swap route is not on the contract's allow-list.",
   SwapFailed: "The swap reverted.",
   TooLittleReceived: "The route would have delivered less than the plan allows; the run was cancelled before any USDC moved.",
+  FloorUnavailable: "The stock's reference feed is stale or missing, so the contract refused to run this leg unchecked; it will try again once the feed updates.",
   TransferFailed: "USDC could not be pulled: check the balance and the allowance.",
   Reentered: "Reentrancy blocked.",
   NotProposed: "That route was never announced.",

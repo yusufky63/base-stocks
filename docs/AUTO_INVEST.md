@@ -1,6 +1,28 @@
 # AutoInvest — recurring purchases that run without you
 
-**Base mainnet:** `0xc767844F2D65ba241DBe2c04f9c01d05cCD9b60E`, deployed 2026-09-05, source verified on Basescan. Owner `0x78de409a6306550882328E2a67160471368387FF`, keeper `0xffA71652A0a5a9A5b2CDB6AdFe6b753b1488c39C`, routers allowed from day one: KyberSwap `0x6131…37b5`, Aerodrome `0xcf77…4e43`, OKX `0x67d0…81df` (spender `0x57df…114e`). Feeds registered for every stock (`scripts/auto-invest-feeds.sh` re-syncs them). The two deploy scripts, `scripts/auto-invest-deploy.sh` and `scripts/auto-invest-feeds.sh`, are what produced this deployment.
+**Base mainnet, V2 (current; new plans are created here):** `0x708e63F591E4983b2B233C71EA1283ca98e4C97a`, deployed 2026-09-13, source verified on Basescan, feeds registered for all 13 stocks. Same owner and keeper as V1. V2 fixes the reference-floor formula (V1 computed it on the total-return feed, so the floor went loose after a split) and refuses a leg whose floor is unavailable instead of running it unchecked.
+
+**Base mainnet, V1 (legacy; still runs the plans created in it):** `0xc767844F2D65ba241DBe2c04f9c01d05cCD9b60E`, deployed 2026-09-05, source verified on Basescan. Owner `0x78de409a6306550882328E2a67160471368387FF`, keeper `0xffA71652A0a5a9A5b2CDB6AdFe6b753b1488c39C`, routers allowed from day one: KyberSwap `0x6131…37b5`, Aerodrome `0xcf77…4e43`, OKX `0x67d0…81df` (spender `0x57df…114e`). Feeds registered for every stock (`scripts/auto-invest-feeds.sh` re-syncs them). The two deploy scripts, `scripts/auto-invest-deploy.sh` and `scripts/auto-invest-feeds.sh`, are what produced this deployment.
+
+## Two contracts, one app
+
+A plan cannot move between deployments: its USDC allowance was granted to one spender, and its id means nothing in another contract (ids start over). So the app drives more than one AutoInvest at a time:
+
+- `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` is **the contract new plans are created in**. The wizard approves it and calls `createPlan` on it; nothing else.
+- `LEGACY_AUTO_INVEST_ADDRESSES` in `src/lib/auto-invest/index.ts` lists the earlier deployments, oldest first. `KNOWN_AUTO_INVEST_ADDRESSES` is current plus legacy, deduplicated.
+- Every mirror records where its plan lives in `config.onchain.contract` (a field in the rule's `config_json`; no schema change). `autoInvestAddressOf(rule)` reads it and falls back to the first legacy address for a mirror written before the field existed, which can only have been that deployment.
+- Every chain read and write names the deployment: `readOnchainPlan(contract, id)`, `readFunding(contract, owner, amount)` (the allowance is per spender), `readRouteAllowed(contract, …)` (each deployment has its own allow-list), `readFloor(contract, …)` (V1 and V2 compute it differently). An `OnchainPlan` carries its `contract`, so the keeper executes, records and refreshes a plan against the contract it was read from.
+- The owner sync (`listRulesSynced`) asks every known deployment for `plansOf(owner)` and keys mirrors on `(contract, planId)`. The keeper reads a page of mirrors in one multicall across deployments and signs `execute` only against contracts it knows.
+- In the UI, **Manage** acts on the plan's own contract (pause, terms, top-up, run, cancel), shows a `legacy contract` badge for a V1 plan, and the Funding panel reads and sets the allowance of that contract.
+
+Before the switch, with the env var still pointing at V1, all of this collapses to a single contract and behaves exactly as before.
+
+### Switching to a new deployment
+
+1. Deploy and verify the new contract (below), register the feeds on it, allow the routes on it (the initial allow-list is set by the constructor; a route added to V1 later must be proposed on V2 as well), and make sure it names the same keeper.
+2. Add the previous address to `LEGACY_AUTO_INVEST_ADDRESSES` (V1 is already there) and set `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` to the new one on Vercel, GitHub Actions and `.env`; redeploy.
+3. The keeper keeps running V1 plans at V1 and starts running V2 plans at V2 on the same tick; its report lists both under `contracts`. Keep the keeper funded: one account serves both.
+4. Nothing is migrated. Owners who want the V2 floor on an existing plan cancel it and start a new one (the wizard approves V2; the V1 allowance can be revoked from Manage on the old plan).
 
 `contracts/src/AutoInvest.sol` is the contract behind **Automate → Automatic**. A plan says how much USDC to spend per run, how often, into which stocks and in what proportion. When a run is due, the keeper (a BStocks server account) or the plan owner calls `execute`; the contract pulls one run's USDC from the owner under a normal ERC-20 allowance, swaps it through an allow-listed router with the owner as recipient, checks the owner actually received at least what was promised, and returns anything the router did not take. 31 Foundry tests (`contracts/test/AutoInvest.t.sol`), including a fuzz over per-leg amounts.
 
@@ -53,7 +75,7 @@ Prerequisites: Foundry, a deployer key with a little ETH on Base, the keeper's a
 
    | Variable | Value |
    | --- | --- |
-   | `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` | the deployed address; unset hides the Automatic option entirely |
+   | `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` | the deployment new plans are created in; unset hides the Automatic option entirely (legacy plans are then neither shown nor run) |
    | `AUTOMATION_KEEPER_KEY` | the keeper's private key (server-only); unset means owners run due plans themselves from the app |
    | `AUTOMATION_MAX_RUNS_PER_TICK` | optional, default 6 |
    | `CRON_SECRET` | already required for `/api/cron/refresh`; the keeper tick uses the same bearer token |
@@ -68,11 +90,11 @@ cast send <ADDRESS> "proposeAllowlist(uint8,address)" 0 <ROUTER>   # 0 = router,
 cast send <ADDRESS> "applyAllowlist(uint8,address)" 0 <ROUTER>
 ```
 
-Removal (`revokeAllowlist`) is immediate. The keeper only ever uses routes the contract already accepts: it reads `routerAllowed` / `spenderAllowed` for every quote and walks the provider list (KyberSwap → Velora → Aerodrome → OKX) until one is accepted.
+Removal (`revokeAllowlist`) is immediate. The keeper only ever uses routes the contract already accepts: it reads `routerAllowed` / `spenderAllowed` on the plan's own deployment for every quote and walks the provider list (KyberSwap → Velora → Aerodrome → OKX) until one is accepted. Allow-lists are per deployment: a route wanted on both V1 and V2 is proposed on both.
 
 ## How a tick works (`src/services/auto-invest-keeper.ts`)
 
-1. Every active `auto` rule is read; its onchain plan is refreshed into the mirror (`config.onchain`).
+1. Every active `auto` rule is read; its onchain plan is refreshed into the mirror (`config.onchain`) from the deployment the mirror names (`config.onchain.contract`, legacy V1 when absent). Mirrors naming a contract the app does not know are left alone.
 2. Plans that are active, not expired, due, not locked and not in a retry back-off are checked for funding (USDC balance and allowance ≥ one run). Underfunded plans get a `lastError` and a 6-hour back-off.
 3. For a due plan, one swap per leg is built: legs the shared eligibility rule refuses today (not issued, no pool, paused, more than 2% of the pool) are skipped; the rest are quoted with `taker = contract`, `recipient = owner`, `orders: false`, through an allow-listed route; the contract's `quoteFloor` is read and a leg whose quote falls under it is skipped.
 4. The whole run is simulated with the keeper account. `TooLittleReceived(leg, …)` drops that one leg and simulates again; any other revert is recorded with its decoded reason and a 1-hour back-off.

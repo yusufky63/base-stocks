@@ -1,7 +1,7 @@
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSignature, type Address, type Hex } from "viem";
 import { serverEnv } from "@/config/env";
-import { GIFT_POOL_ADDRESS, POOL_TICKET_TYPES, poolTicketDomain, type ClaimTicket } from "@/lib/pool";
+import { POOL_TICKET_TYPES, poolTicketDomain, type ClaimTicket } from "@/lib/pool";
 import { AppError } from "@/lib/errors";
 
 /**
@@ -32,13 +32,17 @@ export function isGateSignerConfigured(): boolean {
   return gateAccount() !== null;
 }
 
-/** Signs a claim ticket for `recipient`. Callers must verify the quests first. */
-export async function issueTicket(poolId: Hex, recipient: Address): Promise<ClaimTicket> {
+/**
+ * Signs a claim ticket for `recipient`. Callers must verify the quests first. `contract` is the
+ * pool's own (`poolContractOf`): the domain binds the ticket to one deployment, so a ticket
+ * signed for the current contract would be refused by the one an older pool lives in.
+ */
+export async function issueTicket(contract: Address, poolId: Hex, recipient: Address): Promise<ClaimTicket> {
   const account = gateAccount();
   if (!account) throw new AppError("POOL_UNAVAILABLE", "Quest-gated pools are not enabled on this deployment.", 503);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + TICKET_TTL_SECONDS);
   const signature = await account.signTypedData({
-    domain: poolTicketDomain(GIFT_POOL_ADDRESS as Address),
+    domain: poolTicketDomain(contract),
     types: POOL_TICKET_TYPES,
     primaryType: "Ticket",
     message: { poolId, recipient, deadline },

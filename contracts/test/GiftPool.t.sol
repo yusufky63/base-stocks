@@ -871,32 +871,30 @@ contract GiftPoolTest {
     }
 
     /**
-     * `withdraw` is the one entry point without the guard — it cannot have one, because it calls
-     * `withdrawLeg`, which does, and two guards on one stack would deadlock. Reentered from a
-     * token during `create` it is therefore reachable, and it does nothing: the leg array is still
-     * empty at that point, so the loop has no body to run and no token moves.
-     *
-     * Harmless, but only by arithmetic rather than by construction, so it is pinned here. A future
-     * deployment should route both through an unguarded internal helper and guard the two public
-     * functions instead (see docs/ROADMAP.md).
+     * `withdraw` used to be the one entry point without the guard (it called the guarded
+     * `withdrawLeg`, and two guards on one stack would deadlock), so a token reentering `create`
+     * could reach it; that was harmless only because the leg array was still empty at that point.
+     * Both withdrawals now share an unguarded `_withdrawLeg` and carry the guard themselves, so
+     * the same reentry is refused outright, before there is any leg array to walk.
      */
-    function test_create_reentering_withdraw_is_a_no_op() public {
+    function test_create_blocks_reentering_withdraw() public {
         DepositReentrantToken evil = new DepositReentrantToken();
         bytes32 id = _armDeposit(evil, DepositReentrantToken.Mode.Withdraw, "d3");
         uint256 creatorBefore = evil.balanceOf(CREATOR);
         vm.prank(CREATOR);
+        vm.expectRevert(GiftPool.Reentered.selector);
         pool.create("d3", address(0), SLOTS, expiry, 0, _one(address(evil)), _one(PER), bytes32(0));
 
-        // The pool funded normally and the reentrant call took nothing out on its way through.
-        _eq(evil.balanceOf(address(pool)), PER * SLOTS, "pool funded in full");
-        _eq(evil.balanceOf(CREATOR), creatorBefore - PER * SLOTS, "creator paid exactly the deposit");
-        GiftPool.Leg[] memory legs = pool.legsOf(id);
-        require(legs.length == 1 && !legs[0].withdrawn, "leg registered and still funded");
-        _eq(pool.remainingSlots(id), SLOTS, "every share still claimable");
+        // The whole create unwound: nothing stored, nothing moved.
+        _eq(evil.balanceOf(CREATOR), creatorBefore, "creator keeps the deposit");
+        _eq(evil.balanceOf(address(pool)), 0, "pool holds nothing");
+        (address creator,,,,,,) = pool.pools(id);
+        require(creator == address(0), "nothing was stored");
+        _eq(pool.legCount(id), 0, "no leg registered");
     }
 
-    /// The moment there IS a leg to take, the guard fires: a second leg that reenters `withdraw`
-    /// trips `withdrawLeg`'s lock and the whole create unwinds.
+    /// Same with a healthy leg already funded: the reentering second leg trips `withdraw`'s own
+    /// lock and the whole create unwinds, first leg included.
     function test_create_blocks_reentering_withdraw_once_a_leg_exists() public {
         DepositReentrantToken evil = new DepositReentrantToken();
         _armDeposit(evil, DepositReentrantToken.Mode.Withdraw, "d3b");

@@ -1,8 +1,10 @@
 import type { Address } from "viem";
 import { cached } from "@/lib/cache";
+import { serverEnv } from "@/config/env";
 import { CircuitBreaker, metrics } from "@/lib/http";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { readFeeds } from "@/providers/market-data/chainlink/reader";
+import { classifyFreshness, isUsMarketOpen, secondsSinceUsMarketClose, secondsSinceUsMarketOpen } from "@/lib/market-hours";
 import { getDexScreenerMarkets } from "@/providers/market-data/dexscreener/adapter";
 import { getGeckoTerminalPrices } from "@/providers/market-data/geckoterminal/adapter";
 import { kyberProvider } from "@/providers/trading/kyber/adapter";
@@ -110,8 +112,12 @@ async function runChecks(): Promise<ServiceCheck[]> {
       const m = await readFeeds([SAMPLE.chainlinkFeed]);
       const r = m.get(SAMPLE.chainlinkFeed.toLowerCase());
       if (!r) throw new Error("no reading");
-      const ageMin = Math.round((Date.now() / 1000 - Number(r.updatedAt)) / 60);
-      return { status: ageMin > 26 * 60 ? "degraded" : "ok", detail: `${SAMPLE.underlying} $${(Number(r.answer) / 10 ** r.decimals).toFixed(2)} · updated ${ageMin} min ago` };
+      const now = new Date();
+      const ageSeconds = Math.round(now.getTime() / 1000 - Number(r.updatedAt));
+      // The same rule the app labels the reference with: a weekend hold is not an outage.
+      const freshness = classifyFreshness({ ageSeconds, thresholdSeconds: serverEnv().ORACLE_STALENESS_SECONDS, paused: false, marketOpen: isUsMarketOpen(now), sinceCloseSeconds: secondsSinceUsMarketClose(now), sinceOpenSeconds: secondsSinceUsMarketOpen(now) });
+      const ageMin = Math.round(ageSeconds / 60);
+      return { status: freshness === "stale" ? "degraded" : "ok", detail: `${SAMPLE.underlying} $${(Number(r.answer) / 10 ** r.decimals).toFixed(2)} · updated ${ageMin} min ago · ${freshness === "last-close" ? "holding the last close" : freshness}` };
     }, "https://docs.base.org/specifications/b20/tokenized-stocks-on-base"),
     probe("dexscreener", "Prices & charts", "DexScreener (market price)", async () => {
       const m = await getDexScreenerMarkets([nvda]);

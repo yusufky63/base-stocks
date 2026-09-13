@@ -6,7 +6,7 @@ import { toAssetDTO } from "@/domain/asset";
 import type { GiftParty, GiftReceipt, GiftRecord } from "@/domain/gift";
 import { isBrandLikeName } from "@/lib/gift/format";
 import { findRecentLog } from "@/lib/gift/logs";
-import { GIFT_ESCROW_ADDRESS, giftEscrowAbi } from "@/lib/escrow";
+import { escrowAddressOf, giftEscrowAbi } from "@/lib/escrow";
 import { getLogPublicClient, getServerPublicClient } from "@/lib/viem/server-client";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
@@ -112,10 +112,13 @@ export function rejectedClaimPatch(kind: "claimed" | "reclaimed", reason: string
  */
 export async function repairDraftGift(gift: GiftRecord): Promise<GiftRecord | null> {
   if (gift.status !== "draft" || !gift.escrowId) return null;
+  // The record's own escrow, not the current one: a draft from before the redeployment was funded
+  // into the old contract and that is where its `GiftCreated` is.
+  const escrow = escrowAddressOf(gift);
   const client = getServerPublicClient();
-  const [sender] = await client.readContract({ address: GIFT_ESCROW_ADDRESS, abi: giftEscrowAbi, functionName: "gifts", args: [gift.escrowId] });
+  const [sender] = await client.readContract({ address: escrow, abi: giftEscrowAbi, functionName: "gifts", args: [gift.escrowId] });
   if (sender === ZERO) return null;
-  const log = await findRecentLog(getLogPublicClient(), { address: GIFT_ESCROW_ADDRESS, event: GIFT_CREATED, args: { id: gift.escrowId } });
+  const log = await findRecentLog(getLogPublicClient(), { address: escrow, event: GIFT_CREATED, args: { id: gift.escrowId } });
   if (!log?.transactionHash) return null;
   const patch = fundingPatch(gift, log.transactionHash, await verifyGift(gift, log.transactionHash));
   const updated = await getRepos().gifts.update(gift.id, patch);

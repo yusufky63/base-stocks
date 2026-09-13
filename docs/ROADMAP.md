@@ -65,6 +65,10 @@ Base plans to replace Flashblocks with canonical 200ms blocks in the Denim hardf
 - **CoinGecko Onchain (paid)** as primary market data once public rate limits bind; the adapter already exists behind `COINGECKO_API_KEY`.
 - **More issuers** (Dinari, xStocks) behind the existing `issuer` field and verification state — never merged blindly with Coinbase B20.
 
+## Second generation contracts (2026-09-13)
+
+GiftEscrow V2 `0x59E4C2C5AfbDae22A09566EB69f283c7f884EB23` (zero-recipient check, single-use claim keys), GiftPool V2 `0x591d505C2bFa754122bBF04c0f5A601bDA8b6ed9` (`withdraw` and `withdrawLeg` both guarded, body in `_withdrawLeg`) and AutoInvest V2 `0x708e63F591E4983b2B233C71EA1283ca98e4C97a` (floor on the total-return feed without the multiplier, `FloorUnavailable` for a stale registered feed) are live and verified; 129 Foundry tests. The first-generation contracts stay in service for what was created in them: gift and pool records carry their contract address, plan mirrors carry theirs, and the keeper ticks every known deployment. Deploy recipes: `scripts/deploy-gift-contracts.sh`, `scripts/auto-invest-v2-deploy.sh`.
+
 ## Dropped
 
 - **1inch** — needs an authenticated API key; not worth it while KyberSwap, Uniswap and Velora cover the same pools.

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Bot, Hand, KeyRound, ShieldCheck, Timer, Wallet } from "lucide-react";
 import { useConfigFlags } from "@/hooks/queries";
-import { AUTO_INVEST } from "@/lib/auto-invest";
+import { AUTO_INVEST, LEGACY_AUTO_INVEST_ADDRESSES, isCurrentAutoInvest } from "@/lib/auto-invest";
 import { BASE_EXPLORER_URL } from "@/config/chain";
 import { Module, ModuleHeader, Badge } from "@/components/ui/primitives";
 
@@ -16,6 +16,8 @@ export function AutoInvestExplainer() {
   const { data: flags } = useConfigFlags();
   const auto = flags?.autoInvest;
   const enabled = !!auto?.enabled;
+  // Earlier deployments that still run plans; empty until the contract new plans use has moved on.
+  const earlier = LEGACY_AUTO_INVEST_ADDRESSES.filter((a) => !isCurrentAutoInvest(a));
 
   const promises = [
     { icon: Timer, title: "Runs by itself, on your schedule", body: "Weekly, daily or monthly: when a run is due, the plan buys your stocks at the best route of the moment. You do not have to be there." },
@@ -77,6 +79,21 @@ export function AutoInvestExplainer() {
                   {auto.address.slice(0, 6)}…{auto.address.slice(-4)}
                 </a>{" "}
                 on Base. New routes are announced onchain 24 hours before they can be used.
+                {earlier.length > 0 && (
+                  <>
+                    {" "}
+                    Plans started before it live in the earlier contract{earlier.length > 1 ? "s" : ""}{" "}
+                    {earlier.map((a, i) => (
+                      <span key={a}>
+                        {i > 0 && ", "}
+                        <a href={`${BASE_EXPLORER_URL}/address/${a}`} target="_blank" rel="noopener noreferrer" className="text-primary font-mono">
+                          {a.slice(0, 6)}…{a.slice(-4)}
+                        </a>
+                      </span>
+                    ))}{" "}
+                    and keep running there.
+                  </>
+                )}
                 {!auto.keeperConfigured && " No keeper is configured on this deployment yet, so due runs wait for you to press Run."}
               </>
             ) : (

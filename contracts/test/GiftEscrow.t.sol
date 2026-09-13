@@ -284,6 +284,67 @@ contract GiftEscrowTest {
         escrow.claim(id, RECIPIENT, v, r, s);
     }
 
+    /* ---------- recipient and single-use ids ---------- */
+
+    /// A link holder cannot burn the gift by signing for the zero address.
+    function test_claim_rejects_zero_recipient() public {
+        bytes32 id = _create();
+        (uint8 v, bytes32 r, bytes32 s) = _sig(id, address(0), CLAIM_PK);
+        vm.expectRevert(GiftEscrow.BadRecipient.selector);
+        escrow.claim(id, address(0), v, r, s);
+        (address gSender,,, uint256 gAmount) = escrow.gifts(id);
+        require(gSender == SENDER && gAmount == AMOUNT, "gift intact");
+        require(!escrow.spent(id), "not spent");
+    }
+
+    function test_spent_id_cannot_be_created_again_after_claim() public {
+        bytes32 id = _create();
+        require(!escrow.spent(id), "fresh id is not spent");
+        (uint8 v, bytes32 r, bytes32 s) = _sig(id, RECIPIENT, CLAIM_PK);
+        escrow.claim(id, RECIPIENT, v, r, s);
+        require(escrow.spent(id), "claimed id is spent");
+        vm.prank(SENDER);
+        vm.expectRevert(GiftEscrow.GiftExists.selector);
+        escrow.create(address(token), AMOUNT, claimKey, expiry, 0);
+        // Whoever tries, whatever the token: the key is gone for good.
+        token.mint(STRANGER, AMOUNT);
+        vm.startPrank(STRANGER);
+        token.approve(address(escrow), AMOUNT);
+        vm.expectRevert(GiftEscrow.GiftExists.selector);
+        escrow.create(address(token), AMOUNT, claimKey, expiry, 0);
+        vm.stopPrank();
+    }
+
+    function test_spent_id_cannot_be_created_again_after_reclaim() public {
+        bytes32 id = _create();
+        vm.prank(SENDER);
+        escrow.reclaim(id);
+        require(escrow.spent(id), "reclaimed id is spent");
+        vm.prank(SENDER);
+        vm.expectRevert(GiftEscrow.GiftExists.selector);
+        escrow.create(address(token), AMOUNT, claimKey, expiry, 0);
+    }
+
+    /// The replay this closes: the sender reclaims, a second gift lands under the same key, and the
+    /// old (id, recipient) signature would pay the old recipient out of the new gift.
+    function test_replayed_claim_after_reclaim_is_refused() public {
+        bytes32 id = _create();
+        (uint8 v, bytes32 r, bytes32 s) = _sig(id, RECIPIENT, CLAIM_PK);
+        vm.prank(SENDER);
+        escrow.reclaim(id);
+        // No gift behind the id any more: the old signature has nothing to claim.
+        vm.expectRevert(GiftEscrow.GiftUnknown.selector);
+        escrow.claim(id, RECIPIENT, v, r, s);
+        // And nothing can be put behind it again, so it stays that way.
+        vm.prank(SENDER);
+        vm.expectRevert(GiftEscrow.GiftExists.selector);
+        escrow.create(address(token), 2 * AMOUNT, claimKey, expiry, 0);
+        vm.expectRevert(GiftEscrow.GiftUnknown.selector);
+        escrow.claim(id, RECIPIENT, v, r, s);
+        _assertEq(token.balanceOf(RECIPIENT), 0, "old recipient never paid");
+        _assertEq(token.balanceOf(SENDER), 100e8, "sender whole");
+    }
+
     /* ---------- fuzz ---------- */
 
     uint256 internal constant SECP_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;

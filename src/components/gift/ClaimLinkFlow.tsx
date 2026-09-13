@@ -113,7 +113,11 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
       });
       setGift(record);
 
-      const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_ESCROW_ADDRESS, rawAmount] });
+      // Lock the stock in the escrow the server stamped on the record, so the record and the
+      // transaction can never name different contracts. A record without one is brand new, so
+      // the current escrow is the only answer.
+      const escrow = record.escrowAddress ?? GIFT_ESCROW_ADDRESS;
+      const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [escrow, rawAmount] });
       const createData = encodeFunctionData({ abi: giftEscrowAbi, functionName: "create", args: [asset.address, rawAmount, secret.claimKey, BigInt(Math.floor(expiresAt / 1000)), record.memo] });
 
       const caps = await probeWalletCapabilities(walletClient, address);
@@ -125,7 +129,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
         sponsor: true,
         calls: [
           { to: asset.address, data: approveData },
-          { to: GIFT_ESCROW_ADDRESS, data: createData },
+          { to: escrow, data: createData },
         ],
         // On the sequential path the deposit is simulated after the approval has landed.
         preflight: (call, i) => (i === 1 ? callAfterApproval(publicClient, address, call) : Promise.resolve()),

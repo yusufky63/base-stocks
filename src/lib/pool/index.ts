@@ -3,15 +3,19 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { BASE_CHAIN_ID } from "@/config/chain";
 
 /**
- * BaseStocks GiftPool (contracts/src/GiftPool.sol), deployed to Base mainnet 2026-09-04 at
- * `0xBD23ABB61D80B88DacB1Dc56DC2641e4Bfb76E10`, tx
- * 0x5e26536977c1ec333b05e9ad2547d0455897bbf2d55b61de0a33372015e86a6c, source verified on
- * Basescan. Ownerless: it can only pay a claimant their exact share or return the unclaimed
- * remainder to the creator. No admin, no pause, no upgrade, no fee, no token allowlist.
+ * BaseStocks GiftPool (contracts/src/GiftPool.sol) on Base mainnet. Ownerless: it can only pay a
+ * claimant their exact share or return the unclaimed remainder to the creator. No admin, no
+ * pause, no upgrade, no fee, no token allowlist.
+ *
+ * This is the contract NEW pools are created in. A pool record remembers the contract it was
+ * funded in (`PoolRecord.contractAddress`), so claims, cancels, withdrawals and roster scans
+ * keep talking to that contract after this address moves to a redeployment; use
+ * `poolContractOf(pool)` for anything that touches an existing pool.
  *
  * The address comes from `NEXT_PUBLIC_GIFT_POOL_ADDRESS` rather than a constant so a preview or
- * a fork can point elsewhere; an unset value means "pools are not available here" and the app
- * hides the feature rather than pointing users at nothing.
+ * a fork can point elsewhere; an unset value means "new pools are not available here" and the
+ * app hides the create flow rather than pointing users at nothing. Existing pools still resolve
+ * to their own contract.
  */
 export const GIFT_POOL_ADDRESS = (process.env.NEXT_PUBLIC_GIFT_POOL_ADDRESS ?? "") as Address | "";
 
@@ -20,6 +24,26 @@ export function isPoolDeployed(): boolean {
 }
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+/**
+ * Every GiftPool this app has ever funded pools in, oldest first. The first deployment
+ * (2026-09-04, tx 0x5e26536977c1ec333b05e9ad2547d0455897bbf2d55b61de0a33372015e86a6c, source
+ * verified on Basescan) predates the `contract_address` column, so a record without one is a
+ * pool in that contract; its shares have to stay claimable and its remainder withdrawable after
+ * the contract is replaced.
+ */
+export const LEGACY_GIFT_POOL_ADDRESSES: readonly Address[] = ["0xBD23ABB61D80B88DacB1Dc56DC2641e4Bfb76E10"];
+
+/** The contract a pool lives in: the one stored on the record, else the original deployment. */
+export function poolContractOf(pool: { contractAddress?: Address | null }): Address {
+  return pool.contractAddress ?? LEGACY_GIFT_POOL_ADDRESSES[0]!;
+}
+
+/** True for the current contract and every legacy one; a log from anywhere else proves nothing. */
+export function isKnownPoolContract(address: string): boolean {
+  const a = address.toLowerCase();
+  return (isPoolDeployed() && GIFT_POOL_ADDRESS.toLowerCase() === a) || LEGACY_GIFT_POOL_ADDRESSES.some((x) => x.toLowerCase() === a);
+}
 
 /** Mirrors GiftPool.MAX_POOL_DURATION and MAX_LEGS. */
 export const MAX_POOL_DURATION_S = 365 * 24 * 3600;

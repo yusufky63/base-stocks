@@ -38,6 +38,9 @@ export const POST = route({ rateLimit: { key: "pools.write", limit: 20, windowMs
   const record: PoolRecord = {
     id,
     onchainId: onchainIdFor(body.creator, id),
+    // The contract the browser is about to fund. Stamped here, not sent by the client, so the
+    // record and the transaction can only ever name the same deployment.
+    contractAddress: GIFT_POOL_ADDRESS as Address,
     creator: body.creator,
     gateMode: body.gateMode,
     gateAddress,

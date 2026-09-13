@@ -73,6 +73,9 @@ export const POST = route({ rateLimit: { key: "gifts.write", limit: 30, windowMs
       status: "draft",
       createdAt: Date.now(),
       escrowId: body.escrowId as GiftRecord["escrowId"],
+      // The contract the browser is about to lock the stock in. Stamped here, not sent by the
+      // client, so the record and the transaction can only ever name the same escrow.
+      escrowAddress: GIFT_ESCROW_ADDRESS,
       expiresAt: body.expiresAt,
     };
     await getRepos().gifts.create(record);

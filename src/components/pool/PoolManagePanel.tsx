@@ -8,7 +8,7 @@ import { Eye, EyeOff, Lock, RefreshCw } from "lucide-react";
 import type { PoolClaim, PoolView } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { apiGet, apiPatch, apiPut, ApiError } from "@/lib/client-api";
-import { GIFT_POOL_ADDRESS, giftPoolAbi } from "@/lib/pool";
+import { giftPoolAbi, poolContractOf } from "@/lib/pool";
 import { patchWithRetry } from "@/lib/gift/record";
 import { probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
 import { humanizeError, type HumanError } from "@/lib/errors";
@@ -61,6 +61,9 @@ export function PoolManagePanel({
   expiry?: number;
 }) {
   const pool = view.pool;
+  // Cancel and withdraw go to the contract that holds the remainder, which for an older pool is
+  // not the one new pools are created in.
+  const contractAddress = poolContractOf(pool);
   const { address } = useAccount();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const { data: walletClient } = useWalletClient({ chainId: BASE_CHAIN_ID });
@@ -99,10 +102,10 @@ export function PoolManagePanel({
     try {
       const calls: Array<{ to: Address; data: Hex }> = [];
       if (!cancelled) {
-        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] }) });
+        calls.push({ to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] }) });
       }
       if (!allWithdrawn) {
-        calls.push({ to: GIFT_POOL_ADDRESS as Address, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] }) });
+        calls.push({ to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] }) });
       }
       if (calls.length === 0) return;
       const hash = await send(calls);
@@ -123,7 +126,7 @@ export function PoolManagePanel({
     setError(null);
     setBusy(index);
     try {
-      const hash = await send([{ to: GIFT_POOL_ADDRESS as Address, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdrawLeg", args: [pool.onchainId, BigInt(index)] }) }]);
+      const hash = await send([{ to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdrawLeg", args: [pool.onchainId, BigInt(index)] }) }]);
       setTx(hash);
       onChanged();
     } catch (err) {

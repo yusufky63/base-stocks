@@ -239,6 +239,10 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
         quests: gateMode === "signer" ? quests : [],
       });
 
+      // Fund the contract the server stamped on the record, so the record and the transaction
+      // can never name different deployments. A record without one is brand new, so the current
+      // contract is the only answer.
+      const contractAddress = pool.contractAddress ?? (GIFT_POOL_ADDRESS as Address);
       const createData = encodeFunctionData({
         abi: giftPoolAbi,
         functionName: "create",
@@ -258,7 +262,7 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
       // but the create itself, and asks for one confirmation instead of one per leg.
       const existing = await publicClient
         .multicall({
-          contracts: legs.map((l) => ({ address: l.asset.address as Address, abi: erc20Abi, functionName: "allowance" as const, args: [address, GIFT_POOL_ADDRESS as Address] as const })),
+          contracts: legs.map((l) => ({ address: l.asset.address as Address, abi: erc20Abi, functionName: "allowance" as const, args: [address, contractAddress] as const })),
           allowFailure: true,
         })
         .catch(() => null);
@@ -269,9 +273,9 @@ export function PoolCreateFlow({ holdings, assets, preset }: { holdings: Portfol
         })
         .map((l) => ({
           to: l.asset.address as Address,
-          data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_POOL_ADDRESS as Address, l.funded] }),
+          data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [contractAddress, l.funded] }),
         }));
-      const calls = [...approvals, { to: GIFT_POOL_ADDRESS as Address, data: createData }];
+      const calls = [...approvals, { to: contractAddress, data: createData }];
 
       const caps = await probeWalletCapabilities(walletClient, address);
       const { last: hash } = await sendCallsOrSequential({

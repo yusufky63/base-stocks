@@ -78,6 +78,12 @@ export interface PoolRecord {
   id: string;
   /** keccak256(abi.encode(creator, salt)) — the id the contract knows. */
   onchainId: Hex;
+  /**
+   * The GiftPool contract this pool was funded in. Stamped by the server at creation; absent on
+   * pools that predate the column, which all live in the first deployment (see `poolContractOf`).
+   * Claims, cancels, withdrawals and roster scans go to this address, not to the current one.
+   */
+  contractAddress?: Address;
   creator: Address;
   gateMode: PoolGateMode;
   /** address(0) for `open`; the link key or the campaign signer otherwise. */

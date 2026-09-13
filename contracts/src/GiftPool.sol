@@ -33,6 +33,12 @@ interface IERC20 {
  *         and out; a blocked or paused transfer reverts and the pool stays intact for a retry.
  *         Because a pause could otherwise trap the whole package, closing a pool is two steps:
  *         `cancel` only flips a flag and always succeeds, `withdrawLeg` moves one token at a time.
+ *
+ *         Every entry point that moves tokens is `nonReentrant`, with no exception: `withdrawLeg`
+ *         and `withdraw` share the unguarded `_withdrawLeg`, so both can carry the guard without
+ *         the two locks meeting on one call stack. The first deployment left `withdraw` unguarded
+ *         for exactly that reason; a token reentering `create` could reach it, and it stayed
+ *         harmless only because the leg array was still empty at that point.
  */
 contract GiftPool {
     struct Pool {
@@ -265,7 +271,27 @@ contract GiftPool {
 
     /// @notice Return one token's unclaimed remainder to the creator, once the pool is cancelled
     ///         or expired. Per leg, so one stuck token cannot trap the others.
-    function withdrawLeg(bytes32 id, uint256 legIndex) public nonReentrant {
+    function withdrawLeg(bytes32 id, uint256 legIndex) external nonReentrant {
+        _withdrawLeg(id, legIndex);
+    }
+
+    /// @notice Every remaining leg at once, the normal path. Legs already withdrawn are skipped;
+    ///         one paused token reverts the whole call, so fall back to `withdrawLeg` for the rest.
+    /// @dev    Guarded like `withdrawLeg`. Both go through `_withdrawLeg`, which carries no guard
+    ///         of its own, so a token callback can never reach either of them: reentered from a
+    ///         token during `create`, `claim` or a withdrawal this reverts with `Reentered` instead
+    ///         of quietly walking an (empty or not) leg array.
+    function withdraw(bytes32 id) external nonReentrant {
+        if (pools[id].creator == address(0)) revert PoolUnknown();
+        uint256 n = _legs[id].length;
+        for (uint256 i = 0; i < n; ++i) {
+            if (!_legs[id][i].withdrawn) _withdrawLeg(id, i);
+        }
+    }
+
+    /// @dev The one place a leg leaves the pool. Unguarded on purpose: the two public withdrawals
+    ///      above hold the lock, and a guard here as well would deadlock `withdraw`.
+    function _withdrawLeg(bytes32 id, uint256 legIndex) internal {
         Pool storage p = pools[id];
         if (p.creator == address(0)) revert PoolUnknown();
         if (p.creator != msg.sender) revert NotCreator();
@@ -276,15 +302,5 @@ contract GiftPool {
         uint256 amount = leg.amountPerClaim * (p.slots - p.claimed);
         if (amount != 0 && !IERC20(leg.token).transfer(p.creator, amount)) revert TransferFailed();
         emit PoolWithdrawn(id, leg.token, amount);
-    }
-
-    /// @notice Every remaining leg at once — the normal path. Falls back to `withdrawLeg` when one
-    ///         token's transfers are paused by its issuer.
-    function withdraw(bytes32 id) external {
-        if (pools[id].creator == address(0)) revert PoolUnknown();
-        uint256 n = _legs[id].length;
-        for (uint256 i = 0; i < n; ++i) {
-            if (!_legs[id][i].withdrawn) withdrawLeg(id, i);
-        }
     }
 }

@@ -1,5 +1,5 @@
 // Which transaction created which claim-link gift, straight from GiftEscrow's `GiftCreated` logs.
-// Prints one line per gift id: `<escrowId> <txHash> <block>`. Read-only; sends nothing.
+// Prints one line per gift id: `<escrowId> <txHash> <block> <escrow>`. Read-only; sends nothing.
 //
 //   node scripts/scan-gift-created.mjs <fromBlock> [escrowId ...]
 //
@@ -19,7 +19,8 @@ const env = Object.fromEntries(
     }),
 );
 
-const ESCROW = "0x8D9fE4b3Ab9BecbE1181d15d51FB9724561C7f55";
+// Every escrow that has ever held gifts: V1 (2026-09-03) and V2 (2026-09-13).
+const ESCROWS = ["0x8D9fE4b3Ab9BecbE1181d15d51FB9724561C7f55", "0x59E4C2C5AfbDae22A09566EB69f283c7f884EB23"];
 const [, , fromArg, ...ids] = process.argv;
 if (!fromArg) {
   console.error("usage: node scripts/scan-gift-created.mjs <fromBlock> [escrowId ...]");
@@ -33,11 +34,11 @@ let from = BigInt(fromArg);
 const STEP = 10_000n;
 while (from <= head) {
   const to = from + STEP > head ? head : from + STEP;
-  const logs = await client.getLogs({ address: ESCROW, event, fromBlock: from, toBlock: to });
+  const logs = await client.getLogs({ address: ESCROWS, event, fromBlock: from, toBlock: to });
   for (const log of logs) {
     const id = log.args.id.toLowerCase();
     if (wanted.size > 0 && !wanted.has(id)) continue;
-    console.log(id, log.transactionHash, log.blockNumber.toString());
+    console.log(id, log.transactionHash, log.blockNumber.toString(), log.address);
   }
   from = to + 1n;
 }

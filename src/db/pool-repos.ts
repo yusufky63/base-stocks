@@ -155,7 +155,7 @@ const counts = (status: PoolClaim["status"]) => (COUNTED_STATUSES as readonly st
 /* ------------------------------ Supabase ------------------------------ */
 
 /** PostgREST's answer when a migration has not been applied yet; the caller falls back rather than failing. */
-function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
+export function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
   return !!err && (err.code === "42703" || /column .* does not exist/i.test(err.message ?? ""));
 }
 
@@ -167,11 +167,29 @@ function sb() {
   return c;
 }
 
+/**
+ * Inserts a row whose `optional` columns may not exist yet. A record must never fail to be
+ * written because a migration is still pending, so when PostgREST answers "column does not
+ * exist" the insert is retried once without those columns. The record keeps the field in
+ * memory; only the stored row lacks it, which the readers treat as "predates the column".
+ */
+export async function insertTolerant(table: string, row: Row, optional: readonly string[]): Promise<void> {
+  const first = await sb().from(table).insert(row);
+  if (!first.error) return;
+  const present = optional.filter((c) => c in row);
+  if (present.length === 0 || !isMissingColumn(first.error)) throw first.error;
+  const stripped = { ...row };
+  for (const c of present) delete stripped[c];
+  const second = await sb().from(table).insert(stripped);
+  if (second.error) throw second.error;
+}
+
 export class SupabasePoolRepo implements PoolRepo {
   private toRow(p: Partial<PoolRecord>): Row {
     const r: Row = {};
     if (p.id !== undefined) r.id = p.id;
     if (p.onchainId !== undefined) r.onchain_id = p.onchainId.toLowerCase();
+    if (p.contractAddress !== undefined) r.contract_address = p.contractAddress.toLowerCase();
     if (p.creator !== undefined) r.creator = p.creator.toLowerCase();
     if (p.gateMode !== undefined) r.gate_mode = p.gateMode;
     if (p.gateAddress !== undefined) r.gate_address = p.gateAddress.toLowerCase();
@@ -198,6 +216,8 @@ export class SupabasePoolRepo implements PoolRepo {
     return {
       id: String(r.id),
       onchainId: r.onchain_id as Hex,
+      // Absent on rows older than the column: a pool in the first deployment (see `poolContractOf`).
+      contractAddress: (r.contract_address as Address | null) ?? undefined,
       creator: r.creator as Address,
       gateMode: r.gate_mode as PoolRecord["gateMode"],
       gateAddress: r.gate_address as Address,
@@ -233,8 +253,7 @@ export class SupabasePoolRepo implements PoolRepo {
   }
 
   async create(p: PoolRecord) {
-    const { error } = await sb().from("gift_pools").insert(this.toRow(p));
-    if (error) throw error;
+    await insertTolerant("gift_pools", this.toRow(p), ["contract_address"]);
     if (p.legs.length > 0) {
       const { error: legError } = await sb()
         .from("gift_pool_legs")

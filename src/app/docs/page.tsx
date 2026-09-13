@@ -14,7 +14,8 @@ import {
   STOCK_ORACLE_REGISTRY_ADDRESS,
   USDC_ADDRESS,
 } from "@/config/chain";
-import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow/index";
+import { GIFT_ESCROW_ADDRESS, LEGACY_GIFT_ESCROW_ADDRESSES } from "@/lib/escrow/index";
+import { GIFT_POOL_ADDRESS, LEGACY_GIFT_POOL_ADDRESSES, isPoolDeployed } from "@/lib/pool/index";
 import { GPV2_SETTLEMENT, GPV2_VAULT_RELAYER } from "@/providers/trading/cow/adapter";
 import { LP_MANAGER_INFO } from "@/lib/earn/lp-managers";
 import { IntegrationMark } from "@/components/common/IntegrationMark";
@@ -116,6 +117,20 @@ const GIFT_SPEC: Array<[string, string]> = [
   ["Reentrancy", "Checks-effects-interactions plus a mutex guard"],
 ];
 
+const lower = (a: string) => a.toLowerCase();
+
+/**
+ * The app's own contracts, current deployment first and every earlier one after it. Records made
+ * against an earlier deployment keep working (their claims, reclaims and withdrawals go to the
+ * contract that holds the stock), so a reader checking a receipt may well be looking at one.
+ */
+const OWN_CONTRACTS: Array<{ label: string; address: string; note: string }> = [
+  { label: "BaseStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds claim-link gifts until claim or reclaim" },
+  ...LEGACY_GIFT_ESCROW_ADDRESSES.filter((a) => lower(a) !== lower(GIFT_ESCROW_ADDRESS)).map((a) => ({ label: "GiftEscrow (legacy)", address: a, note: "Earlier deployment; gifts locked there still claim and reclaim from it" })),
+  ...(isPoolDeployed() ? [{ label: "BaseStocks GiftPool", address: GIFT_POOL_ADDRESS as string, note: "Ownerless, verified; holds gift pools until claimed, cancelled or withdrawn" }] : []),
+  ...LEGACY_GIFT_POOL_ADDRESSES.filter((a) => !isPoolDeployed() || lower(a) !== lower(GIFT_POOL_ADDRESS)).map((a) => ({ label: "GiftPool (legacy)", address: a, note: "Earlier deployment; pools funded there still pay out of and withdraw from it" })),
+];
+
 const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "B20 factory", address: B20_FACTORY_ADDRESS, note: "Deploys Coinbase Tokenized Stock (B20) tokens" },
   { label: "Activation registry", address: B20_ACTIVATION_REGISTRY_ADDRESS, note: "B20 activation state" },
@@ -123,7 +138,7 @@ const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "Stock OracleRegistry", address: STOCK_ORACLE_REGISTRY_ADDRESS, note: "getOracleParams(token) → (multiplier, paused)" },
   { label: "Coinbase B20 creator", address: COINBASE_B20_CREATORS[0]!, note: "Only tokens created by this EOA are trusted in discovery" },
   { label: "USDC", address: USDC_ADDRESS, note: "Quote and settlement currency, 6 decimals" },
-  { label: "BaseStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds gifts until claim or reclaim" },
+  ...OWN_CONTRACTS,
   { label: "CoW GPv2Settlement", address: GPV2_SETTLEMENT, note: "EIP-712 domain “Gnosis Protocol” v2; settles limit orders" },
   { label: "CoW VaultRelayer", address: GPV2_VAULT_RELAYER, note: "The only spender approved for CoW orders" },
   ...LP_MANAGER_INFO.map((m) => ({ label: `${m.label} position manager`, address: m.npm, note: `Mint / collect / withdraw; factory ${m.factory.slice(0, 10)}…` })),

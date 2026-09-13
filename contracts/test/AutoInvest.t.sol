@@ -22,7 +22,8 @@ contract MockERC20 {
     uint8 public immutable decimals;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
-    /// @dev Optional B20-style multiplier (only read by the contract under test through `multiplier()`).
+    /// @dev B20-style multiplier. The contract under test must NOT read it: the feeds it prices
+    ///      against are total-return (USD per raw token), and the tests pin that it stays ignored.
     uint256 public multiplier = 1e18;
 
     constructor(string memory s, uint8 d) {
@@ -554,16 +555,20 @@ contract AutoInvestTest {
         _eq(auto_.quoteFloor(address(aapl), 100e6, SLIPPAGE), 0, "no feed, no floor");
     }
 
-    /// After a 2:1 split the multiplier doubles: one raw token is two shares, so half as many raw
-    /// units buy the same dollars. The floor must shrink with it or every run would fail.
-    function test_quote_floor_follows_the_multiplier() public {
+    /// The Coinbase feeds are total-return: the answer is already USD per RAW token. After a 2:1
+    /// split the multiplier doubles and the feed halves on its own, so the raw units $100 buys at a
+    /// given answer never depend on the multiplier. (The first deployment divided by it once more,
+    /// which would have loosened the floor by the multiplier after the first split.)
+    function test_quote_floor_ignores_the_multiplier() public {
         feed.set(200e8, START);
         vm.prank(DEPLOYER);
         auto_.setFeed(address(nvda), address(feed));
+        _eq(auto_.quoteFloor(address(nvda), 100e6, 0), 50_000_000, "at 1e18");
         nvda.setMultiplier(2e18);
-        _eq(auto_.quoteFloor(address(nvda), 100e6, 0), 25_000_000, "half the raw units");
+        _eq(auto_.quoteFloor(address(nvda), 100e6, 0), 50_000_000, "same raw units at 2e18");
         nvda.setMultiplier(5e17);
-        _eq(auto_.quoteFloor(address(nvda), 100e6, 0), 100_000_000, "double the raw units");
+        _eq(auto_.quoteFloor(address(nvda), 100e6, 0), 50_000_000, "same raw units at 5e17");
+        _eq(auto_.quoteFloor(address(nvda), 100e6, SLIPPAGE), 48_500_000, "slippage still applies");
     }
 
     function test_quote_floor_is_zero_when_the_feed_cannot_be_trusted() public {
@@ -594,6 +599,77 @@ contract AutoInvestTest {
         _run(id, _single(_swap(router, address(nvda), PER_RUN, 4e7, 1)));
         _run(id, _single(_swap(router, address(nvda), PER_RUN, 48_500_000, 1)));
         _eq(nvda.balanceOf(ALICE), 48_500_000, "exactly the floor passes");
+    }
+
+    /// A stock with a feed registered does not run while that feed is unusable, however lax the
+    /// keeper's minOut: a leaked keeper key must not be able to route a leg at minOut 1 during an
+    /// outage. The run costs the owner nothing and resumes as soon as the feed is healthy again.
+    function test_execute_refuses_a_leg_whose_feed_is_unusable() public {
+        uint256 id = _plan();
+        feed.set(200e8, START);
+        vm.prank(DEPLOYER);
+        auto_.setFeed(address(nvda), address(feed));
+
+        // Older than MAX_FEED_AGE.
+        vm.warp(START + 4 days + 1);
+        vm.expectRevert(abi.encodeWithSelector(AutoInvest.FloorUnavailable.selector, 0));
+        _run(id, _single(_swap(router, address(nvda), PER_RUN, 5e7, 1)));
+        // Non-positive answers.
+        feed.set(0, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(AutoInvest.FloorUnavailable.selector, 0));
+        _run(id, _single(_swap(router, address(nvda), PER_RUN, 5e7, 1)));
+        feed.set(-1, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(AutoInvest.FloorUnavailable.selector, 0));
+        _run(id, _single(_swap(router, address(nvda), PER_RUN, 5e7, 1)));
+        // A feed that does not answer at all.
+        vm.prank(DEPLOYER);
+        auto_.setFeed(address(nvda), address(usdc));
+        vm.expectRevert(abi.encodeWithSelector(AutoInvest.FloorUnavailable.selector, 0));
+        _run(id, _single(_swap(router, address(nvda), PER_RUN, 5e7, 1)));
+        _eq(usdc.balanceOf(ALICE), 10_000e6, "nothing left the wallet");
+        _eq(nvda.balanceOf(ALICE), 0, "nothing was bought");
+        (, uint40 next, uint32 runs) = _status(id);
+        _eq(runs, 0, "no run recorded");
+        _eq(next, START, "still due");
+
+        // Healthy again: the same swap runs, judged against the floor as usual.
+        feed.set(200e8, block.timestamp);
+        vm.prank(DEPLOYER);
+        auto_.setFeed(address(nvda), address(feed));
+        _run(id, _single(_swap(router, address(nvda), PER_RUN, 5e7, 1)));
+        _eq(nvda.balanceOf(ALICE), 5e7, "bought once the feed is back");
+    }
+
+    /// No feed registered: today's behaviour, the keeper's minOut and a non-zero delivery decide.
+    function test_execute_without_a_feed_still_runs_on_min_out() public {
+        uint256 id = _plan();
+        require(auto_.feeds(address(nvda)) == address(0), "no feed");
+        _eq(auto_.quoteFloor(address(nvda), PER_RUN, SLIPPAGE), 0, "no floor either");
+        _run(id, _single(_swap(router, address(nvda), PER_RUN, 1, 1)));
+        _eq(nvda.balanceOf(ALICE), 1, "minOut alone decided");
+    }
+
+    /// An outage on one stock's feed holds back only the legs that buy that stock: the keeper skips
+    /// them (amountIn 0) and the rest of the basket runs; filling the held leg reverts the run.
+    function test_feed_outage_blocks_only_the_legs_that_use_the_feed() public {
+        uint256 id = _basket();
+        feed.set(200e8, START);
+        vm.prank(DEPLOYER);
+        auto_.setFeed(address(nvda), address(feed));
+        vm.warp(START + 4 days + 1); // nvda's feed is now stale; aapl has none
+
+        AutoInvest.Swap memory skip;
+        vm.expectRevert(abi.encodeWithSelector(AutoInvest.FloorUnavailable.selector, 0));
+        _run(id, _pair(_swap(router, address(nvda), 60e6, 3e7, 1), _swap(router, address(aapl), 40e6, 2e7, 1)));
+
+        vm.expectEmit(true, true, false, true);
+        emit LegSkipped(id, address(nvda));
+        vm.expectEmit(true, true, false, true);
+        emit LegFilled(id, address(aapl), 40e6, 2e7);
+        _run(id, _pair(skip, _swap(router, address(aapl), 40e6, 2e7, 1)));
+        _eq(usdc.balanceOf(ALICE), 10_000e6 - 40e6, "only the feedless leg was charged");
+        _eq(nvda.balanceOf(ALICE), 0, "held leg bought nothing");
+        _eq(aapl.balanceOf(ALICE), 2e7, "other leg filled");
     }
 
     /* ------------------------------- operator ---------------------------- */

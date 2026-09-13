@@ -8,7 +8,7 @@ import { newId } from "@/lib/execution/portfolio-execution";
 import { USDC_DECIMALS } from "@/config/chain";
 import { validateAllocations } from "./portfolio-service";
 import { isCuratedAsset, findCuratedAsset } from "@/lib/b20/registry";
-import { AUTO_INVEST_ADDRESS, allocationsFromLegs, intervalToCadenceDays, isAutoInvestDeployed, usdcToUsd, type OnchainPlan, type PlanFunding } from "@/lib/auto-invest";
+import { AUTO_INVEST_ADDRESS, KNOWN_AUTO_INVEST_ADDRESSES, allocationsFromLegs, autoInvestAddressOf, intervalToCadenceDays, isAutoInvestDeployed, isKnownAutoInvest, usdcToUsd, type OnchainPlan, type PlanFunding } from "@/lib/auto-invest";
 import { readFunding, readFundingMany, readOnchainPlan, readOnchainPlansOf } from "./auto-invest-chain";
 import { verifyTrade } from "./tx-verify-service";
 
@@ -37,6 +37,11 @@ export interface CreateRuleInput {
   /** Auto plans: the id the contract assigned, and the transaction that created it. */
   onchainPlanId?: string;
   txHash?: Hash;
+  /**
+   * Auto plans: the deployment the plan was created in. Normally the current contract; named
+   * explicitly so a plan signed just before a contract switch is still mirrored from the right place.
+   */
+  onchainContract?: Address;
 }
 
 export const HISTORY_CAP = 30;
@@ -105,19 +110,29 @@ export async function createRule(owner: Address, input: CreateRuleInput): Promis
 async function createAutoMirror(owner: Address, input: CreateRuleInput, now: number): Promise<AutomationRule> {
   if (!isAutoInvestDeployed()) throw new AppError("BAD_REQUEST", "Auto-invest is not enabled on this deployment.", 400);
   if (!input.onchainPlanId || !/^\d+$/.test(input.onchainPlanId)) throw new AppError("BAD_REQUEST", "Missing onchain plan id.", 400);
-  const plan = await readOnchainPlan(BigInt(input.onchainPlanId));
+  // New plans are created in the current contract; a client may name a known one explicitly, never an arbitrary one.
+  if (input.onchainContract && !isKnownAutoInvest(input.onchainContract)) throw new AppError("BAD_REQUEST", "That is not an AutoInvest contract this app knows.", 400);
+  const contract = input.onchainContract ?? (AUTO_INVEST_ADDRESS as Address);
+  const plan = await readOnchainPlan(contract, BigInt(input.onchainPlanId));
   if (!plan) throw new AppError("NOT_FOUND", "That plan does not exist onchain.", 404);
   if (plan.owner.toLowerCase() !== owner.toLowerCase()) throw new AppError("UNAUTHORIZED", "That plan belongs to another wallet.", 403);
-  const existing = (await getRepos().automation.list(owner)).find((r) => r.config.onchain?.planId === input.onchainPlanId);
+  const existing = (await getRepos().automation.list(owner)).find((r) => samePlan(r, plan));
   if (existing) return existing;
-  const funding = await readFunding(owner, plan.amountPerRun).catch(() => undefined);
+  const funding = await readFunding(plan.contract, owner, plan.amountPerRun).catch(() => undefined);
   const rule = mirrorRule(owner, plan, funding, { basketName: input.basketName, createdTx: input.txHash }, now);
   return getRepos().automation.create(rule);
 }
 
+/** Plan ids start over in every deployment, so a mirror matches a plan only on (contract, id). */
+function samePlan(rule: AutomationRule, plan: OnchainPlan): boolean {
+  return rule.config.onchain?.planId === plan.planId.toString() && autoInvestAddressOf(rule).toLowerCase() === plan.contract.toLowerCase();
+}
+
 function mirrorOf(plan: OnchainPlan, funding: PlanFunding | undefined, createdTx?: Hash): AutomationOnchain {
   return {
-    contract: AUTO_INVEST_ADDRESS as Address,
+    // Where the plan was read from, never the env: a legacy plan must not migrate on paper when the
+    // contract new plans use changes underneath it.
+    contract: plan.contract,
     planId: plan.planId.toString(),
     createdTx,
     syncedAt: Date.now(),
@@ -166,6 +181,8 @@ export function mirrorPatch(rule: AutomationRule, plan: OnchainPlan, funding?: P
   const next = mirrorOf(plan, funding ?? prev?.funding, prev?.createdTx);
   const changed =
     !prev ||
+    // Mirrors written before the contract was recorded per plan pick it up on their first sync.
+    (prev.contract ?? "").toLowerCase() !== next.contract.toLowerCase() ||
     prev.status !== next.status ||
     prev.nextRunAt !== next.nextRunAt ||
     prev.runs !== next.runs ||
@@ -199,17 +216,21 @@ export async function listRulesSynced(owner: Address): Promise<AutomationRule[]>
   const repos = getRepos();
   if (!isAutoInvestDeployed()) return repos.automation.list(owner);
   return cached(`automation:synced:${owner.toLowerCase()}`, { ttlMs: 15_000 }, async () => {
-    const [rules, plans] = await Promise.all([repos.automation.list(owner), readOnchainPlansOf(owner).catch(() => null)]);
-    if (!plans) return rules;
+    // The wallet's plans in every deployment the app knows, current and legacy. A deployment that
+    // does not answer is skipped for this read: its mirrors stay as they were rather than vanish.
+    const [rules, ...perContract] = await Promise.all([repos.automation.list(owner), ...KNOWN_AUTO_INVEST_ADDRESSES.map((c) => readOnchainPlansOf(c, owner).catch(() => null))]);
+    if (perContract.every((p) => p === null)) return rules;
+    const plans = perContract.flatMap((p) => p ?? []);
     const out = [...rules];
-    const byPlan = new Map(rules.filter((r) => r.config.onchain).map((r) => [r.config.onchain!.planId, r]));
+    const key = (contract: Address, planId: string) => `${contract.toLowerCase()}:${planId}`;
+    const byPlan = new Map(rules.filter((r) => r.config.onchain).map((r) => [key(autoInvestAddressOf(r), r.config.onchain!.planId), r]));
     // One multicall for every active plan's funding, instead of one round trip per plan in turn.
     const active = plans.filter((p) => p.status === "active");
-    const fundings = await readFundingMany(active.map((p) => ({ owner, amountPerRun: p.amountPerRun }))).catch(() => [] as PlanFunding[]);
-    const fundingByPlan = new Map(active.map((p, i) => [p.planId.toString(), fundings[i]]));
+    const fundings = await readFundingMany(active.map((p) => ({ contract: p.contract, owner, amountPerRun: p.amountPerRun }))).catch(() => [] as PlanFunding[]);
+    const fundingByPlan = new Map(active.map((p, i) => [key(p.contract, p.planId.toString()), fundings[i]]));
     for (const plan of plans) {
-      const funding = fundingByPlan.get(plan.planId.toString());
-      const rule = byPlan.get(plan.planId.toString());
+      const funding = fundingByPlan.get(key(plan.contract, plan.planId.toString()));
+      const rule = byPlan.get(key(plan.contract, plan.planId.toString()));
       if (!rule) {
         const created = await repos.automation.create(mirrorRule(owner, plan, funding, {}, Date.now()));
         out.push(created);
@@ -357,9 +378,9 @@ export async function syncRule(owner: Address, id: string): Promise<AutomationRu
   const rule = (await getRepos().automation.list(owner)).find((r) => r.id === id);
   if (!rule) return null;
   if (!rule.config.onchain) return rule;
-  const plan = await readOnchainPlan(BigInt(rule.config.onchain.planId));
+  const plan = await readOnchainPlan(autoInvestAddressOf(rule), BigInt(rule.config.onchain.planId));
   if (!plan) return rule;
-  const funding = plan.status === "active" ? await readFunding(owner, plan.amountPerRun).catch(() => undefined) : undefined;
+  const funding = plan.status === "active" ? await readFunding(plan.contract, owner, plan.amountPerRun).catch(() => undefined) : undefined;
   const patch = mirrorPatch(rule, plan, funding);
   invalidateRules(owner);
   return patch ? getRepos().automation.update(id, owner, patch) : rule;

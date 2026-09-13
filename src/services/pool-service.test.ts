@@ -148,6 +148,17 @@ describe("reconcilePool", () => {
     expect((await pools.get("pool_t1"))?.lastReconciledAt).toBeTypeOf("number");
   });
 
+  it("scans the contract the pool lives in: the stored one, else the first deployment", async () => {
+    getLogs.mockResolvedValue([]);
+    // A record from before the column: a pool in the original GiftPool.
+    await reconcilePool(record());
+    expect(getLogs).toHaveBeenLastCalledWith(expect.objectContaining({ address: "0xBD23ABB61D80B88DacB1Dc56DC2641e4Bfb76E10" }));
+    // A record stamped with a redeployment: its claims are logged there, not in the old contract.
+    const NEW_POOL = "0x000000000000000000000000000000000000EeEe" as Address;
+    await reconcilePool(record({ contractAddress: NEW_POOL }));
+    expect(getLogs).toHaveBeenLastCalledWith(expect.objectContaining({ address: NEW_POOL }));
+  });
+
   it("never throws: an RPC failure is a zero result", async () => {
     getLogs.mockRejectedValue(new Error("rpc down"));
     expect(await reconcilePool(record())).toEqual({ found: 0, added: 0 });

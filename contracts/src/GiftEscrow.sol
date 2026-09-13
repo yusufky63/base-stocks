@@ -23,6 +23,11 @@ interface IERC20 {
  *         corporate-action multiplier changes while in escrow accrue to whoever withdraws;
  *         issuer transfer policies apply on the way in and out — a blocked or paused transfer
  *         reverts and the gift stays intact for a later retry.
+ *
+ *         A claim key is single-use. Once its gift has been claimed or reclaimed the id is marked
+ *         `spent` and `create` refuses it for good: the claim signature only covers (id, recipient),
+ *         so a second gift under the same key would let the first gift's signature be replayed to
+ *         the first recipient. The claim page never reuses a key, this just makes it impossible.
  */
 contract GiftEscrow {
     struct Gift {
@@ -35,6 +40,8 @@ contract GiftEscrow {
     /// @notice Gift id is derived from the claim key alone, so the claim page can locate the
     ///         gift onchain from the link secret: id = keccak256(abi.encode(claimKey)).
     mapping(bytes32 id => Gift) public gifts;
+    /// @notice Ids whose gift has been paid out or taken back. A spent id can never be created again.
+    mapping(bytes32 id => bool) public spent;
 
     /// @dev EIP-712 domain separator, bound to this chain and contract.
     bytes32 public immutable DOMAIN_SEPARATOR;
@@ -49,6 +56,7 @@ contract GiftEscrow {
 
     error AmountZero();
     error BadExpiry();
+    error BadRecipient();
     error GiftExists();
     error GiftUnknown();
     error GiftExpired();
@@ -85,13 +93,14 @@ contract GiftEscrow {
      * @notice Lock `amount` of `token` claimable by whoever can sign with `claimKey`.
      * @param memoRef Offchain reconciliation reference (hash of the app-side gift id), event-only.
      * @dev Requires a prior exact approval; approve + create batch atomically on Base Account.
+     *      Reverts `GiftExists` both for a live gift under this key and for a key already spent.
      */
     function create(address token, uint256 amount, address claimKey, uint64 expiry, bytes32 memoRef) external nonReentrant returns (bytes32 id) {
         if (amount == 0) revert AmountZero();
         if (claimKey == address(0)) revert BadSignature();
         if (expiry <= block.timestamp || expiry > block.timestamp + MAX_GIFT_DURATION) revert BadExpiry();
         id = giftId(claimKey);
-        if (gifts[id].sender != address(0)) revert GiftExists();
+        if (gifts[id].sender != address(0) || spent[id]) revert GiftExists();
         gifts[id] = Gift({sender: msg.sender, token: token, expiry: expiry, amount: amount});
         if (!IERC20(token).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
         emit GiftCreated(id, msg.sender, token, amount, expiry, memoRef);
@@ -100,14 +109,18 @@ contract GiftEscrow {
     /**
      * @notice Pay the gift out to `recipient`. Callable by anyone carrying a claim-key signature
      *         over (giftId, recipient), so gas can come from a sponsored smart account or a relayer.
+     *         The zero address is refused as a recipient: a signature over it would otherwise burn
+     *         the gift (most tokens revert on a zero-address transfer, but not all of them).
      */
     function claim(bytes32 id, address recipient, uint8 v, bytes32 r, bytes32 s) external nonReentrant {
         Gift memory g = gifts[id];
         if (g.sender == address(0)) revert GiftUnknown();
         if (block.timestamp > g.expiry) revert GiftExpired();
+        if (recipient == address(0)) revert BadRecipient();
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, keccak256(abi.encode(CLAIM_TYPEHASH, id, recipient))));
         address signer = ecrecover(digest, v, r, s);
         if (signer == address(0) || giftId(signer) != id) revert BadSignature();
+        spent[id] = true;
         delete gifts[id];
         if (!IERC20(g.token).transfer(recipient, g.amount)) revert TransferFailed();
         emit GiftClaimed(id, recipient, g.token, g.amount);
@@ -118,6 +131,7 @@ contract GiftEscrow {
         Gift memory g = gifts[id];
         if (g.sender == address(0)) revert GiftUnknown();
         if (g.sender != msg.sender) revert NotSender();
+        spent[id] = true;
         delete gifts[id];
         if (!IERC20(g.token).transfer(g.sender, g.amount)) revert TransferFailed();
         emit GiftReclaimed(id, g.sender, g.token, g.amount);

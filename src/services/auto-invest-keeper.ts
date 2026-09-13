@@ -10,7 +10,7 @@ import { newId } from "@/lib/execution/portfolio-execution";
 import { buyLegBlockedReason, tradingStatus } from "@/lib/trading-status";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { getKeeperWalletClient, keeperAccount } from "@/lib/viem/keeper-client";
-import { AUTO_INVEST_ADDRESS, autoInvestAbi, decodeAutoInvestError, isAutoInvestDeployed, legAmountIn, skippedSwap, usdcToUsd, type AutoInvestSwap, type OnchainPlan } from "@/lib/auto-invest";
+import { KNOWN_AUTO_INVEST_ADDRESSES, autoInvestAbi, autoInvestAddressOf, decodeAutoInvestError, isAutoInvestDeployed, isKnownAutoInvest, legAmountIn, skippedSwap, usdcToUsd, type AutoInvestSwap, type OnchainPlan } from "@/lib/auto-invest";
 import { getAssets } from "./b20-asset-service";
 import { getPriceViews } from "./price-service";
 import { tradeRouter } from "./trade-router";
@@ -64,7 +64,9 @@ export interface RunPlanResult {
 export async function buildRunSwaps(plan: OnchainPlan, opts: { skipIndexes?: Set<number> } = {}): Promise<RunPlanResult> {
   const assets = await getAssets();
   const views = await getPriceViews(assets);
-  const contract = AUTO_INVEST_ADDRESS as Address;
+  // The deployment the plan lives in: it is the taker of every quote, the allow-list that judges
+  // the route, and the contract whose floor the leg must clear. V1 and V2 differ on all three.
+  const contract = plan.contract;
   const legs: PlannedLeg[] = [];
   const swaps: AutoInvestSwap[] = [];
   let total = 0n;
@@ -106,7 +108,7 @@ export async function buildRunSwaps(plan: OnchainPlan, opts: { skipIndexes?: Set
       skip(quote.error);
       continue;
     }
-    const floor = await readFloor(leg.asset, amountIn, plan.maxSlippageBps).catch(() => 0n);
+    const floor = await readFloor(contract, leg.asset, amountIn, plan.maxSlippageBps).catch(() => 0n);
     // The contract answers 0 when the leg has no usable feed (none registered, or the answer is
     // older than its four-day limit) and then enforces only the route's own minOut. For a stock
     // that *has* a reference feed that is not a price check, it is the absence of one: a keeper
@@ -141,7 +143,8 @@ async function quoteAllowedRoute(taker: Address, recipient: Address, assetAddres
       tried.add(q.provider);
       if (!q.transaction || q.transaction.value !== "0") return null;
       if (!q.allowanceSpender) return null;
-      const allowed = await readRouteAllowed(q.transaction.to, q.allowanceSpender);
+      // The taker is the contract that will execute the swap, so its allow-list is the one that counts.
+      const allowed = await readRouteAllowed(taker, q.transaction.to, q.allowanceSpender);
       if (!allowed.router || !allowed.spender) {
         lastError = `${q.provider} is not on the contract's allow-list`;
         return null;
@@ -196,7 +199,7 @@ export async function executeRun(plan: OnchainPlan, prepared: RunPlanResult, hoo
   const wallet = getKeeperWalletClient();
   const account = keeperAccount();
   const client = getServerPublicClient();
-  const address = AUTO_INVEST_ADDRESS as Address;
+  const address = plan.contract;
   const legRecords = (): AutomationRunLeg[] => prepared.legs.map((l) => ({ assetAddress: l.assetAddress, symbol: l.symbol, spentUsd: l.skipped ? 0 : l.usd, provider: l.provider, skipped: l.skipped }));
   if (!wallet || !account) return { ok: false, legs: legRecords(), error: "No keeper is configured on this server.", retryAfterMs: RETRY_AFTER_MS };
   if (prepared.total === 0n) return { ok: false, legs: legRecords(), error: prepared.legs.map((l) => `${l.symbol}: ${l.skipped}`).join("; ") || "Nothing to buy.", retryAfterMs: RETRY_AFTER_MS };
@@ -244,13 +247,16 @@ export async function executeRun(plan: OnchainPlan, prepared: RunPlanResult, hoo
 export async function outcomeFromReceipt(plan: OnchainPlan, txHash: Hash, reasons: Map<string, string> = new Map()): Promise<RunOutcome> {
   const client = getServerPublicClient();
   const receipt = await client.getTransactionReceipt({ hash: txHash });
-  if (receipt.to?.toLowerCase() !== (AUTO_INVEST_ADDRESS as string).toLowerCase()) throw new AppError("BAD_REQUEST", "That transaction did not call the AutoInvest contract.", 400);
+  // The plan's own deployment, not "any AutoInvest": plan #3 of the other contract is someone else's.
+  if (receipt.to?.toLowerCase() !== plan.contract.toLowerCase()) throw new AppError("BAD_REQUEST", "That transaction did not call this plan's AutoInvest contract.", 400);
   const assets = await getAssets();
   const symbolOf = (a: Address) => assets.find((x) => x.canonicalId === a.toLowerCase())?.symbol ?? a.slice(0, 8);
   if (receipt.status !== "success") return { ok: false, txHash, legs: [], error: "The run reverted onchain; no USDC moved." };
-  const filled = parseEventLogs({ abi: autoInvestAbi, logs: receipt.logs, eventName: "LegFilled" }).filter((e) => e.args.planId === plan.planId);
-  const skipped = parseEventLogs({ abi: autoInvestAbi, logs: receipt.logs, eventName: "LegSkipped" }).filter((e) => e.args.planId === plan.planId);
-  const executed = parseEventLogs({ abi: autoInvestAbi, logs: receipt.logs, eventName: "PlanExecuted" }).find((e) => e.args.planId === plan.planId);
+  // Only this contract's events count; a router along the way may emit a same-shaped event.
+  const logs = receipt.logs.filter((l) => l.address.toLowerCase() === plan.contract.toLowerCase());
+  const filled = parseEventLogs({ abi: autoInvestAbi, logs, eventName: "LegFilled" }).filter((e) => e.args.planId === plan.planId);
+  const skipped = parseEventLogs({ abi: autoInvestAbi, logs, eventName: "LegSkipped" }).filter((e) => e.args.planId === plan.planId);
+  const executed = parseEventLogs({ abi: autoInvestAbi, logs, eventName: "PlanExecuted" }).find((e) => e.args.planId === plan.planId);
   if (!executed) throw new AppError("BAD_REQUEST", "That transaction did not run this plan.", 400);
   const legs: AutomationRunLeg[] = [
     ...filled.map((e) => ({ assetAddress: e.args.asset, symbol: symbolOf(e.args.asset), spentUsd: usdcToUsd(e.args.spent), received: e.args.received.toString() })),
@@ -287,8 +293,8 @@ export async function recordRun(rule: AutomationRule, plan: OnchainPlan, outcome
     invalidatePortfolioSnapshot(rule.owner);
   }
   const record: AutomationRunRecord = { at: now, ok: outcome.ok, via, txHash: outcome.txHash, spentUsd: outcome.spentUsd, legs: outcome.legs, error: outcome.error };
-  const after = (await readOnchainPlan(plan.planId).catch(() => null)) ?? plan;
-  const funding = await readFunding(rule.owner, after.amountPerRun).catch(() => undefined);
+  const after = (await readOnchainPlan(plan.contract, plan.planId).catch(() => null)) ?? plan;
+  const funding = await readFunding(plan.contract, rule.owner, after.amountPerRun).catch(() => undefined);
   const patch = mirrorPatch(rule, after, funding) ?? {};
   const config = { ...(patch.config ?? rule.config) };
   config.history = [record, ...(rule.config.history ?? [])].slice(0, HISTORY_CAP);
@@ -306,6 +312,8 @@ export interface KeeperReport {
   reason?: string;
   keeper?: Address;
   keeperEth?: string;
+  /** The deployments this tick serves: the one new plans use, then the legacy ones still running plans. */
+  contracts: Address[];
   checked: number;
   executed: Array<{ ruleId: string; planId: string; txHash: Hash; spentUsd: number }>;
   failed: Array<{ ruleId: string; planId: string; error: string }>;
@@ -341,7 +349,7 @@ export async function runDuePlans(opts: { limit?: number; now?: number } = {}): 
   const started = Date.now();
   const now = opts.now ?? started;
   const limit = opts.limit ?? serverEnv().AUTOMATION_MAX_RUNS_PER_TICK;
-  const report: KeeperReport = { enabled: true, checked: 0, executed: [], failed: [], pending: [], ms: 0 };
+  const report: KeeperReport = { enabled: true, contracts: [...KNOWN_AUTO_INVEST_ADDRESSES], checked: 0, executed: [], failed: [], pending: [], ms: 0 };
   if (!isAutoInvestDeployed()) return { ...report, enabled: false, reason: "NEXT_PUBLIC_AUTO_INVEST_ADDRESS is not set", ms: Date.now() - started };
   const account = keeperAccount();
   if (!account) return { ...report, enabled: false, reason: "AUTOMATION_KEEPER_KEY is not set", ms: Date.now() - started };
@@ -360,9 +368,11 @@ export async function runDuePlans(opts: { limit?: number; now?: number } = {}): 
   for (let offset = 0; ; offset += KEEPER_PAGE) {
     const rules = await repos.automation.listAuto(KEEPER_PAGE, offset);
     if (rules.length === 0) break;
-    const withPlan = rules.filter((r) => r.config.onchain);
-    // One multicall for the page's plans instead of one round trip per rule.
-    const plans = await readOnchainPlans(withPlan.map((r) => BigInt(r.config.onchain!.planId))).catch(() => withPlan.map(() => null));
+    // The keeper signs `execute` against a plan's contract, so it only ever serves deployments it
+    // knows; a mirror naming anything else is left alone rather than driven.
+    const withPlan = rules.filter((r) => r.config.onchain && isKnownAutoInvest(autoInvestAddressOf(r)));
+    // One multicall for the page's plans, whichever deployment each lives in, instead of one round trip per rule.
+    const plans = await readOnchainPlans(withPlan.map((r) => ({ contract: autoInvestAddressOf(r), planId: BigInt(r.config.onchain!.planId) }))).catch(() => withPlan.map(() => null));
     const planByRule = new Map(withPlan.map((r, i) => [r.id, plans[i] ?? null]));
     for (const rule of rules) {
       if (report.executed.length + report.failed.length >= limit) break;
@@ -387,7 +397,7 @@ export async function runDuePlans(opts: { limit?: number; now?: number } = {}): 
       if (rule.config.runningSince && now - rule.config.runningSince < RUN_LOCK_MS) continue;
       if (rule.config.lastError?.retryAt && rule.config.lastError.retryAt > now) continue;
 
-      const funding = await readFunding(rule.owner, plan.amountPerRun).catch(() => undefined);
+      const funding = await readFunding(plan.contract, rule.owner, plan.amountPerRun).catch(() => undefined);
       if (funding && !funding.enough) {
         const message = BigInt(funding.usdcBalance) < plan.amountPerRun ? "Not enough USDC in the wallet for this run." : "The USDC allowance no longer covers a run; approve more to continue.";
         await repos.automation.update(rule.id, rule.owner, { config: { ...rule.config, onchain: { ...onchain, funding }, lastError: { at: now, message, retryAt: now + FUNDING_RETRY_MS } } }).catch(() => undefined);

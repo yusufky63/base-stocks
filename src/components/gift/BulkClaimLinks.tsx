@@ -91,6 +91,10 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
       const expiresAt = Date.now() + days * 24 * 3600 * 1000;
       const expiry = BigInt(Math.floor(expiresAt / 1000));
       const made: Array<{ record: GiftRecord; createData: `0x${string}`; url: string }> = [];
+      // Every record in this batch is stamped with the same escrow by the server; the approval
+      // and the creates all go there. A record without one is brand new, so the current escrow
+      // is the only answer.
+      let escrow: typeof GIFT_ESCROW_ADDRESS = GIFT_ESCROW_ADDRESS;
       for (let i = 0; i < count; i++) {
         const secret = makeClaimSecret();
         const { gift: record } = await apiPost<{ gift: GiftRecord }>("/api/gifts", {
@@ -102,13 +106,14 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
           escrowId: secret.escrowId,
           expiresAt,
         });
+        escrow = record.escrowAddress ?? escrow;
         made.push({
           record,
           createData: encodeFunctionData({ abi: giftEscrowAbi, functionName: "create", args: [asset.address, rawPer, secret.claimKey, expiry, record.memo] }),
           url: `${window.location.origin}${claimPath(record.id, secret.privateKey)}`,
         });
       }
-      const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [GIFT_ESCROW_ADDRESS, totalRaw] });
+      const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [escrow, totalRaw] });
 
       /**
        * One prompt instead of one per link, wherever the wallet can manage it. A wallet that
@@ -126,7 +131,7 @@ export function BulkClaimLinks({ asset, raw, scaled, priceUsd, onSent }: { asset
         sponsor: true,
         batchWithoutAtomic: true,
         timeoutMs: 240_000,
-        calls: [{ to: asset.address, data: approveData }, ...made.map((m) => ({ to: GIFT_ESCROW_ADDRESS, data: m.createData }))],
+        calls: [{ to: asset.address, data: approveData }, ...made.map((m) => ({ to: escrow, data: m.createData }))],
       });
       // The approval is call 0; link i is call i + 1.
       const perLink = made.map((_, i) => hashes[i + 1]);

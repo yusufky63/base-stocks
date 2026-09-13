@@ -12,13 +12,10 @@ interface IERC20 {
     function decimals() external view returns (uint8);
 }
 
-/// @notice B20 tokenized stocks scale raw units to share-equivalents: scaled = raw × multiplier / 1e18.
-///         A corporate action changes the multiplier, not anyone's raw balance.
-interface IB20Multiplier {
-    function multiplier() external view returns (uint256);
-}
-
-/// @notice Chainlink AggregatorV3 — the "Coinbase <TICKER>" total-return feeds price one SHARE.
+/// @notice Chainlink AggregatorV3. The "Coinbase <TICKER>" feeds are total-return: the answer is USD per
+///         RAW token, not per share. A corporate action moves the price and the B20 multiplier in
+///         opposite directions and the raw-token value stays continuous, so the multiplier plays no
+///         part in sizing a floor.
 interface IAggregatorV3 {
     function decimals() external view returns (uint8);
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
@@ -43,6 +40,9 @@ interface IAggregatorV3 {
  *         - output: the owner's stock balance must grow by at least the keeper's `minOut`, by more
  *           than zero, and — when a Chainlink feed is registered for the stock — by at least the
  *           reference price less the plan's own slippage tolerance;
+ *         - reference: a leg whose stock has a feed registered does not run while that feed is
+ *           unusable (stale, non-positive, not answering); `minOut` alone is never allowed to decide
+ *           such a leg, so a leaked keeper key cannot route it at `minOut = 1` during a feed outage;
  *         - custody: USDC enters and leaves within one transaction; the contract never holds stock.
  *         The owner can pause, resume, edit or cancel a plan at any time, and revoking the USDC
  *         allowance stops everything regardless of what this contract thinks.
@@ -83,7 +83,6 @@ contract AutoInvest {
 
     IERC20 public immutable USDC;
     uint256 public immutable USDC_UNIT;
-    uint256 public constant WAD = 1e18;
     uint16 public constant TOTAL_BPS = 10_000;
     uint256 public constant MAX_LEGS = 12;
     uint32 public constant MIN_INTERVAL = 1 hours;
@@ -149,6 +148,7 @@ contract AutoInvest {
     error RouteNotAllowed();
     error SwapFailed();
     error TooLittleReceived(uint256 leg, uint256 received, uint256 required);
+    error FloorUnavailable(uint256 leg);
     error TransferFailed();
     error Reentered();
     error NotProposed();
@@ -311,8 +311,18 @@ contract AutoInvest {
 
     /// @dev Approve exactly one leg, call the router, reset the approval, then judge the outcome by
     ///      what the owner actually holds — never by what the router claims to have done.
+    ///      The reference is read before the swap: a stock with a feed registered must have a usable
+    ///      floor or the leg does not run at all (`FloorUnavailable`), whatever `minOut` says. A
+    ///      stock without a feed is judged by `minOut` and a non-zero delivery alone, as before.
     function _fill(uint256 planId, uint256 i, address planOwner, address asset, Swap calldata s, uint16 maxSlippageBps) private {
         if (!routerAllowed[s.target] || !spenderAllowed[s.spender]) revert RouteNotAllowed();
+        uint256 required = s.minOut;
+        if (feeds[asset] != address(0)) {
+            uint256 floor = quoteFloor(asset, s.amountIn, maxSlippageBps);
+            if (floor == 0) revert FloorUnavailable(i);
+            if (floor > required) required = floor;
+        }
+
         uint256 before = IERC20(asset).balanceOf(planOwner);
         _approve(s.spender, s.amountIn);
         (bool ok, bytes memory ret) = s.target.call(s.data);
@@ -320,9 +330,6 @@ contract AutoInvest {
         _approve(s.spender, 0);
 
         uint256 received = IERC20(asset).balanceOf(planOwner) - before;
-        uint256 required = s.minOut;
-        uint256 floor = quoteFloor(asset, s.amountIn, maxSlippageBps);
-        if (floor > required) required = floor;
         if (received == 0 || received < required) revert TooLittleReceived(i, received, required);
         emit LegFilled(planId, asset, s.amountIn, received);
     }
@@ -349,9 +356,14 @@ contract AutoInvest {
     /**
      * @notice Fewest raw stock units a leg spending `amountIn` USDC may deliver, from the registered
      *         Chainlink reference less `maxSlippageBps`; 0 when there is no usable reference (no feed,
-     *         a non-positive answer, or an answer older than MAX_FEED_AGE).
-     * @dev    The feed prices one share; the B20 multiplier turns shares into raw units
-     *         (raw = shares × 1e18 / multiplier), so a split or dividend never mis-sizes the floor.
+     *         a feed that does not answer, a non-positive answer, or one older than MAX_FEED_AGE).
+     *         `execute` treats 0 with a feed registered as "do not run this leg" (`FloorUnavailable`).
+     * @dev    The Coinbase feeds are total-return and already quote USD per RAW token, so the floor is
+     *         plain unit conversion: amountIn / answer, rescaled from USDC and feed decimals to the
+     *         stock's decimals. The B20 multiplier deliberately does not appear. The first deployment
+     *         divided by it once more, as if the feed priced a share; that was exact while every
+     *         multiplier was 1e18 and would have left the floor loose by the multiplier after the
+     *         first split.
      */
     function quoteFloor(address asset, uint256 amountIn, uint16 maxSlippageBps) public view returns (uint256) {
         address feed = feeds[asset];
@@ -365,11 +377,7 @@ contract AutoInvest {
             return 0;
         }
         if (answer <= 0 || updatedAt + MAX_FEED_AGE < block.timestamp) return 0;
-        uint256 multiplier = WAD;
-        try IB20Multiplier(asset).multiplier() returns (uint256 m) {
-            if (m > 0) multiplier = m;
-        } catch {}
-        uint256 expected = (amountIn * (10 ** IAggregatorV3(feed).decimals()) * (10 ** IERC20(asset).decimals()) * WAD) / (USDC_UNIT * uint256(answer) * multiplier);
+        uint256 expected = (amountIn * (10 ** IAggregatorV3(feed).decimals()) * (10 ** IERC20(asset).decimals())) / (USDC_UNIT * uint256(answer));
         return (expected * (TOTAL_BPS - maxSlippageBps)) / TOTAL_BPS;
     }
 

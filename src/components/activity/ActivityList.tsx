@@ -8,9 +8,9 @@ import { scaledAmount } from "@/lib/gift/format";
 import { Badge, cx } from "@/components/ui/primitives";
 import { TxLink } from "@/components/common/display";
 import { ShareButton } from "@/components/common/ShareSheet";
-import { GIFT_ESCROW_ADDRESS } from "@/lib/escrow";
-import { GIFT_POOL_ADDRESS } from "@/lib/pool";
-import { AUTO_INVEST_ADDRESS } from "@/lib/auto-invest";
+import { GIFT_ESCROW_ADDRESS, LEGACY_GIFT_ESCROW_ADDRESSES } from "@/lib/escrow";
+import { GIFT_POOL_ADDRESS, LEGACY_GIFT_POOL_ADDRESSES } from "@/lib/pool";
+import { AUTO_INVEST_ADDRESS, LEGACY_AUTO_INVEST_ADDRESSES } from "@/lib/auto-invest";
 
 const LABELS: Record<ActivityItem["type"], string> = {
   buy: "Bought",
@@ -70,9 +70,14 @@ const ICONS: Record<ActivityItem["type"], typeof ArrowDownLeft> = {
 };
 
 /** The app's own contracts, so a transfer the scan found on its own still reads as what it was. */
+// Every deployment the app has used, so a transfer that touched a first-generation contract is
+// still named rather than shown as a stranger's address.
 const CONTRACT_LABEL: Record<string, string> = {
+  ...Object.fromEntries(LEGACY_GIFT_ESCROW_ADDRESSES.map((a) => [a.toLowerCase(), "the gift escrow (legacy)"])),
+  ...Object.fromEntries(LEGACY_GIFT_POOL_ADDRESSES.map((a) => [a.toLowerCase(), "the gift pool contract (legacy)"])),
   [GIFT_ESCROW_ADDRESS.toLowerCase()]: "the gift escrow",
   ...(GIFT_POOL_ADDRESS ? { [GIFT_POOL_ADDRESS.toLowerCase()]: "the gift pool contract" } : {}),
+  ...Object.fromEntries(LEGACY_AUTO_INVEST_ADDRESSES.map((a) => [a.toLowerCase(), "the AutoInvest contract (legacy)"])),
   ...(AUTO_INVEST_ADDRESS ? { [AUTO_INVEST_ADDRESS.toLowerCase()]: "the AutoInvest contract" } : {}),
 };
 

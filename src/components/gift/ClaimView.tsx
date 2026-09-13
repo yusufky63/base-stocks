@@ -9,7 +9,7 @@ import { Gift, ShieldCheck, Sparkles } from "lucide-react";
 import type { GiftReceipt } from "@/domain/gift";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { apiGet } from "@/lib/client-api";
-import { GIFT_ESCROW_ADDRESS, giftEscrowAbi, parseClaimFragment, signClaim } from "@/lib/escrow";
+import { escrowAddressOf, giftEscrowAbi, parseClaimFragment, signClaim } from "@/lib/escrow";
 import { giftAmountLabel, giftPartyName } from "@/lib/gift/format";
 import { patchWithRetry } from "@/lib/gift/record";
 import { explainClaimError, pollWhenVisible, probeWalletCapabilities, sendCallsOrSequential } from "@/lib/gift/wallet";
@@ -54,6 +54,9 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
   const r = receiptQ.data;
   const gift = r.gift;
   const escrowId = (gift.escrowId ?? "0x") as Hex;
+  // The contract this gift is locked in, not the one new gifts go to: a link made before the
+  // escrow was redeployed still reads, claims and reclaims against the old contract.
+  const escrow = escrowAddressOf(gift);
 
   const hash = useSyncExternalStore(subscribeNoop, () => window.location.hash, () => "");
   const secret = useMemo(() => parseClaimFragment(hash), [hash]);
@@ -62,7 +65,7 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
   // One read covers everything this page needs from the chain, and it pauses in a hidden tab.
   const onchain = useReadContract({
     abi: giftEscrowAbi,
-    address: GIFT_ESCROW_ADDRESS,
+    address: escrow,
     functionName: "gifts",
     args: [escrowId],
     chainId: BASE_CHAIN_ID,
@@ -101,7 +104,7 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
     setError(null);
     setPhase("signing");
     try {
-      const sig = await signClaim(secret.privateKey, escrowId, address);
+      const sig = await signClaim(secret.privateKey, escrow, escrowId, address);
       const data = encodeFunctionData({ abi: giftEscrowAbi, functionName: "claim", args: [escrowId, address, sig.v, sig.r, sig.s] });
       const caps = await probeWalletCapabilities(walletClient, address);
       setPhase("awaiting");
@@ -112,8 +115,8 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
         address,
         caps,
         sponsor: true,
-        calls: [{ to: GIFT_ESCROW_ADDRESS, data }],
-        preflight: () => publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data }).then(() => undefined),
+        calls: [{ to: escrow, data }],
+        preflight: () => publicClient.call({ account: address, to: escrow, data }).then(() => undefined),
         onSubmitted: () => setPhase("submitted"),
       });
       setClaimTx(hash);
@@ -138,8 +141,8 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
         publicClient,
         address,
         caps: { atomic: false, paymaster: false },
-        calls: [{ to: GIFT_ESCROW_ADDRESS, data }],
-        preflight: () => publicClient.call({ account: address, to: GIFT_ESCROW_ADDRESS, data }).then(() => undefined),
+        calls: [{ to: escrow, data }],
+        preflight: () => publicClient.call({ account: address, to: escrow, data }).then(() => undefined),
       });
       if (hash) await patchWithRetry(`/api/gifts/${id}`, { status: "reclaimed", claimTx: hash });
       refresh();
@@ -250,7 +253,7 @@ export function ClaimView({ initialReceipt }: { initialReceipt: GiftReceipt }) {
         <ShieldCheck size={14} strokeWidth={1.75} />
         <span>
           Held by an ownerless escrow contract on Base:&nbsp;
-          <AddressLabel address={GIFT_ESCROW_ADDRESS} showCopy={false} explorer />
+          <AddressLabel address={escrow} showCopy={false} explorer />
         </span>
       </div>
 
