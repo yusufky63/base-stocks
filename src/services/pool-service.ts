@@ -304,6 +304,13 @@ export async function reconcilePool(record: PoolRecord): Promise<{ found: number
       if (inserted) added += 1;
       else await repos.poolClaims.update(record.id, recipient, { status: "reconciled", txHash: claim.txHash, blockNumber: claim.blockNumber }).catch(() => null);
     }
+    // The chain's verdict is written down, not only derived per view. A pool cancelled at the
+    // contract (a creator who approved the cancel and declined the withdrawal, or who called the
+    // contract directly) would otherwise stay "submitted" in the directory and be swept forever.
+    if (record.status !== "cancelled") {
+      const onchain = await readPoolOnchain(record);
+      if (onchain?.cancelled) await repos.pools.update(record.id, { status: "cancelled" }).catch(() => null);
+    }
     await repos.pools.touchReconciled(record.id).catch(() => undefined);
     return { found: logs.length, added };
   } catch (err) {

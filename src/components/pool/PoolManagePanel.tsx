@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, type Address, type Hash, type Hex } from "viem";
-import { Eye, EyeOff, Lock, RefreshCw } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, Lock, RefreshCw } from "lucide-react";
 import type { PoolClaim, PoolView } from "@/domain/pool";
 import { BASE_CHAIN_ID } from "@/config/chain";
 import { apiGet, apiPatch, apiPut, ApiError } from "@/lib/client-api";
@@ -38,9 +38,14 @@ function untilLabel(ms: number): string {
  *
  * Closing is deliberately two transactions' worth of work in one button: `cancel` only flips a
  * flag (so a paused stock can never stop the creator from closing), then `withdraw` moves the
- * remainder. On Base Account both go in one atomic batch; on other wallets they are confirmed one
- * after the other. If a single stock in a package is paused by its issuer, the batch trips on that
- * leg and the per-leg buttons bring the healthy ones home anyway.
+ * remainder. On Base Account both go in one atomic batch. On other wallets they are confirmed one
+ * after the other, and the first of the two cannot be undone, so the button asks once more before
+ * the wallet starts prompting, and the cancel is written down the moment it lands: a creator who
+ * approves the cancel and declines the withdrawal owns a closed pool with its remainder still
+ * inside, and the page should say exactly that and offer the withdrawal, not a generic error.
+ * A pool past its expiry needs no cancel at all, so it gets the one prompt.
+ * If a single stock in a package is paused by its issuer, the batch trips on that leg and the
+ * per-leg buttons bring the healthy ones home anyway.
  */
 export function PoolManagePanel({
   view,
@@ -75,6 +80,8 @@ export function PoolManagePanel({
   const [busy, setBusy] = useState<"close" | "sync" | "visibility" | number | null>(null);
   const [error, setError] = useState<HumanError | null>(null);
   const [tx, setTx] = useState<Hash | undefined>();
+  /** The creator has read that their wallet will prompt twice and that the first prompt is final. */
+  const [twoStepAcknowledged, setTwoStepAcknowledged] = useState(false);
 
   const claims = useQuery({
     queryKey: ["pool-claims", pool.id],
@@ -96,25 +103,57 @@ export function PoolManagePanel({
     return (await sendCallsOrSequential({ walletClient, publicClient, address, caps: { ...caps, atomic: caps.atomic && calls.length > 1 }, calls })).last;
   };
 
+  /**
+   * Tells the server the pool is closed. A cancel is reported with its hash so the server can
+   * match it to `PoolCancelled` rather than take the creator's word; the route wants the
+   * creator's session for it.
+   */
+  const recordClosed = async (cancelHash: Hash | undefined) => {
+    await ensureSignedIn().catch(() => undefined);
+    await patchWithRetry(`/api/pools/${pool.id}`, { status: "cancelled", ...(cancelHash ? { txHash: cancelHash } : {}) });
+    onChanged();
+  };
+
   const close = async () => {
     setError(null);
     setBusy("close");
     try {
-      const calls: Array<{ to: Address; data: Hex }> = [];
-      if (!cancelled) {
-        calls.push({ to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] }) });
-      }
-      if (!allWithdrawn) {
-        calls.push({ to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] }) });
-      }
+      if (!address || !walletClient || !publicClient) throw new Error("Connect your wallet first.");
+      // The contract lets an expired pool be withdrawn without a cancel. Two minutes of margin
+      // keeps a browser clock that runs ahead of the chain from asking for a withdrawal the
+      // contract still calls open.
+      const pastExpiry = now > 0 && now > (expiry ?? pool.expiry) + 120_000;
+      const cancelCall = cancelled || pastExpiry ? null : { to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "cancel", args: [pool.onchainId] }) };
+      const withdrawCall = allWithdrawn ? null : { to: contractAddress, data: encodeFunctionData({ abi: giftPoolAbi, functionName: "withdraw", args: [pool.onchainId] }) };
+      const calls = [cancelCall, withdrawCall].filter((c): c is { to: Address; data: Hex } => c !== null);
       if (calls.length === 0) return;
-      const hash = await send(calls);
+      const caps = await probeWalletCapabilities(walletClient, address);
+      const run = async (c: typeof calls) => (await sendCallsOrSequential({ walletClient, publicClient, address, caps: { ...caps, atomic: caps.atomic && c.length > 1 }, calls: c })).last;
+
+      if (cancelCall && withdrawCall && !caps.atomic) {
+        // Two prompts, and the first is the one that cannot be undone. Say so before the wallet
+        // does; then, once the cancel has landed, write it down before asking for the withdrawal,
+        // so a declined second prompt leaves a closed pool offering its remainder.
+        if (!twoStepAcknowledged) {
+          setTwoStepAcknowledged(true);
+          return;
+        }
+        setTwoStepAcknowledged(false);
+        const cancelHash = await run([cancelCall]);
+        setTx(cancelHash);
+        await recordClosed(cancelHash);
+        try {
+          setTx(await run([withdrawCall]));
+          onChanged();
+        } catch (err) {
+          setError({ ...humanizeError(err), message: "The pool is closed. The withdrawal was not sent, so the unclaimed remainder is still in the contract. Withdraw it whenever you like." });
+        }
+        return;
+      }
+
+      const hash = await run(calls);
       setTx(hash);
-      // The cancel is reported with its hash so the server can match it to `PoolCancelled`
-      // rather than take the creator's word; the route wants the creator's session for it.
-      await ensureSignedIn().catch(() => undefined);
-      await patchWithRetry(`/api/pools/${pool.id}`, { status: "cancelled", ...(hash && !cancelled ? { txHash: hash } : {}) });
-      onChanged();
+      await recordClosed(cancelCall ? hash : undefined);
     } catch (err) {
       setError(humanizeError(err));
     } finally {
@@ -242,8 +281,14 @@ export function PoolManagePanel({
                 title={locked ? `Unlocks ${new Date(lockedUntil).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : undefined}
                 onClick={() => void close()}
               >
-                {locked ? `Locked · unlocks in ${untilLabel(lockedUntil - now)}` : cancelled || expired ? "Withdraw the remainder" : "Close pool and withdraw"}
+                {locked ? `Locked · unlocks in ${untilLabel(lockedUntil - now)}` : cancelled || expired ? "Withdraw the remainder" : twoStepAcknowledged ? "Confirm: close, then withdraw" : "Close pool and withdraw"}
               </Button>
+              {twoStepAcknowledged && (
+                <p className="text-[12px] text-ink-muted inline-flex items-start gap-1.5" role="status">
+                  <CircleAlert size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                  Your wallet will ask twice. The first confirmation closes the pool for good; the second returns the unclaimed remainder. If you decline the second, the pool stays closed and the remainder waits in the contract until you withdraw it.
+                </p>
+              )}
               {locked && (
                 <p className="text-[12px] text-ink-muted inline-flex items-start gap-1.5">
                   <Lock size={12} strokeWidth={1.75} className="mt-0.5 shrink-0" />

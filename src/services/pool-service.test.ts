@@ -11,10 +11,11 @@ const getLogs = vi.fn();
 const getTransactionReceipt = vi.fn();
 const getBlockNumber = vi.fn();
 const blockTimes = vi.fn();
+const multicall = vi.fn();
 
 vi.mock("@/db/repositories", () => ({ getRepos: () => ({ pools, poolClaims }) }));
 vi.mock("@/lib/viem/server-client", () => ({
-  getServerPublicClient: () => ({ multicall: vi.fn() }),
+  getServerPublicClient: () => ({ multicall }),
   getLogPublicClient: () => ({ getLogs, getTransactionReceipt, getBlockNumber }),
 }));
 vi.mock("@/services/b20-asset-service", () => ({ getAssets: async () => [] }));
@@ -162,5 +163,29 @@ describe("reconcilePool", () => {
   it("never throws: an RPC failure is a zero result", async () => {
     getLogs.mockRejectedValue(new Error("rpc down"));
     expect(await reconcilePool(record())).toEqual({ found: 0, added: 0 });
+  });
+
+  it("writes a cancel the chain reports down, so a pool closed at the contract leaves the open list", async () => {
+    getLogs.mockResolvedValue([]);
+    const ZERO = "0x0000000000000000000000000000000000000000";
+    const expirySeconds = BigInt(Math.floor((NOW + 86_400_000) / 1000));
+    // A creator who approved `cancel` in their wallet and declined `withdraw`: the app never heard.
+    multicall.mockResolvedValueOnce([
+      { status: "success", result: [CREATOR, ZERO, 10, 2, expirySeconds, 0n, true] },
+      { status: "success", result: [] },
+      { status: "success", result: 8n },
+    ]);
+    await reconcilePool(record({ status: "submitted" }));
+    expect((await pools.get("pool_t1"))?.status).toBe("cancelled");
+
+    // Still open onchain: the record's status is left alone.
+    await pools.update("pool_t1", { status: "submitted" });
+    multicall.mockResolvedValueOnce([
+      { status: "success", result: [CREATOR, ZERO, 10, 2, expirySeconds, 0n, false] },
+      { status: "success", result: [] },
+      { status: "success", result: 8n },
+    ]);
+    await reconcilePool(record({ status: "submitted" }));
+    expect((await pools.get("pool_t1"))?.status).toBe("submitted");
   });
 });
