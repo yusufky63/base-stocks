@@ -4,7 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { AppShell } from "@/components/layout/AppShell";
 import { appMeta } from "@/lib/miniapp";
-import { BSTOCKS_X_URL } from "@/content/social";
+import { BSTOCKS_X_HANDLE, BSTOCKS_X_URL } from "@/content/social";
 
 const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["400", "500", "600"], display: "swap" });
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", weight: ["500", "700"], display: "swap" });
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     locale: "en_US",
     description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   },
-  twitter: { card: "summary_large_image", creator: "@codexsha" },
+  twitter: { card: "summary_large_image", site: `@${BSTOCKS_X_HANDLE}`, creator: `@${BSTOCKS_X_HANDLE}` },
   robots: { index: true, follow: true },
   // Icons come from the app/ file conventions (favicon.ico, icon.svg, apple-icon.tsx), which
   // override anything listed here: the blue tile with the white ascending blocks.

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BSTOCKS_X_HANDLE } from "@/content/social";
 
 const SITE = "BStocks";
 const DEFAULT_DESCRIPTION = "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.";
@@ -20,7 +21,7 @@ export function pageMeta(input: { title: string; description?: string; path: str
     description,
     alternates: { canonical: input.path },
     openGraph: { type: "website", siteName: SITE, locale: "en_US", url: input.path, title: full, description },
-    twitter: { card: "summary_large_image", creator: "@codexsha", title: full, description },
+    twitter: { card: "summary_large_image", site: `@${BSTOCKS_X_HANDLE}`, creator: `@${BSTOCKS_X_HANDLE}`, title: full, description },
     ...(input.noindex ? { robots: { index: false, follow: false } } : {}),
     ...(input.other ? { other: input.other } : {}),
   };

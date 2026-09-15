@@ -1,9 +1,8 @@
 /**
- * The X account BStocks points people at. This is the builder's own profile, not a brand
- * account: the two brand accounts were suspended, and a live personal account is worth more than
- * a dead branded one. One constant so the footer, the share sheet and the pool quests agree.
+ * The X account BStocks points people at: the brand account, re-created after the earlier ones
+ * were suspended. One constant so the footer, the share sheet and the pool quests agree.
  */
-export const BSTOCKS_X_HANDLE = "codexsha";
+export const BSTOCKS_X_HANDLE = "BStocksOnBase";
 export const BSTOCKS_X_URL = `https://x.com/${BSTOCKS_X_HANDLE}`;
 
 /** Strips a leading @ and anything that is not a legal X handle character. */
