@@ -83,7 +83,7 @@ const ALL_CATALOG = [...CHECKED_CATALOG, ...DECLARED_CATALOG];
  *
  * The two grades are labelled per row for what they actually are. Steps checked on Base cannot be
  * talked into passing. The rest — X actions, link visits — are the claimant's own confirmation:
- * nobody can read a follow, a repost, a like or a page view from outside, so BaseStocks records who
+ * nobody can read a follow, a repost, a like or a page view from outside, so BStocks records who
  * said what and when and marks it `declared` on the roster. Whoever funds a campaign should be
  * able to see which half of their list would survive someone lying.
  */

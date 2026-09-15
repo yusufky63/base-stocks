@@ -3,7 +3,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { BASE_CHAIN_ID } from "@/config/chain";
 
 /**
- * BaseStocks GiftPool (contracts/src/GiftPool.sol) on Base mainnet. Ownerless: it can only pay a
+ * BStocks GiftPool (contracts/src/GiftPool.sol) on Base mainnet. Ownerless: it can only pay a
  * claimant their exact share or return the unclaimed remainder to the creator. No admin, no
  * pause, no upgrade, no fee, no token allowlist.
  *

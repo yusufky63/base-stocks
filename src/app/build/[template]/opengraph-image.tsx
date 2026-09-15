@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { OG, OgCard, OgChip, OgCoins, OgCta, OgWeights, allocationSummary, hasCoinArt, allocationTickers, ogFonts, ogHeadlineSize } from "@/lib/og";
 import { getRepos } from "@/db/repositories";
 
-export const alt = "A portfolio template on BaseStocks";
+export const alt = "A portfolio template on BStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 

@@ -22,7 +22,7 @@ export function CommunityView({ embedded = false }: { embedded?: boolean } = {})
       {!embedded && (
       <PageTitle
         index="07 — Community"
-        title="What BaseStocks users are doing"
+        title="What BStocks users are doing"
         lead="Anonymous 7-day activity and baskets published by other users. Templates, not recommendations."
         action={
           <LinkButton href="/build" variant="primary">

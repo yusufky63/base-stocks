@@ -40,7 +40,7 @@ describe("gift amounts", () => {
 
 describe("party names", () => {
   it("refuses names that read like the brand or its support desk", () => {
-    for (const n of ["Coinbase Support", "coin_base", "BaseStocks", "bstocks team", "Official", "admin", "Base", "the base team", "Support Desk"]) {
+    for (const n of ["Coinbase Support", "coin_base", "BaseStocks", "BStocks", "bstocks team", "Official", "admin", "Base", "the base team", "Support Desk"]) {
       expect(isBrandLikeName(n), n).toBe(true);
     }
     for (const n of ["Alice", "database guy", "Basel Fan", "Based Bob was here", null, undefined, ""]) {

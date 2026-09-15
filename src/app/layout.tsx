@@ -14,10 +14,10 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "https://basestocks.finance"
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
-  title: { default: "BaseStocks — Stocks, built for onchain", template: "%s · BaseStocks" },
+  title: { default: "BStocks — Stocks, built for onchain", template: "%s · BStocks" },
   description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
-  applicationName: "BaseStocks",
-  appleWebApp: { capable: true, title: "BaseStocks", statusBarStyle: "default" },
+  applicationName: "BStocks",
+  appleWebApp: { capable: true, title: "BStocks", statusBarStyle: "default" },
   // The fallback for pages that do not call `pageMeta()`. Next replaces a nested block whole, but a
   // page without its own `openGraph` inherits this one, and Next fills a missing og:title from the
   // page's own <title>. So no `url` and no `title` here: with them, every such page previewed as
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   // treat as "this page").
   openGraph: {
     type: "website",
-    siteName: "BaseStocks",
+    siteName: "BStocks",
     locale: "en_US",
     description: "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.",
   },
@@ -50,8 +50,8 @@ export const viewport: Viewport = {
 const jsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@graph": [
-    { "@type": "WebSite", name: "BaseStocks", url: APP_URL, description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put supported assets to work on Base." },
-    { "@type": "Organization", name: "BaseStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png`, sameAs: [BSTOCKS_X_URL] },
+    { "@type": "WebSite", name: "BStocks", url: APP_URL, description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put supported assets to work on Base." },
+    { "@type": "Organization", name: "BStocks", url: APP_URL, logo: `${APP_URL}/brand/icon-1024.png`, sameAs: [BSTOCKS_X_URL] },
   ],
 });
 

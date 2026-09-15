@@ -117,7 +117,7 @@ export function GiftInbox({ address }: { address: Address }) {
                 <Link href={`/gifts/${giftId}`} className="inline-flex items-center gap-1 h-9 px-2.5 rounded-[6px] text-[12px] font-medium text-primary hover:bg-primary-soft transition-fast" onClick={() => dismissOne(giftId)}>
                   View <ArrowUpRight size={13} strokeWidth={2} />
                 </Link>
-                <ShareButton iconOnly path={`/gifts/${giftId}`} text={`I received ${amount} as a gift from ${who} on BaseStocks — tokenized stocks on Base.`} title="Share this gift" />
+                <ShareButton iconOnly path={`/gifts/${giftId}`} text={`I received ${amount} as a gift from ${who} on BStocks — tokenized stocks on Base.`} title="Share this gift" />
               </span>
             </li>
           );

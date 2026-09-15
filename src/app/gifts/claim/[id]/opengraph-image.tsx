@@ -3,7 +3,7 @@ import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts, ogHeadlineSize
 import { getGiftReceipt } from "@/services/gift-service";
 import { giftAmountLabel, giftPartyName } from "@/lib/gift/format";
 
-export const alt = "A gift on BaseStocks";
+export const alt = "A gift on BStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 

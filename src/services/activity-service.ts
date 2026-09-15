@@ -87,7 +87,7 @@ export async function getActivity(owner: Address, opts: { allowBackfill?: boolea
   const names = await Promise.all(counterparties.map((a) => reverseResolve(a).catch(() => null)));
   const nameMap = new Map(counterparties.map((a, i) => [a.toLowerCase(), names[i]]));
   for (const i of items) if (i.counterparty && !i.counterpartyBasename) i.counterpartyBasename = nameMap.get(i.counterparty.toLowerCase()) ?? undefined;
-  // BaseStocks handles for counterparties with a public profile here ("this member sent you a gift").
+  // BStocks handles for counterparties with a public profile here ("this member sent you a gift").
   const profiles = await Promise.all(counterparties.map((a) => repos.profiles.get(a).catch(() => null)));
   const handleMap = new Map(counterparties.map((a, i) => [a.toLowerCase(), profiles[i]?.isPublic ? profiles[i]?.handle : undefined]));
   for (const i of items) if (i.counterparty && !i.counterpartyHandle) i.counterpartyHandle = handleMap.get(i.counterparty.toLowerCase()) ?? undefined;

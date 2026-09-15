@@ -26,7 +26,7 @@ export const GPV2_SETTLEMENT: Address = "0x9008D19f58AAbD9eD0D60971565AA8510560a
 export const GPV2_VAULT_RELAYER: Address = "0xC92E8bdf79f0507f65a392b0ab4667716BFE0110";
 /** Contracts a CoW order may name: the settlement (EIP-712 verifying contract) and the relayer the wallet approves. */
 export const EXPECTED_TARGETS: readonly Address[] = [GPV2_SETTLEMENT, GPV2_VAULT_RELAYER];
-const APP_CODE = "BaseStocks";
+const APP_CODE = "BStocks";
 /** Market orders: how long a signed order may wait for a solver. */
 const MARKET_VALID_FOR_S = 30 * 60;
 /** The order book's ceiling for quotes; longer limit orders come back with ExcessiveValidTo. */

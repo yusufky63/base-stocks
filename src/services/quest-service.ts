@@ -139,7 +139,7 @@ async function verifyHoldAsset(index: number, q: Quest, claimant: Address): Prom
 }
 
 /**
- * "Bought at least $X of this stock on BaseStocks recently." The app's own trade rows only say
+ * "Bought at least $X of this stock on BStocks recently." The app's own trade rows only say
  * which transactions to look at; the proof is the receipt, read by `verifyTrade` (cached, and
  * stored once mined, so a ticket request never re-asks the RPC for a hash already seen). A
  * purchase is the stock arriving AND USDC leaving this wallet in the same transaction: the stock
@@ -158,7 +158,7 @@ async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promi
     .filter((t) => t.side === "buy" && t.assetAddress.toLowerCase() === q.assetAddress!.toLowerCase() && t.createdAt >= since && !!t.txHash && t.status !== "failed")
     .slice(0, MAX_RECEIPTS_PER_CHECK);
   if (candidates.length === 0) {
-    return { ...base, detail: `No ${symbol ?? "stock"} bought on BaseStocks from this wallet in the last ${withinDays} days.` };
+    return { ...base, detail: `No ${symbol ?? "stock"} bought on BStocks from this wallet in the last ${withinDays} days.` };
   }
 
   let boughtRaw = 0n;
@@ -182,7 +182,7 @@ async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promi
       ...base,
       detail: pending
         ? "We could not confirm that purchase onchain yet. If it just went through, wait for the confirmation and retry."
-        : `Only ${symbol ?? "stock"} bought on BaseStocks and paid in USDC from this wallet counts; a transfer in does not.`,
+        : `Only ${symbol ?? "stock"} bought on BStocks and paid in USDC from this wallet counts; a transfer in does not.`,
     };
   }
 
@@ -192,7 +192,7 @@ async function verifyBuyAsset(index: number, q: Quest, claimant: Address): Promi
   return {
     ...base,
     done,
-    detail: done ? undefined : `${formatUsd(usd)} bought on BaseStocks so far; this pool asks for ${formatUsd(minUsd)}.`,
+    detail: done ? undefined : `${formatUsd(usd)} bought on BStocks so far; this pool asks for ${formatUsd(minUsd)}.`,
     proof: done ? { txs: verifiedTxs, rawAmount: boughtRaw.toString(), usd } : undefined,
   };
 }

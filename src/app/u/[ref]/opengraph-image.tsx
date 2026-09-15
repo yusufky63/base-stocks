@@ -5,7 +5,7 @@ import { resolveProfileRef } from "@/services/community-service";
 import { reverseResolve } from "@/services/basename-service";
 import { shortenAddress } from "@/lib/format";
 
-export const alt = "A profile on BaseStocks";
+export const alt = "A profile on BStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 
@@ -31,7 +31,7 @@ export default async function Image({ params }: { params: Promise<{ ref: string 
     : [null, [], null];
 
   const isPublic = profile?.isPublic ?? true;
-  const name = basename ?? (address ? shortenAddress(address, 4) : "A BaseStocks profile");
+  const name = basename ?? (address ? shortenAddress(address, 4) : "A BStocks profile");
   const bio = isPublic ? profile?.bio?.trim() : undefined;
   // Coins come from what they published, never from what they hold.
   const tickers = allocationTickers(baskets.flatMap((b) => b.allocations)).slice(0, 3).map((t) => t.ticker);

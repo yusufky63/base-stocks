@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: b ? `${b.name} · Basket` : "Basket",
     description: b?.description || "A community basket of tokenized stocks on Base.",
-    openGraph: b ? { title: `${b.name} · BaseStocks`, description: b.description || "A community basket of tokenized stocks on Base." } : undefined,
+    openGraph: b ? { title: `${b.name} · BStocks`, description: b.description || "A community basket of tokenized stocks on Base." } : undefined,
   };
 }
 

@@ -1,7 +1,7 @@
 import { OG } from "@/lib/og";
 import { shareCard } from "@/lib/share-card";
 
-export const alt = "BaseStocks — Tokenized Stocks on Base";
+export const alt = "BStocks — Tokenized Stocks on Base";
 export const size = OG.size;
 export const contentType = "image/png";
 

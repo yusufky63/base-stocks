@@ -42,5 +42,5 @@ async function handler(): Promise<Response> {
   );
 }
 
-export const GET = await withPayment(handler, "BaseStocks market report: the shared AI brief with the live prices behind it");
+export const GET = await withPayment(handler, "BStocks market report: the shared AI brief with the live prices behind it");
 export const OPTIONS = v1Options;

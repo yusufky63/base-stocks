@@ -43,7 +43,7 @@ export function shareCard(size: { width: number; height: number }): ImageRespons
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {mark && <img src={mark} alt="" width={40} height={40} style={{ width: 40, height: 40 }} />}
               <div style={{ display: "flex", fontFamily: OG.display, fontSize: 29, fontWeight: 700, letterSpacing: -0.5 }}>
-                <span style={{ color: OG.blue }}>Base</span>
+                <span style={{ color: OG.blue }}>B</span>
                 <span>Stocks</span>
               </div>
             </div>

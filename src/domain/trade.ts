@@ -163,7 +163,7 @@ export interface TradeQuoteSummary {
   estimatedNetworkFeeUsd: number | null;
   /** True when the fee above is the app's estimate rather than the provider's own figure. */
   networkFeeEstimated?: boolean;
-  /** BaseStocks' own fee on this route, already inside the amounts above; null when this route charges none. */
+  /** BStocks' own fee on this route, already inside the amounts above; null when this route charges none. */
   integratorFee: { bps: number; usd: number | null } | null;
   liquidityAvailable: boolean;
   allowanceRequired: boolean;

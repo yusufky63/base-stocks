@@ -1,5 +1,5 @@
 /**
- * The X account BaseStocks points people at. This is the builder's own profile, not a brand
+ * The X account BStocks points people at. This is the builder's own profile, not a brand
  * account: the two brand accounts were suspended, and a live personal account is worth more than
  * a dead branded one. One constant so the footer, the share sheet and the pool quests agree.
  */

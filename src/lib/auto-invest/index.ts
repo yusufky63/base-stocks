@@ -5,7 +5,7 @@ import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation } from "@/domain/portfo
 export { autoInvestAbi } from "./abi";
 
 /**
- * BaseStocks AutoInvest (contracts/src/AutoInvest.sol): recurring purchases that run without the owner
+ * BStocks AutoInvest (contracts/src/AutoInvest.sol): recurring purchases that run without the owner
  * present. The address comes from `NEXT_PUBLIC_AUTO_INVEST_ADDRESS` so a preview or a fork can point
  * elsewhere; unset means "not deployed here" and the app offers only plans you confirm by hand.
  *

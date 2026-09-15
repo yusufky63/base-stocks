@@ -4,7 +4,7 @@ import { findCuratedAsset } from "@/lib/b20/registry";
 import { loadAssetResponse } from "@/lib/server-data";
 import { hasMeaningfulChange, isNotIssued, tradingStatus } from "@/lib/trading-status";
 
-export const alt = "BaseStocks";
+export const alt = "BStocks";
 export const size = OG.size;
 export const contentType = "image/png";
 /** A share card is rendered at most every five minutes; the price on it is a snapshot either way. */

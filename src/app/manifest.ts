@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 /**
  * The web app manifest: what lets a phone or desktop browser offer "Add to Home Screen" and open
- * BaseStocks as its own window. Static — Next caches it once per build — and deliberately without a
+ * BStocks as its own window. Static — Next caches it once per build — and deliberately without a
  * service worker: an app that quotes live prices and files transactions must never serve a cached
  * page as if it were current, and a manifest alone is enough for installation in every current
  * browser.
@@ -12,8 +12,8 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "BaseStocks — Stocks, built for onchain",
-    short_name: "BaseStocks",
+    name: "BStocks — Stocks, built for onchain",
+    short_name: "BStocks",
     description: "Trade Coinbase Tokenized Stocks, build personalized portfolios, and put idle USDC to work on Base.",
     id: "/",
     start_url: "/?source=pwa",

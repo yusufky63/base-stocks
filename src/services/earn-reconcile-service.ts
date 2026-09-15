@@ -20,7 +20,7 @@ import { cached } from "@/lib/cache";
  * Both are idempotent: a transaction already recorded (by the browser or an earlier sweep) is skipped.
  */
 
-/** Just before the first BaseStocks transaction on Base (2 Sep 2026); nothing of ours is older. */
+/** Just before the first BStocks transaction on Base (2 Sep 2026); nothing of ours is older. */
 export const EARN_SCAN_FLOOR_BLOCK = 50_700_000n;
 const CHUNK = 10_000n;
 const DEFAULT_MAX_BLOCKS = 120_000n;

@@ -304,7 +304,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
               <KeyValue k={view.priceImpactBasis === "market" ? "Price impact" : "vs reference"} v={view.priceImpactPct !== null ? formatPct(view.priceImpactPct, { sign: true }) : "—"} />
               {view.priceImpactBasis === "market" && view.referenceGapPct !== null && view.referenceGapPct !== undefined && <KeyValue k="vs reference" v={formatPct(view.referenceGapPct, { sign: true })} />}
               <KeyValue k="Est. network fee" v={view.estimatedNetworkFeeUsd !== null ? `${view.networkFeeEstimated ? "≈ " : ""}${formatUsd(view.estimatedNetworkFeeUsd, { precise: true })}` : "—"} />
-              {view.integratorFee && <KeyValue k={`BaseStocks fee · ${(view.integratorFee.bps / 100).toFixed(2)}%`} v={view.integratorFee.usd !== null ? `${formatUsd(view.integratorFee.usd, { precise: true })} · included above` : "included above"} />}
+              {view.integratorFee && <KeyValue k={`BStocks fee · ${(view.integratorFee.bps / 100).toFixed(2)}%`} v={view.integratorFee.usd !== null ? `${formatUsd(view.integratorFee.usd, { precise: true })} · included above` : "included above"} />}
               {insufficient && <p className="mt-1 text-[13px] text-danger-fg">{TRADE_ERROR_COPY.INSUFFICIENT_BALANCE}</p>}
               {!view.liquidityAvailable && <p className="mt-1 text-[13px] text-danger-fg">{TRADE_ERROR_COPY.ROUTE_UNAVAILABLE}</p>}
               {view.warnings.map((w) => (

@@ -27,7 +27,7 @@ import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
 
 export const metadata: Metadata = pageMeta({
   title: "Technical docs",
-  description: "How BaseStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, gas sponsorship and card funding, the Copilot assistant, the public read-only API and the contract addresses it talks to.",
+  description: "How BStocks works under the hood: the B20 token standard, price model, trade routing, CoW limit orders, concentrated liquidity, the gift escrow, gas sponsorship and card funding, the Copilot assistant, the public read-only API and the contract addresses it talks to.",
   path: "/docs",
 });
 
@@ -125,9 +125,9 @@ const lower = (a: string) => a.toLowerCase();
  * contract that holds the stock), so a reader checking a receipt may well be looking at one.
  */
 const OWN_CONTRACTS: Array<{ label: string; address: string; note: string }> = [
-  { label: "BaseStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds claim-link gifts until claim or reclaim" },
+  { label: "BStocks GiftEscrow", address: GIFT_ESCROW_ADDRESS, note: "Ownerless, verified; holds claim-link gifts until claim or reclaim" },
   ...LEGACY_GIFT_ESCROW_ADDRESSES.filter((a) => lower(a) !== lower(GIFT_ESCROW_ADDRESS)).map((a) => ({ label: "GiftEscrow (legacy)", address: a, note: "Earlier deployment; gifts locked there still claim and reclaim from it" })),
-  ...(isPoolDeployed() ? [{ label: "BaseStocks GiftPool", address: GIFT_POOL_ADDRESS as string, note: "Ownerless, verified; holds gift pools until claimed, cancelled or withdrawn" }] : []),
+  ...(isPoolDeployed() ? [{ label: "BStocks GiftPool", address: GIFT_POOL_ADDRESS as string, note: "Ownerless, verified; holds gift pools until claimed, cancelled or withdrawn" }] : []),
   ...LEGACY_GIFT_POOL_ADDRESSES.filter((a) => !isPoolDeployed() || lower(a) !== lower(GIFT_POOL_ADDRESS)).map((a) => ({ label: "GiftPool (legacy)", address: a, note: "Earlier deployment; pools funded there still pay out of and withdraw from it" })),
 ];
 
@@ -247,7 +247,7 @@ export default function DocsPage() {
         <SectionHead n={1} id="architecture" title="Architecture" sub="client-first · non-custodial" />
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={KeyRound} title="Your keys sign everything">
-            The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BaseStocks never custodies funds.
+            The server aggregates public data and stores the social layer; it never holds keys and never signs. Every transaction is built in the browser, simulated, and signed by your own wallet. BStocks never custodies funds.
           </Cell>
           <Cell icon={Network} title="Reads that survive outages">
             All reads batch through Multicall3 and rotate across the keyed RPCs by weight — no single account carries the traffic — with every other provider, then four public endpoints, queued behind whichever one served the call. Log sweeps skip providers that cap block ranges. Confirmations arrive in ~200 ms — Flashblocks preconfirmations today, canonical 200 ms blocks once the Denim hardfork activates; the same receipt call covers both.

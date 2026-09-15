@@ -27,7 +27,7 @@ import { EARN_SCAN_FLOOR_BLOCK, reconcileEarn } from "./earn-reconcile-service";
  * The first visit used to read the last 120k blocks (under three days on Base) and stop: a wallet
  * that bought in week one and opened Activity in week three saw its purchases arrive out of
  * nowhere as "received" rows with no cost behind them. The floor is now the block before the first
- * BaseStocks transaction, and the read is paced: each request extends the wallet's `indexedFrom`
+ * BStocks transaction, and the read is paced: each request extends the wallet's `indexedFrom`
  * backwards by up to `BACKFILL_STEP_BLOCKS` inside `BACKFILL_BUDGET_MS`, stores where it got to,
  * and the next request (rate-limited per wallet) continues from there until the floor is reached.
  */

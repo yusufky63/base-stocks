@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const view = await getPoolView(id).catch(() => null);
   if (!view) return { title: "Gift pool", robots: { index: false } };
   const title = view.pool.title || `${shareLabel(view)} for each of ${view.pool.slots}`;
-  const description = `A gift pool on BaseStocks: ${shareLabel(view)} per person, ${view.pool.slots} shares. Coinbase Tokenized Stocks on Base — no wallet needed to claim.`;
+  const description = `A gift pool on BStocks: ${shareLabel(view)} per person, ${view.pool.slots} shares. Coinbase Tokenized Stocks on Base — no wallet needed to claim.`;
   // Unlisted pools stay out of search results; the link is the only way in by design.
   const robots = view.pool.visibility === "public" ? undefined : { index: false };
   // A launch card that opens *this pool* rather than the home page — but only where the bare URL
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const other = launchable
     ? appMeta({ url: appUrl(`/pools/${id}`), imageUrl: appUrl(`/pools/${id}/opengraph-image`), buttonTitle: view.claimCount < view.pool.slots ? "Claim your share" : "See the pool" })
     : undefined;
-  return { title, description, robots, openGraph: { title: `${title} · BaseStocks`, description }, ...(other ? { other } : {}) };
+  return { title, description, robots, openGraph: { title: `${title} · BStocks`, description }, ...(other ? { other } : {}) };
 }
 
 /**

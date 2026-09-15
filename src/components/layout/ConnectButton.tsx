@@ -88,7 +88,7 @@ export function ConnectButton({ size = "md", full, compact }: { size?: "sm" | "m
       };
       return (
         <span className={cx("inline-flex flex-col items-end gap-1", full && "w-full")}>
-          <Button size={size} full={full} variant="danger" loading={switching} onClick={() => void switchToBase()} title={`Connected to chain ${chainId}; BaseStocks runs on Base (8453)`}>
+          <Button size={size} full={full} variant="danger" loading={switching} onClick={() => void switchToBase()} title={`Connected to chain ${chainId}; BStocks runs on Base (8453)`}>
             Switch to Base
           </Button>
           {switchError && <span role="alert" className="text-[12px] text-danger-fg text-right max-w-[260px]">{switchError}</span>}
@@ -153,7 +153,7 @@ function FallbackWalletSheet({ open, onClose }: { open: boolean; onClose: () => 
       {isConnected && address ? (
         <div className="flex flex-col gap-4">
           <AddressLabel address={address} explorer />
-          <p className="text-[14px] text-ink-secondary">You stay in control of your assets. BaseStocks never holds keys or funds.</p>
+          <p className="text-[14px] text-ink-secondary">You stay in control of your assets. BStocks never holds keys or funds.</p>
           <Button
             variant="secondary"
             onClick={() => {

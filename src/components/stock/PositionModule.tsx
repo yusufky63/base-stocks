@@ -126,7 +126,7 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
           </span>
         </div>
       )}
-      <p className="text-[12px] text-ink-muted">Held in your wallet, not by BaseStocks. Issuer policies and pauses are checked before every trade or transfer.</p>
+      <p className="text-[12px] text-ink-muted">Held in your wallet, not by BStocks. Issuer policies and pauses are checked before every trade or transfer.</p>
     </div>
   );
 }

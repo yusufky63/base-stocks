@@ -46,7 +46,7 @@ export function SettingsView() {
           ) : (
             <ConnectButton />
           )}
-          <p className="text-[12px] text-ink-muted">BaseStocks never holds keys or funds. No signature is requested on connect or page load.</p>
+          <p className="text-[12px] text-ink-muted">BStocks never holds keys or funds. No signature is requested on connect or page load.</p>
         </div>
       </Module>
 
@@ -163,7 +163,7 @@ export function SettingsView() {
 }
 
 /**
- * Saving BaseStocks alongside the user's other mini apps.
+ * Saving BStocks alongside the user's other mini apps.
  *
  * Only shown where it means something: inside a host, and only while the app is not already saved.
  * The host runs its own confirmation, and declining is an ordinary answer — the row simply stays.
@@ -186,9 +186,9 @@ function SaveToBaseApp() {
       <ModuleHeader title="Base app" />
       <div className="p-4 flex flex-col gap-3">
         <Button variant="secondary" loading={saving} onClick={() => void save()} className="self-start">
-          Save BaseStocks to my apps
+          Save BStocks to my apps
         </Button>
-        <p className="text-[12px] text-ink-muted">Keeps BaseStocks in your app list so you can open it without the link.</p>
+        <p className="text-[12px] text-ink-muted">Keeps BStocks in your app list so you can open it without the link.</p>
       </div>
     </Module>
   );

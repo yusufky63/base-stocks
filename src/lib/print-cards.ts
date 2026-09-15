@@ -43,7 +43,7 @@ export function cardsHtml(cards: PrintCard[], qrs: string[], site: string): stri
     .map((c, i) => {
       const until = c.validUntil ?? (c.validDays ? new Date(Date.now() + c.validDays * 86_400_000).toLocaleDateString(undefined, { dateStyle: "medium" }) : undefined);
       return `<article class="card">
-  <header><span class="brand">BaseStocks</span><span class="site">${escapeHtml(site)}</span></header>
+  <header><span class="brand">BStocks</span><span class="site">${escapeHtml(site)}</span></header>
   <img class="qr" src="${qrs[i]}" alt="QR code for the claim link" />
   <div class="eyebrow">${escapeHtml(c.eyebrow ?? "A gift for you")}</div>
   <div class="amount">${escapeHtml(c.amount)}</div>
@@ -54,7 +54,7 @@ export function cardsHtml(cards: PrintCard[], qrs: string[], site: string): stri
     })
     .join("\n");
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>BaseStocks gift cards</title>
+<html lang="en"><head><meta charset="utf-8"><title>BStocks gift cards</title>
 <style>
   @page { size: A4; margin: 10mm; }
   * { box-sizing: border-box; }

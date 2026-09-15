@@ -347,7 +347,7 @@ function PlatformStatsModule() {
   const delivered = s ? s.directGifts + s.linksClaimed + s.poolClaims : 0;
   const cells = s
     ? [
-        { label: "Traded via BaseStocks", value: formatUsdCompact(s.tradeVolumeUsd) },
+        { label: "Traded via BStocks", value: formatUsdCompact(s.tradeVolumeUsd) },
         { label: "Trades here", value: s.trades.toLocaleString("en-US") },
         { label: "Wallets", value: s.wallets.toLocaleString("en-US") },
         { label: "Gifts delivered", value: delivered.toLocaleString("en-US") },
@@ -357,7 +357,7 @@ function PlatformStatsModule() {
     : [];
   return (
     <Module ticks>
-      <ModuleHeader title="BaseStocks so far" action={<Link href="/stats" className="text-[13px] text-primary font-medium">All stats →</Link>} />
+      <ModuleHeader title="BStocks so far" action={<Link href="/stats" className="text-[13px] text-primary font-medium">All stats →</Link>} />
       {!s ? (
         <div className="p-4">
           <Skeleton className="h-16" />

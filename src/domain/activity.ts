@@ -54,7 +54,7 @@ export interface ActivityItem {
   wadPrecision?: string;
   counterparty?: Address;
   counterpartyBasename?: string;
-  /** BaseStocks handle of the counterparty when they have a profile here. */
+  /** BStocks handle of the counterparty when they have a profile here. */
   counterpartyHandle?: string;
   provider?: string;
   /** "app" records are never proof until matched with chain state. */

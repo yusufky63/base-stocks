@@ -122,7 +122,7 @@ export function InfoBanner({ children, tone = "neutral", className }: { children
 export function LegalNotice({ compact = false }: { compact?: boolean }) {
   return (
     <p className={cx("text-ink-muted", compact ? "text-[12px]" : "text-[13px] leading-relaxed")}>
-      Coinbase Tokenized Stocks are available only to persons in eligible jurisdictions outside the United States. Availability is subject to onchain issuer policies. BaseStocks is an independent interface built on Base, not an official Base or Coinbase product, and does not provide investment advice. Portfolio templates are not recommendations. Estimated yields are variable and never guaranteed.
+      Coinbase Tokenized Stocks are available only to persons in eligible jurisdictions outside the United States. Availability is subject to onchain issuer policies. BStocks is an independent interface built on Base, not an official Base or Coinbase product, and does not provide investment advice. Portfolio templates are not recommendations. Estimated yields are variable and never guaranteed.
     </p>
   );
 }

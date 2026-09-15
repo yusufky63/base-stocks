@@ -6,7 +6,7 @@ import { paymentInfo } from "@/lib/api-v1/x402";
 export async function GET(): Promise<Response> {
   return v1Json(
     {
-      name: "BaseStocks API",
+      name: "BStocks API",
       version: "1",
       description: "Read-only data on Coinbase Tokenized Stocks (B20) on Base: prices, liquidity, Chainlink references, news, USDC yield venues, wallet positions and platform statistics.",
       docs: "https://basestocks.finance/developers",

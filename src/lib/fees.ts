@@ -2,7 +2,7 @@ import type { Address } from "viem";
 import { serverEnv } from "@/config/env";
 
 /**
- * The integrator fee: what BaseStocks charges on a trade, in basis points, paid by the route to a
+ * The integrator fee: what BStocks charges on a trade, in basis points, paid by the route to a
  * named recipient. Off unless both the rate and the recipient are configured.
  *
  * Only routes whose API takes a fee natively *and* prices it into the quote charge it —

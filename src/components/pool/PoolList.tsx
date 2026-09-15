@@ -66,7 +66,7 @@ export function PoolCard({ view }: { view: PoolView }) {
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5 min-w-0">
                 <span className="font-medium text-[15px] truncate">{view.pool.title || shareLabel(view)}</span>
-                {view.pool.verified && <BadgeCheck size={15} strokeWidth={2} className="text-primary shrink-0" aria-label="Verified by BaseStocks" />}
+                {view.pool.verified && <BadgeCheck size={15} strokeWidth={2} className="text-primary shrink-0" aria-label="Verified by BStocks" />}
               </span>
               <span className="block text-[12px] text-ink-secondary truncate">by {view.creatorBasename ?? shortenAddress(view.pool.creator)}</span>
             </span>

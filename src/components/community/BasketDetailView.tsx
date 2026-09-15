@@ -74,7 +74,7 @@ export function BasketDetailView({ id }: { id: string }) {
             <Link href={automateHref(b.allocations, b.name)} className="inline-flex items-center justify-center gap-2 h-9 min-h-[44px] px-3 rounded-[6px] border border-line-strong hover:bg-surface text-[13px] font-medium transition-fast">
               <Repeat size={14} strokeWidth={1.75} /> Repeat on a schedule
             </Link>
-            <ShareButton path={`/baskets/${b.id}`} text={`${b.name}: a tokenized-stock basket on BaseStocks (Base).`} title="Share basket" />
+            <ShareButton path={`/baskets/${b.id}`} text={`${b.name}: a tokenized-stock basket on BStocks (Base).`} title="Share basket" />
           </div>
         </div>
         {vote.error && <p className="mt-2 text-[13px] text-danger-fg">{vote.error instanceof ApiError ? vote.error.message : "Vote failed."}</p>}

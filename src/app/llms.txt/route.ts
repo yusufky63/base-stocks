@@ -14,7 +14,7 @@ export async function GET(): Promise<Response> {
   const pay = paymentInfo();
   const paidCount = V1_ENDPOINTS.filter((e) => e.paid).length;
   const body = [
-    "# BaseStocks",
+    "# BStocks",
     "",
     "> Self-custodial interface for Coinbase Tokenized Stocks (B20) on Base, and a public read-only API for the data behind it: prices, Chainlink references, liquidity, news, USDC yield venues, wallet positions and platform statistics.",
     "",

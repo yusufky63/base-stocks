@@ -110,7 +110,7 @@ export function ShareActions({ path, text, className, compact }: ShareProps & { 
   };
   const nativeShare = async () => {
     try {
-      await navigator.share({ title: "BaseStocks", text, url });
+      await navigator.share({ title: "BStocks", text, url });
     } catch {
       /* cancelled */
     }

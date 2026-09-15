@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-const SITE = "BaseStocks";
+const SITE = "BStocks";
 const DEFAULT_DESCRIPTION = "Trade tokenized stocks, build personalized portfolios, and put supported assets to work on Base.";
 
 /**

@@ -172,7 +172,7 @@ export function SendSheet({ open, onClose, asset, raw, scaled, priceUsd, onSent 
   const busy = txState === "AWAITING_WALLET" || txState === "SUBMITTED" || txState === "PRECONFIRMED";
 
   const recipientName = resolved ? (resolved.basename ?? (resolved.profile?.handle ? `@${resolved.profile.handle}` : shortenAddress(resolved.address))) : gift ? (gift.recipientBasename ?? shortenAddress(gift.recipient)) : "";
-  const shareText = `I just sent ${formatTokenAmount(gift ? (BigInt(gift.rawAmount) * multiplier) / wad : 0n, asset.decimals)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BaseStocks.`;
+  const shareText = `I just sent ${formatTokenAmount(gift ? (BigInt(gift.rawAmount) * multiplier) / wad : 0n, asset.decimals)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BStocks.`;
 
   const footer =
     step === "form" ? (

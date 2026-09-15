@@ -113,10 +113,10 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
 
   const recipientName = recipient ? (recipient.basename ?? (recipient.profile?.handle ? `@${recipient.profile.handle}` : shortenAddress(recipient.address))) : null;
   const shareText = recipient
-    ? `I just gifted ${shares(tokenAmount)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BaseStocks.`
+    ? `I just gifted ${shares(tokenAmount)} ${asset.underlying} (a tokenized stock on Base) to ${recipientName} with BStocks.`
     : buy
-      ? `I just bought ${asset.underlying} as a tokenized stock on Base with BaseStocks.`
-      : `I just sold ${asset.underlying} as a tokenized stock on Base with BaseStocks.`;
+      ? `I just bought ${asset.underlying} as a tokenized stock on Base with BStocks.`
+      : `I just sold ${asset.underlying} as a tokenized stock on Base with BStocks.`;
   const sharePath = recipient && giftId ? `/gifts/${giftId}` : `/stocks/${asset.address}`;
 
   const cta = () => {

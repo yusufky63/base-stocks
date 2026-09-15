@@ -32,7 +32,7 @@ export async function GET(): Promise<Response> {
   const doc = {
     openapi: "3.1.0",
     info: {
-      title: "BaseStocks API",
+      title: "BStocks API",
       version: "1.0.0",
       description: [
         "Read-only data on Coinbase Tokenized Stocks (B20) on Base.",

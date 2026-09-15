@@ -67,7 +67,7 @@ async function fetchText(url: string, timeoutMs: number, accept = "application/r
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, headers: { "user-agent": "Mozilla/5.0 (compatible; BaseStocks/1.0)", accept }, cache: "no-store" });
+    const res = await fetch(url, { signal: controller.signal, headers: { "user-agent": "Mozilla/5.0 (compatible; BStocks/1.0)", accept }, cache: "no-store" });
     if (!res.ok) throw new Error(`http ${res.status}`);
     return await res.text();
   } finally {

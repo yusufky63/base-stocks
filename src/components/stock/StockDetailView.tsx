@@ -222,7 +222,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <ShareButton iconOnly path={`/stocks/${asset.address}`} text={`${asset.underlying} as a tokenized stock on Base. Trade it self-custodially on BaseStocks.`} title={`Share ${asset.underlying}`} />
+                <ShareButton iconOnly path={`/stocks/${asset.address}`} text={`${asset.underlying} as a tokenized stock on Base. Trade it self-custodially on BStocks.`} title={`Share ${asset.underlying}`} />
                 {/* Shown before a wallet is connected too: the star is how a visitor learns the watchlist exists, and the click connects. */}
                 <button
                   type="button"

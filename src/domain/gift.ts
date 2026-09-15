@@ -48,7 +48,7 @@ export interface GiftParty {
   address: Address;
   /** Forward-verified Basename, the one identity a viewer can trust. */
   basename: string | null;
-  /** BaseStocks handle / display name, only when the profile is public. */
+  /** BStocks handle / display name, only when the profile is public. */
   handle: string | null;
   /**
    * The profile's display name, or null when it is hidden or reads like a brand ("Coinbase
@@ -56,7 +56,7 @@ export interface GiftParty {
    */
   displayName: string | null;
   avatar: string | null;
-  /** Has a BaseStocks profile, i.e. signed in here at least once. A Basename alone is not membership. */
+  /** Has a BStocks profile, i.e. signed in here at least once. A Basename alone is not membership. */
   isMember: boolean;
 }
 
@@ -74,6 +74,6 @@ export interface ResolvedRecipient {
   /** Forward-resolved from the input, or reverse-resolved (and forward-verified) from a raw address. */
   basename?: string;
   avatar?: string | null;
-  /** Present when the recipient has signed in to BaseStocks. */
+  /** Present when the recipient has signed in to BStocks. */
   profile?: { handle?: string; displayName?: string; isPublic: boolean; memberSince: number } | null;
 }

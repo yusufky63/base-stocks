@@ -212,7 +212,7 @@ export function ClaimLinkFlow({ asset, raw, scaled, priceUsd, onSent }: { asset:
         <Segmented<number> size="sm" ariaLabel="How long the link stays claimable" value={days} onChange={setDays} options={EXPIRY_DAYS.map(([d, label]) => ({ value: d, label }))} />
       </div>
       <Input label="Message (optional, stored offchain)" placeholder="Welcome to onchain stocks!" value={message} maxLength={280} onChange={(e) => setMessage(e.target.value)} />
-      <p className="text-[12px] text-ink-muted">The stock moves into the BaseStocks gift escrow, an ownerless contract that can only pay whoever holds the claim link, or refund you. You can cancel any time before it is claimed.</p>
+      <p className="text-[12px] text-ink-muted">The stock moves into the BStocks gift escrow, an ownerless contract that can only pay whoever holds the claim link, or refund you. You can cancel any time before it is claimed.</p>
       {error && <ErrorBanner message={error.message} detail={error.detail} />}
       <Button full size="lg" loading={busy} disabled={rawAmount === 0n || raw === 0n} onClick={() => void create()}>
         {busy ? PHASE_COPY[phase] : `Create claim link${rawAmount > 0n ? ` · ${amountLabel}` : ""}`}

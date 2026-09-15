@@ -7,7 +7,7 @@ import type { ResolvedRecipient } from "@/domain/gift";
 /**
  * Resolve a Basename or raw address into a checksummed recipient, enriched with what we can
  * verify: the reverse Basename of a raw address (forward-verified), its avatar record, and the
- * BaseStocks profile when the recipient has signed in here (handle only when the profile is public).
+ * BStocks profile when the recipient has signed in here (handle only when the profile is public).
  */
 export const GET = route({ rateLimit: { key: "basename.resolve", limit: 120, windowMs: 60_000 } }, async (req) => {
   const { name } = parseQuery(req, z.object({ name: z.string().min(1).max(255) }));

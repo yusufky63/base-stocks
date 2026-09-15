@@ -53,7 +53,7 @@ describe("buy-asset", () => {
     verifyTrade.mockResolvedValueOnce({ ok: true, blockNumber: 1, assetAmount: 1n, usdcAmount: 4_000_000n, initiatedByOwner: true }).mockResolvedValueOnce({ ok: true, blockNumber: 2, assetAmount: 1n, usdcAmount: 4_000_000n, initiatedByOwner: true });
     const [r] = await verifyQuests([quest], ME);
     expect(r!.done).toBe(false);
-    expect(r!.detail).toMatch(/\$8\.00 bought on BaseStocks so far/);
+    expect(r!.detail).toMatch(/\$8\.00 bought on BStocks so far/);
   });
 
   it("says so when the receipt is not in yet, and ignores rows the app already failed", async () => {
@@ -69,7 +69,7 @@ describe("buy-asset", () => {
     listByOwner.mockResolvedValue([trade(TX1, { createdAt: Date.now() - 40 * 86_400_000 })]);
     const [r] = await verifyQuests([quest], ME);
     expect(r!.done).toBe(false);
-    expect(r!.detail).toMatch(/bought on BaseStocks/);
+    expect(r!.detail).toMatch(/bought on BStocks/);
     expect(verifyTrade).not.toHaveBeenCalled();
   });
 });

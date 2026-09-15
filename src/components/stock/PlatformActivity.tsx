@@ -23,7 +23,7 @@ export function PlatformActivity({ assetAddress, underlying }: { assetAddress: s
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <Label>{underlying} on BaseStocks</Label>
+        <Label>{underlying} on BStocks</Label>
         <Link href="/stats" className="text-[12px] text-primary font-medium">
           All stats →
         </Link>
@@ -45,7 +45,7 @@ export function PlatformActivity({ assetAddress, underlying }: { assetAddress: s
           ))}
         </dl>
       )}
-      <p className="text-[11px] text-ink-muted">Trades and gifts of {underlying} made through BaseStocks, each verified against its receipt on Base — not the DEX market as a whole.</p>
+      <p className="text-[11px] text-ink-muted">Trades and gifts of {underlying} made through BStocks, each verified against its receipt on Base — not the DEX market as a whole.</p>
     </div>
   );
 }

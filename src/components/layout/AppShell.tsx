@@ -76,7 +76,7 @@ function AppFrame({ children }: { children: ReactNode }) {
         {showTicker && <TopTicker />}
         <header className="border-b border-line bg-canvas/95 backdrop-blur-[2px]">
           <div className="mx-auto flex h-14 max-w-[1320px] items-center justify-between gap-2 md:gap-3 px-4 md:px-6">
-            <Link href="/" aria-label="BaseStocks home" className="inline-flex shrink-0">
+            <Link href="/" aria-label="BStocks home" className="inline-flex shrink-0">
               <Wordmark />
             </Link>
             <nav aria-label="Primary" className="hidden md:flex items-center gap-0 lg:gap-0.5 min-w-0">
@@ -159,12 +159,12 @@ function AppFrame({ children }: { children: ReactNode }) {
           </details>
 
           {/* Wordmark at architectural scale, base.org style: quiet, edge to edge, decorative only. */}
-          <svg viewBox="0 84 1200 138" aria-hidden className="footer-wordmark mt-4 -mb-4 w-full h-auto select-none" role="presentation">
+          <svg viewBox="0 23 1200 187" aria-hidden className="footer-wordmark mt-4 -mb-4 w-full h-auto select-none" role="presentation">
             {/* Sized so the natural glyph width fills the box; lengthAdjust="spacing" only trims the
                 rounding drift, so the letterforms keep their true proportions. The viewBox crops the
                 lower third, letting the letters run off the bottom edge of the page. */}
-            <text x="0" y="250" textLength="1200" lengthAdjust="spacing" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="202" letterSpacing="-6">
-              {"BASESTOCKS".split("").map((ch, i) => (
+            <text x="0" y="250" textLength="1200" lengthAdjust="spacing" fontFamily="var(--font-display), 'Space Grotesk', system-ui, sans-serif" fontWeight="700" fontSize="289" letterSpacing="-8">
+              {"BSTOCKS".split("").map((ch, i) => (
                 <tspan key={i}>{ch}</tspan>
               ))}
             </text>

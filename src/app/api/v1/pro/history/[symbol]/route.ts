@@ -50,5 +50,5 @@ async function handler(req: NextRequest): Promise<Response> {
   );
 }
 
-export const GET = await withPayment(handler, "BaseStocks price history: full candle series for one tokenized stock");
+export const GET = await withPayment(handler, "BStocks price history: full candle series for one tokenized stock");
 export const OPTIONS = v1Options;

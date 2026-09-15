@@ -3,7 +3,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { BASE_CHAIN_ID } from "@/config/chain";
 
 /**
- * BaseStocks GiftEscrow on Base mainnet (contracts/src/GiftEscrow.sol). Ownerless: it can only
+ * BStocks GiftEscrow on Base mainnet (contracts/src/GiftEscrow.sol). Ownerless: it can only
  * pay out to a claim-signed recipient or back to the sender.
  *
  * This is the contract NEW gifts are created in. A gift record remembers the escrow it was
@@ -54,7 +54,7 @@ export const giftEscrowAbi = [
 
 /**
  * The EIP-712 domain the deployed contracts fix in their constructor, for the escrow a gift
- * actually lives in. The product is called BaseStocks, but the escrow's `DOMAIN_SEPARATOR` was
+ * actually lives in. The product went by BaseStocks for a while, but the escrow's `DOMAIN_SEPARATOR` was
  * computed from "BStocks GiftEscrow" on the day it was deployed and an immutable cannot follow a
  * rename: signing under any other name makes `ecrecover` return a stranger and every claim revert
  * with BadSignature. The verifying contract is part of the separator too, which is why this is a

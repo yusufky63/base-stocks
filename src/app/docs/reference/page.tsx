@@ -7,7 +7,7 @@ import { renderMarkdown } from "@/lib/markdown";
 
 export const metadata: Metadata = pageMeta({
   title: "Technical reference",
-  description: "The full technical reference for BaseStocks, generated from docs/HOW_IT_WORKS.md: contracts, data sources, providers, environment, routes and operations.",
+  description: "The full technical reference for BStocks, generated from docs/HOW_IT_WORKS.md: contracts, data sources, providers, environment, routes and operations.",
   path: "/docs/reference",
 });
 
