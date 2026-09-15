@@ -69,13 +69,18 @@ async function withTimes(rows: IndexedTransfer[]): Promise<IndexedTransfer[]> {
 }
 
 /**
- * A public RPC that caps `eth_getLogs` below our chunk answers the whole sweep with one error,
- * which used to fail the maintenance run every hour. The range is halved and retried instead,
- * down to a floor that keeps the common 1k-2k caps working without turning one chunk into
- * hundreds of calls on the pathological ones (1rpc.io allows 50 blocks). Below the floor the
- * error stands and the caller decides; anything that is not a range complaint is re-thrown.
+ * A range an RPC refuses is halved and retried, down to a floor of 50 blocks (1rpc.io's cap).
+ *
+ * The floor used to be 1,000 blocks, sized for providers that cap the block range. What stops a
+ * request today is the size of the answer: the stock tokens' transfers have grown dense enough
+ * (every launchpad swap moves stock through the pool) that a 1,000-block window can hold 20k
+ * logs, which Alchemy refuses as "response body exceeded the size limit" and CDP as "invalid
+ * parameters", while 100 blocks answer fine everywhere. With the floor at 1,000 the sweep failed
+ * the same chunk every 15 minutes and the cursor stood still for hours, reported as ok. Below the
+ * floor the error stands and the caller decides; anything that is not a range or size complaint
+ * is re-thrown.
  */
-const MIN_CHUNK = 1_000n;
+const MIN_CHUNK = 50n;
 
 /**
  * How wide one sweep request is, and how long the whole sweep may take.
@@ -94,7 +99,7 @@ const SWEEP_BUDGET_MS = 35_000;
 
 function isRangeLimit(err: unknown): boolean {
   const m = err instanceof Error ? err.message : String(err);
-  return /limited to|block range|range is too large|exceed|too many blocks|up to \d+ blocks/i.test(m);
+  return /limited to|block range|range is too large|exceed|too many blocks|up to \d+ blocks|size limit|invalid parameters/i.test(m);
 }
 
 async function getLogsAdaptive<T>(from: bigint, to: bigint, read: (a: bigint, b: bigint) => Promise<T[]>): Promise<T[]> {
@@ -244,32 +249,47 @@ export async function sweepTransfers(opts: { maxBlocks?: bigint } = {}): Promise
     return { ...base, found: 0, added: 0, more: to < head };
   }
   const tokens = await stockAddresses();
+  // The log rotation, like the other readers: a provider that caps or bills wide log reads does
+  // not lead it.
+  const logClient = getLogPublicClient();
   const kept: IndexedTransfer[] = [];
   let found = 0;
   let covered = from - 1n;
+  // The window narrows when a provider refuses it (too many logs for one answer) and stays narrow
+  // for the rest of the run, so a dense stretch costs a few extra requests rather than the same
+  // halving cascade on every chunk.
+  let width = SWEEP_CHUNK;
   const startedAt = Date.now();
-  for (let start = from; start <= to; start += SWEEP_CHUNK + 1n) {
+  let start = from;
+  while (start <= to) {
     // Checked before the call, never during: an in-flight request cannot be interrupted, which is
     // why the chunk has to be small enough that one of them always fits in what is left.
     if (Date.now() - startedAt > SWEEP_BUDGET_MS) {
       metrics.count("index.sweep.budget", true, `stopped at ${covered}`);
       break;
     }
-    const end = start + SWEEP_CHUNK > to ? to : start + SWEEP_CHUNK;
+    const end = start + width - 1n > to ? to : start + width - 1n;
     let logs;
     try {
-      logs = await getLogsAdaptive(start, end, (a, b) => client.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: a, toBlock: b }));
+      logs = await logClient.getLogs({ address: tokens, event: TRANSFER_EVENT, fromBlock: start, toBlock: end });
     } catch (err) {
-      // An RPC too narrow for even the floor: keep what this run did read and let the next sweep
-      // continue from there. The cursor makes partial progress the normal case, not a failure.
       if (!isRangeLimit(err)) throw err;
+      if (width > MIN_CHUNK) {
+        // Narrow the window and retry the same start; the floor is where even the smallest read fails.
+        width = width / 2n < MIN_CHUNK ? MIN_CHUNK : width / 2n;
+        continue;
+      }
       metrics.count("index.sweep", false, err instanceof Error ? err.message.slice(0, 160) : String(err));
+      // A run that read nothing is a failure worth reporting, not a partial sweep: with the cursor
+      // unmoved, "ok" would hide a stall until someone reads the lag by hand.
+      if (covered < from) throw err;
       break;
     }
     const rows = toRows(logs as RawLog[]);
     found += rows.length;
     kept.push(...rows.filter((r) => wallets.has(r.from.toLowerCase()) || wallets.has(r.to.toLowerCase())));
     covered = end;
+    start = end + 1n;
   }
   const added = kept.length > 0 ? await repos.chainTransfers.insertMany(await withTimes(kept)) : 0;
   if (covered >= from) await repos.cursors.set(CURSOR_KEY, Number(covered)).catch(() => undefined);

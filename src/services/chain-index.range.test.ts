@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 /**
- * The adaptive `eth_getLogs` split, checked against the behaviour that broke the hourly
- * maintenance run: a public fallback RPC that caps the block range far below our chunk.
+ * The adaptive `eth_getLogs` split, checked against the two things that have stalled the index:
+ * a public fallback RPC that caps the block range far below our chunk, and, later, stock
+ * transfers dense enough that a 1,000-block answer was too big for every provider (the floor was
+ * 1,000 then, so the split could never reach the 100 blocks that worked, and the cursor stood
+ * still for hours).
  *
  * The implementation lives in chain-index-service (module-private); this mirrors its contract so
- * the arithmetic — full coverage, no overlap, no infinite descent — cannot regress silently.
+ * the arithmetic (full coverage, no overlap, no infinite descent) cannot regress silently.
  */
-const MIN_CHUNK = 1_000n;
+const MIN_CHUNK = 50n;
 
 function isRangeLimit(err: unknown): boolean {
   const m = err instanceof Error ? err.message : String(err);
-  return /limited to|block range|range is too large|exceed|too many blocks|up to \d+ blocks/i.test(m);
+  return /limited to|block range|range is too large|exceed|too many blocks|up to \d+ blocks|size limit|invalid parameters/i.test(m);
 }
 
 async function getLogsAdaptive<T>(from: bigint, to: bigint, read: (a: bigint, b: bigint) => Promise<T[]>): Promise<T[]> {
@@ -49,7 +52,7 @@ describe("adaptive getLogs range", () => {
   });
 
   it("gives up rather than descending forever when the cap is below the floor", async () => {
-    const { calls, read } = cappedReader(50n);
+    const { calls, read } = cappedReader(20n);
     await expect(getLogsAdaptive(1_000n, 10_999n, read)).rejects.toThrow(/limited to/);
     // It stopped at the floor instead of splitting into hundreds of calls.
     expect(calls.length).toBe(0);
@@ -66,5 +69,33 @@ describe("adaptive getLogs range", () => {
     const { calls, read } = cappedReader(100_000n);
     await getLogsAdaptive(1_000n, 10_999n, read);
     expect(calls).toEqual([[1_000n, 10_999n]]);
+  });
+
+  /**
+   * What stalled the cursor on 2026-09-15: about 20 transfer logs per block, so any window past
+   * ~100 blocks was refused for the size of its answer, in Alchemy's words and in CDP's. With the
+   * old 1,000-block floor the split threw at 625 blocks and read nothing, every fifteen minutes.
+   */
+  function denseReader(refusal: string) {
+    const calls: Array<[bigint, bigint]> = [];
+    const read = async (a: bigint, b: bigint) => {
+      if ((b - a + 1n) * 20n > 2_000n) throw new Error(refusal);
+      calls.push([a, b]);
+      return [Number(a)];
+    };
+    return { calls, read };
+  }
+
+  it.each([
+    ["Alchemy", "HTTP response body exceeded the size limit."],
+    ["CDP", "Invalid parameters were provided to the RPC method. Double check you have provided the correct parameters."],
+  ])("keeps splitting below a thousand blocks when %s refuses the answer, not the range", async (_, refusal) => {
+    const { calls, read } = denseReader(refusal);
+    await getLogsAdaptive(1_000n, 10_999n, read);
+    const sorted = [...calls].sort((x, y) => Number(x[0] - y[0]));
+    expect(sorted[0]![0]).toBe(1_000n);
+    expect(sorted[sorted.length - 1]![1]).toBe(10_999n);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i]![0]).toBe(sorted[i - 1]![1] + 1n);
+    expect(calls.every(([a, b]) => b - a + 1n <= 100n)).toBe(true);
   });
 });
