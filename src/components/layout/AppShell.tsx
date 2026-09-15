@@ -108,6 +108,17 @@ function AppFrame({ children }: { children: ReactNode }) {
               >
                 <Rocket size={14} strokeWidth={1.75} /> Launchpad
               </a>
+              {/* The X account, as on the launchpad: an icon beside Settings, the handle on hover. */}
+              <a
+                href={X_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`@${BSTOCKS_X_HANDLE} on X`}
+                title={`@${BSTOCKS_X_HANDLE} on X`}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-[6px] border border-line text-ink-secondary hover:text-ink hover:border-line-strong transition-fast"
+              >
+                <XMark size={14} />
+              </a>
               <Link
                 href="/settings"
                 aria-label="Settings"
