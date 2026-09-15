@@ -23,6 +23,8 @@ const bodySchema = z.object({
   orders: z.boolean().optional(),
   /** Manual choice from the comparison: use exactly this provider, no fallback. */
   strictProvider: z.boolean().optional(),
+  /** Prefer CoW's batch auction: asked first for the firm quote, the swap chain covers a miss. */
+  bestExecution: z.boolean().optional(),
 });
 
 /**

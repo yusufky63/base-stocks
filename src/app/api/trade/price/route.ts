@@ -20,6 +20,8 @@ const bodySchema = z.object({
   provider: z.enum(["zeroX", "kyber", "okx", "uniswap", "velora", "aerodrome", "cow"]).optional(),
   /** false = transactions only (no signed orders); basket legs need a transaction hash per leg. */
   orders: z.boolean().optional(),
+  /** Prefer CoW's batch auction when it is within the best-execution tolerance of the best swap. */
+  bestExecution: z.boolean().optional(),
 });
 
 /**

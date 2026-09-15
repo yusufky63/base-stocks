@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, Suspense, type KeyboardEvent } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAccount, useConnect } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,7 +14,7 @@ import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { formatUsd } from "@/lib/format";
 import { PriceChange } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
-import { Badge, Button, Module, cx } from "@/components/ui/primitives";
+import { Badge, Button, Module, Skeleton, cx } from "@/components/ui/primitives";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { Sheet } from "@/components/ui/Sheet";
 import { StickyPanel } from "@/components/ui/StickyPanel";
@@ -28,6 +29,7 @@ import { PlatformActivity } from "./PlatformActivity";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { SendSheet } from "@/components/gift/SendSheet";
 import { EarnModule } from "@/components/earn/EarnModule";
+import { NewsList, useNewsFeed } from "@/components/news/NewsModule";
 import { ShareButton } from "@/components/common/ShareSheet";
 import { Coin3D } from "@/components/fx/lazy";
 import { hasMeaningfulChange, isNotIssued, tradingStatus } from "@/lib/trading-status";
@@ -43,6 +45,7 @@ const TABS = [
   ["trades", "Trades"],
   ["orders", "Orders"],
   ["earn", "Earn"],
+  ["news", "News"],
   ["details", "Details"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -264,7 +267,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
           </Module>
 
           <Module>
-            <div role="tablist" aria-label="Stock sections" aria-orientation="horizontal" onKeyDown={onTabKey} className="grid grid-cols-5 border-b border-line">
+            <div role="tablist" aria-label="Stock sections" aria-orientation="horizontal" onKeyDown={onTabKey} className="grid grid-cols-6 border-b border-line">
               {TABS.map(([id, label]) => (
                 <button
                   key={id}
@@ -311,6 +314,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                   </div>
                 </>
               )}
+              {tab === "news" && <StockNews ticker={asset.underlying} />}
               {tab === "details" && (
                 <>
                   <div className="p-4 border-b border-line">
@@ -353,6 +357,33 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
       )}
 
       <SendSheet open={sendOpen} onClose={() => setSendOpen(false)} asset={asset} raw={balances.raw} scaled={balances.scaled} priceUsd={displayPrice} onSent={onTraded} />
+    </div>
+  );
+}
+
+/**
+ * Headlines about this stock: the News page's per-ticker feed (Google News, Yahoo Finance, Nasdaq,
+ * Seeking Alpha), inside the tab rather than in its own card. Links open at the publisher.
+ */
+function StockNews({ ticker }: { ticker: string }) {
+  const { data, isLoading } = useNewsFeed({ ticker }, 12);
+  return (
+    <div>
+      {isLoading && !data ? (
+        <div className="p-4 flex flex-col gap-2">
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+        </div>
+      ) : (
+        <NewsList items={data?.items ?? []} />
+      )}
+      <div className="px-4 py-2.5 border-t border-line flex items-center justify-between gap-3 text-[11px] text-ink-muted">
+        <span>Headlines from multiple publishers; links open at the source. Not investment advice.</span>
+        <Link href="/news" className="text-primary font-medium shrink-0">
+          All news →
+        </Link>
+      </div>
     </div>
   );
 }

@@ -138,3 +138,34 @@ export function useMarketsView() {
   }, []);
   return { view, setView };
 }
+
+/* ---------------- Best execution ---------------- */
+
+const BEST_EXECUTION_KEY = "bstocks:bestExecution";
+
+function readBestExecution(): boolean {
+  try {
+    return localStorage.getItem(BEST_EXECUTION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether trades prefer CoW Protocol's batch auction when it is competitive (the router's
+ * BEST_EXECUTION_* constants say what competitive means). Off by default: a signed order waits
+ * for a solver, which is the slower experience on a small trade; the panel suggests turning it
+ * on once the trade is large enough for MEV protection and the solver's gas to matter.
+ */
+export function useBestExecution() {
+  const enabled = useSyncExternalStore(subscribe, readBestExecution, () => false);
+  const set = useCallback((v: boolean) => {
+    try {
+      localStorage.setItem(BEST_EXECUTION_KEY, v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new Event(EVENT));
+  }, []);
+  return { enabled, set };
+}

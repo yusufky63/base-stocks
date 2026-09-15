@@ -37,6 +37,8 @@ interface Props {
   /** Provider for the firm quote; `strictProvider` means the user picked it (no fallback). */
   provider?: TradeProviderId;
   strictProvider?: boolean;
+  /** Best execution is on: CoW is asked first for the firm quote and the sheet says which route took it. */
+  bestExecution?: boolean;
 }
 
 /**
@@ -44,7 +46,7 @@ interface Props {
  * Shows: stock, amount spent, estimated received, executable price, price impact, network = Base,
  * estimated network fee, clear CTA. Advanced data collapsed under "Execution details".
  */
-export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, sellAmount, recipient, slippageBps, payWith = "USDC", payUsd, provider, strictProvider = false }: Props) {
+export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, sellAmount, recipient, slippageBps, payWith = "USDC", payUsd, provider, strictProvider = false, bestExecution = false }: Props) {
   const trade = useTrade();
   const { address: buyer } = useAccount();
   const preparedFor = useRef<string | null>(null);
@@ -59,19 +61,19 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
   const shares = (raw: string | bigint) => formatTokenAmount(toScaled(typeof raw === "string" ? BigInt(raw) : raw, BigInt(asset.multiplier), BigInt(asset.wadPrecision)), asset.decimals);
   const partialReceived = trade.partialFill && trade.order ? (buy ? `${shares(trade.order.executedBuyAmount)} ${asset.underlying}` : formatUsd(Number(formatUnits(BigInt(trade.order.executedBuyAmount), USDC_DECIMALS)))) : null;
 
-  const execParams = { side, assetAddress: asset.address, sellAmount, payWith: buy ? payWith : undefined, provider: provider ?? summary.provider, strictProvider, recipient: recipient?.address, slippageBps, usdValue: usdcOut };
+  const execParams = { side, assetAddress: asset.address, sellAmount, payWith: buy ? payWith : undefined, provider: provider ?? summary.provider, strictProvider, bestExecution, recipient: recipient?.address, slippageBps, usdValue: usdcOut };
   // Fetch the firm quote as soon as the review opens; the CTA signs exactly what is on screen.
   useEffect(() => {
     if (!open) {
       preparedFor.current = null;
       return;
     }
-    const key = `${side}:${sellAmount}:${provider ?? ""}:${strictProvider}:${payWith}:${slippageBps}:${recipient?.address ?? ""}`;
+    const key = `${side}:${sellAmount}:${provider ?? ""}:${strictProvider}:${bestExecution}:${payWith}:${slippageBps}:${recipient?.address ?? ""}`;
     if (preparedFor.current === key || trade.state !== "IDLE") return;
     preparedFor.current = key;
     void trade.prepare(execParams);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, side, sellAmount, provider, strictProvider, payWith, slippageBps, recipient?.address, trade.state]);
+  }, [open, side, sellAmount, provider, strictProvider, bestExecution, payWith, slippageBps, recipient?.address, trade.state]);
   const locked = trade.isBusy;
   const doneReported = useRef(false);
   const signed = trade.mode === "order" || (trade.mode === null && live.provider === "cow");
@@ -177,7 +179,7 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
           <KeyValue k={live.priceImpactBasis === "market" ? "Price impact" : "vs reference"} v={live.priceImpactPct !== null ? formatPct(live.priceImpactPct, { sign: true }) : "—"} />
           {live.priceImpactBasis === "market" && live.referenceGapPct !== null && live.referenceGapPct !== undefined && <KeyValue k="vs reference" v={formatPct(live.referenceGapPct, { sign: true })} />}
           <KeyValue k="Network" v="Base" />
-          <KeyValue k="Provider" v={`${PROVIDER_LABEL[live.provider] ?? live.provider}${strictProvider ? " · your choice" : " · best net"}${firm ? " · firm quote" : trade.state === "GETTING_FIRM_QUOTE" ? " · fetching firm quote…" : ""}`} />
+          <KeyValue k="Provider" v={`${PROVIDER_LABEL[live.provider] ?? live.provider}${strictProvider ? " · your choice" : live.execution?.applied ? " · best execution" : bestExecution ? " · best execution missed, best net" : " · best net"}${firm ? " · firm quote" : trade.state === "GETTING_FIRM_QUOTE" ? " · fetching firm quote…" : ""}`} />
           <KeyValue k="Est. network fee" v={live.provider === "cow" ? "Paid by the solver · included in the price" : live.estimatedNetworkFeeUsd !== null ? `${live.networkFeeEstimated ? "≈ " : ""}${formatUsd(live.estimatedNetworkFeeUsd, { precise: true })}` : "—"} />
         </div>
 

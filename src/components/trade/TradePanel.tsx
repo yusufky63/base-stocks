@@ -13,7 +13,7 @@ import { parseAmountSafe, toRaw, toScaled, bpsOf } from "@/lib/b20/math";
 import { formatTokenAmount, formatUsd, formatPct } from "@/lib/format";
 import { useTradePrice } from "@/hooks/useTradePrice";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
-import { useSlippage } from "@/hooks/useSettings";
+import { useBestExecution, useSlippage } from "@/hooks/useSettings";
 import { useResolveRecipient, useAssets, useRegion } from "@/hooks/queries";
 import { AmountInput, Input } from "@/components/ui/Input";
 import { Button, KeyValue, cx } from "@/components/ui/primitives";
@@ -27,6 +27,7 @@ import { ConnectButton } from "@/components/layout/ConnectButton";
 import { TradeReviewSheet } from "./TradeReviewSheet";
 import { LimitOrderPanel } from "./LimitOrderPanel";
 import { RouteCompare, PROVIDER_LABEL, ProviderMark } from "./RouteCompare";
+import { BestExecutionSwitch } from "./BestExecutionSwitch";
 import { Segmented } from "@/components/ui/Segmented";
 import { SlippageControl } from "./SlippageControl";
 import { TRADE_ERROR_COPY } from "@/lib/errors";
@@ -64,6 +65,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
   const [payWith, setPayWith] = useState<"USDC" | "ETH">("USDC");
   /** null = automatic (best net output); otherwise the provider the user picked in the comparison. */
   const [providerChoice, setProviderChoice] = useState<TradeProviderId | null>(null);
+  const bestExecution = useBestExecution();
   const { data: assetsData } = useAssets();
   const region = useRegion();
   const restricted = region.data?.restricted === true;
@@ -95,7 +97,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
   // until the user takes the cap. Clamping silently used to mean a sell could never be "insufficient".
   const sellCapped = side === "sell" && isConnected && !balances.isLoading && typedSellAmount > balances.raw;
   const sellAmount = sellCapped ? balances.raw : typedSellAmount;
-  const priceState = useTradePrice(sellAmount > 0n && !restricted && !isNotIssued(asset) && (!giftMode || !!recipient) ? { side, payWith: side === "buy" ? payWith : undefined, assetAddress: asset.address, sellAmount, taker: address, recipient: recipient?.address, slippageBps } : null);
+  const priceState = useTradePrice(sellAmount > 0n && !restricted && !isNotIssued(asset) && (!giftMode || !!recipient) ? { side, payWith: side === "buy" ? payWith : undefined, assetAddress: asset.address, sellAmount, taker: address, recipient: recipient?.address, slippageBps, bestExecution: bestExecution.enabled } : null);
   const s = priceState.summary;
   const chosenAlt = providerChoice && s?.alternatives ? (s.alternatives.find((a) => a.provider === providerChoice && a.buyAmount) ?? null) : null;
   /** What the panel and the review show: the best quote, or the chosen provider's numbers. */
@@ -293,7 +295,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
                 v={
                   <span className="inline-flex items-center gap-1.5 max-w-full">
                     <ProviderMark provider={view.provider} size={14} />
-                    <span className="truncate">{`${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : " · best net"}${view.route.length ? ` · ${routeLabel(view.route)}` : ""}`}</span>
+                    <span className="truncate">{`${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : s?.execution?.applied ? " · best execution" : " · best net"}${view.route.length ? ` · ${routeLabel(view.route)}` : ""}`}</span>
                   </span>
                 }
               />
@@ -324,12 +326,13 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           </Button>
         )}
 
+        <BestExecutionSwitch enabled={bestExecution.enabled} onChange={bestExecution.set} advice={chosenAlt ? null : (s?.execution ?? null)} manual={!!chosenAlt} />
         {s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
         <Collapsible title="Execution details">
           <KeyValue k="Market price" v={displayPrice !== null ? formatUsd(displayPrice, { precise: true }) : "—"} />
           <KeyValue k="Buy now / Sell now · per token" v={view?.executablePriceUsd !== null && view?.executablePriceUsd !== undefined ? formatUsd(view.executablePriceUsd, { precise: true }) : "—"} />
           <KeyValue k="Route" v={view?.route.length ? view.route.map((r) => r.source).join(", ") : "—"} />
-          <KeyValue k="Provider" v={view ? `${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : " · best net"}` : "—"} />
+          <KeyValue k="Provider" v={view ? `${PROVIDER_LABEL[view.provider] ?? view.provider}${chosenAlt ? " · your choice" : s?.execution?.applied ? " · best execution" : " · best net"}` : "—"} />
           <KeyValue k="Slippage tolerance" v={`${(slippageBps / 100).toFixed(2)}%`} />
           <KeyValue k="Multiplier" v={formatUnits(multiplier, 18)} />
           <KeyValue k="Sell amount (raw units)" v={sellAmount.toString()} />
@@ -342,6 +345,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         <TradeReviewSheet
           provider={providerChoice ?? undefined}
           strictProvider={!!chosenAlt}
+          bestExecution={!chosenAlt && bestExecution.enabled}
           payWith={side === "buy" ? payWith : undefined}
           payUsd={usdInput}
           open={review}

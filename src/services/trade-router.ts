@@ -2,7 +2,7 @@ import { erc20Abi, formatUnits, type Address } from "viem";
 import { BASE_CHAIN_ID, DEFAULT_SLIPPAGE_BPS, MIN_TRADE_USD, NATIVE_ETH, NATIVE_ETH_DECIMALS, USDC_ADDRESS, USDC_DECIMALS, isNativeEth } from "@/config/chain";
 import type { B20Asset } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
-import type { ExecutableQuote, ExecutableQuoteDTO, IndicativeQuote, TradeIntent, TradeProvider, TradeProviderId, TradeQuoteAlternative, TradeQuoteSummary, TradeSide } from "@/domain/trade";
+import type { ExecutableQuote, ExecutableQuoteDTO, IndicativeQuote, TradeExecutionAdvice, TradeIntent, TradeProvider, TradeProviderId, TradeQuoteAlternative, TradeQuoteSummary, TradeSide } from "@/domain/trade";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { cached } from "@/lib/cache";
@@ -33,6 +33,12 @@ export interface TradeRequest {
   orders?: boolean;
   /** Server-set from the request's country: 0x's API terms exclude US persons, so US requests skip it. Never read from the client body. */
   noZeroX?: boolean;
+  /**
+   * Prefer CoW Protocol's batch auction when it is competitive: solvers compete for the order, the
+   * winner pays the gas, and a signed order cannot be sandwiched. Worth more than a few basis
+   * points on a large trade. Off by default; the panel suggests it above BEST_EXECUTION_MIN_USD.
+   */
+  bestExecution?: boolean;
 }
 
 /**
@@ -353,6 +359,60 @@ function demoteImplausibleWinner(ok: Array<{ alt: TradeQuoteAlternative; q: Indi
   }
 }
 
+/* ---------- best execution ---------- */
+
+/**
+ * The trade size above which the panel suggests best execution. Below it the difference between a
+ * batch auction and a swap is cents, and a signed order that waits for a solver is the slower
+ * experience; above it the price impact a swap takes, and the sandwich it invites, are real money.
+ */
+export const BEST_EXECUTION_MIN_USD = 250;
+
+/**
+ * How far CoW's quote may sit below the best net swap and still take the trade under best
+ * execution. The auction settles at the batch's clearing price, so the quote is a floor rather
+ * than the fill; half a percent buys MEV protection and the solver's gas on a trade this size.
+ */
+export const BEST_EXECUTION_TOLERANCE_PCT = 0.5;
+
+const BEST_EXECUTION_APPLIED = "Routed through CoW Protocol's batch auction: solvers compete for the order, the winning solver pays the gas, and a signed order cannot be front-run.";
+
+/**
+ * Decides whether CoW takes the trade, and moves it to the front of `ok` when it does. `ok` is
+ * every quote still in the running, best net first; `scored` holds the ones that fell out, with
+ * their reasons, so "CoW did not quote" can say why.
+ */
+function applyBestExecution(ok: Array<{ alt: TradeQuoteAlternative; q: IndicativeQuote | null; score: number }>, scored: Array<{ alt: TradeQuoteAlternative }>, wanted: boolean, tradeUsd: number | null): TradeExecutionAdvice {
+  const cowIndex = ok.findIndex((x) => x.alt.provider === "cow");
+  const cow = cowIndex >= 0 ? ok[cowIndex]! : null;
+  const leader = ok[0]!;
+  const behindPct = cow && cow !== leader && leader.score > 0 ? Math.max(0, (1 - cow.score / leader.score) * 100) : 0;
+  const competitive = cow !== null && behindPct <= BEST_EXECUTION_TOLERANCE_PCT;
+  const gap = behindPct < 0.005 ? "level with the best swap" : `${behindPct.toFixed(2)}% below the best swap`;
+  if (!wanted) {
+    const suggested = competitive && tradeUsd !== null && tradeUsd >= BEST_EXECUTION_MIN_USD;
+    return {
+      mode: "swap",
+      applied: false,
+      suggested,
+      note: suggested ? `A trade this size is usually better off in CoW Protocol's batch auction: solvers compete for it, the winner pays the gas, and it cannot be front-run. CoW's quote is ${gap}.` : null,
+    };
+  }
+  if (!cow) {
+    const reason = scored.find((x) => x.alt.provider === "cow")?.alt.error ?? "";
+    const note = /native ETH/i.test(reason) ? "CoW Protocol takes USDC only, so a buy paid in ETH stays a swap." : "CoW Protocol did not quote this trade, so the best swap keeps it.";
+    return { mode: "best", applied: false, suggested: false, note };
+  }
+  if (!competitive) {
+    return { mode: "best", applied: false, suggested: false, note: `CoW Protocol quoted ${behindPct.toFixed(2)}% below the best swap, more than the ${BEST_EXECUTION_TOLERANCE_PCT}% best execution allows, so the swap keeps the trade.` };
+  }
+  if (cow !== leader) {
+    ok.splice(cowIndex, 1);
+    ok.unshift(cow);
+  }
+  return { mode: "best", applied: true, suggested: false, note: BEST_EXECUTION_APPLIED };
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new AppError("PROVIDER_UNAVAILABLE", `timeout after ${ms}ms`, 504)), ms);
@@ -363,6 +423,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 interface Comparison {
   best: IndicativeQuote;
   alternatives: TradeQuoteAlternative[];
+  execution: TradeExecutionAdvice;
 }
 
 /**
@@ -373,7 +434,7 @@ interface Comparison {
  * Without a USD price for the stock there is no net: the routes are ranked by raw output instead,
  * and `netUsd` stays null rather than wearing a raw token count as dollars.
  */
-async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide, orders: boolean, zeroX: boolean): Promise<Comparison> {
+async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide, orders: boolean, zeroX: boolean, bestExecution = false): Promise<Comparison> {
   const providers = getTradeProviders({ orders, zeroX });
   const [md, ethUsd, gasPrice] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd(), currentGasPrice()]);
   const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
@@ -418,10 +479,14 @@ async function compareProviders(intent: TradeIntent, asset: B20Asset, side: Trad
     if (unbacked) throw new AppError("ROUTE_UNAVAILABLE", `Every route priced this stock more than ${MAX_QUOTE_DEVIATION_PCT}% away from its reference, so no pool is really trading it at that size right now. Try a smaller amount or check back later.`, 409, { providers: errors.join(" | ") });
     throw new AppError(liquidity ? "ROUTE_UNAVAILABLE" : "PROVIDER_UNAVAILABLE", liquidity ? "No route has enough onchain liquidity for this amount. Try a smaller amount or check back later." : "Trading is temporarily unavailable.", liquidity ? 409 : 503, { providers: errors.join(" | ") });
   }
+  // The trade's dollar size: what is spent on a buy, what the best route returns on a sell.
+  const tradeUsd = side === "buy" ? (isNativeEth(intent.sellToken) ? (ethUsd !== null ? Number(formatUnits(intent.sellAmount, NATIVE_ETH_DECIMALS)) * ethUsd : null) : Number(formatUnits(intent.sellAmount, USDC_DECIMALS))) : ok[0]!.alt.outUsd;
+  const execution = applyBestExecution(ok, scored, bestExecution && orders, tradeUsd);
   ok[0]!.alt.best = true;
   const alternatives = [...ok.map((x) => x.alt), ...scored.filter((x) => x.q === null).map((x) => x.alt)];
   metrics.count(`trade.compare.best.${ok[0]!.alt.provider}`);
-  return { best: ok[0]!.q!, alternatives };
+  if (execution.applied) metrics.count("trade.bestExecution");
+  return { best: ok[0]!.q!, alternatives, execution };
 }
 
 /**
@@ -437,8 +502,8 @@ async function compareProviders(intent: TradeIntent, asset: B20Asset, side: Trad
  */
 export const COMPARE_MEMO_MS = 5_000;
 
-function compareKey(intent: TradeIntent, orders: boolean, zeroX: boolean): string {
-  return `trade.compare:${intent.side}:${intent.assetAddress.toLowerCase()}:${intent.sellToken.toLowerCase()}:${intent.sellAmount}:${intent.slippageBps}:${intent.taker?.toLowerCase() ?? ""}:${intent.recipient?.toLowerCase() ?? ""}:${orders}:${zeroX}`;
+function compareKey(intent: TradeIntent, orders: boolean, zeroX: boolean, bestExecution: boolean): string {
+  return `trade.compare:${intent.side}:${intent.assetAddress.toLowerCase()}:${intent.sellToken.toLowerCase()}:${intent.sellAmount}:${intent.slippageBps}:${intent.taker?.toLowerCase() ?? ""}:${intent.recipient?.toLowerCase() ?? ""}:${orders}:${zeroX}:${bestExecution}`;
 }
 
 export class TradeRouter {
@@ -451,11 +516,12 @@ export class TradeRouter {
     const started = Date.now();
     const orders = req.orders !== false;
     const zeroX = !req.noZeroX;
-    const { best, alternatives } = await cached(compareKey(intent, orders, zeroX), { ttlMs: COMPARE_MEMO_MS }, () => compareProviders(intent, asset, req.side, orders, zeroX));
+    const bestExecution = req.bestExecution === true;
+    const { best, alternatives, execution } = await cached(compareKey(intent, orders, zeroX, bestExecution), { ttlMs: COMPARE_MEMO_MS }, () => compareProviders(intent, asset, req.side, orders, zeroX, bestExecution));
     metrics.count(`trade.price.${best.provider}`);
     const summary = await summarize(req, asset, best, warnings);
     metrics.count("trade.price.latency", true, String(Date.now() - started));
-    return { ...summary, alternatives };
+    return { ...summary, alternatives, execution };
   }
 
   /** Fresh executable quote for review/submit. Short-lived; the client re-fetches on expiry. */
@@ -473,7 +539,10 @@ export class TradeRouter {
       if (req.provider === "zeroX" && req.noZeroX) throw new AppError("PROVIDER_UNAVAILABLE", "0x does not serve US users; pick another route.", 451);
       throw new AppError("PROVIDER_UNAVAILABLE", "The provider you picked is not available right now. Switch back to the best route.", 503);
     }
-    const ordered = strict.length ? strict : [...all].sort((a, b) => Number(b.id === req.provider) - Number(a.id === req.provider));
+    // Best execution without a manual pick asks CoW first; if the order book cannot firm it up,
+    // the hedged chain still fills the trade and the summary says a swap took it.
+    const preferred = req.provider ?? (req.bestExecution ? "cow" : undefined);
+    const ordered = strict.length ? strict : [...all].sort((a, b) => Number(b.id === preferred) - Number(a.id === preferred));
     const q: ExecutableQuote = await withFallback(ordered, (p) => p.getExecutableQuote(intent));
     metrics.count(`trade.quote.${q.provider}`);
     assertKnownTargets(q);
@@ -486,8 +555,12 @@ export class TradeRouter {
       metrics.count("trade.implausible", false, `${q.provider} firm ${deviation > 0 ? "+" : ""}${Math.round(deviation)}% vs reference`);
       throw new AppError("ROUTE_UNAVAILABLE", `${implausibleDeviationError(deviation)} Try again for a fresh quote, or a smaller amount.`, 409, { provider: q.provider, deviationPct: deviation });
     }
+    const execution: TradeExecutionAdvice | undefined = req.bestExecution
+      ? { mode: "best", applied: q.provider === "cow", suggested: false, note: q.provider === "cow" ? BEST_EXECUTION_APPLIED : "CoW Protocol could not firm up this order, so the best swap took the trade." }
+      : undefined;
     return {
       ...summary,
+      ...(execution ? { execution } : {}),
       transaction: q.transaction
         ? {
             to: q.transaction.to,

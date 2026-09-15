@@ -99,6 +99,8 @@ export interface TradePriceRequest {
   recipient?: Address;
   slippageBps?: number;
   chainId?: number;
+  /** Prefer CoW's batch auction when it is competitive (see the router's best-execution constants). */
+  bestExecution?: boolean;
 }
 
 export interface PlanRequest {

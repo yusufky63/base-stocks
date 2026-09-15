@@ -127,6 +127,19 @@ export interface TradeQuoteAlternative {
   executablePriceUsd: number | null;
 }
 
+/**
+ * What the router did about best execution, for the panel to explain. `mode` is what the request
+ * asked for; `applied` says whether CoW's batch auction took the trade; `suggested` says the trade
+ * is large enough, and CoW competitive enough, that the panel should offer the mode.
+ */
+export interface TradeExecutionAdvice {
+  mode: "swap" | "best";
+  applied: boolean;
+  suggested: boolean;
+  /** One sentence for the panel; null when there is nothing to say. */
+  note: string | null;
+}
+
 /** Normalized summary the UI renders; browser never sees provider shapes. */
 export interface TradeQuoteSummary {
   provider: TradeProviderId;
@@ -162,6 +175,8 @@ export interface TradeQuoteSummary {
   warnings: string[];
   /** Every configured provider's answer for this exact amount, best first (indicative prices only). */
   alternatives?: TradeQuoteAlternative[];
+  /** Best execution: whether CoW's batch auction took the trade, or should be offered. */
+  execution?: TradeExecutionAdvice;
 }
 
 export interface ExecutableQuoteDTO extends TradeQuoteSummary {

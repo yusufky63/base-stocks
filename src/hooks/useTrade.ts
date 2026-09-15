@@ -24,6 +24,8 @@ export interface TradeExecParams {
   usdValue?: number | null;
   /** false = transactions only (no signed orders). */
   orders?: boolean;
+  /** Prefer CoW's batch auction: asked first for the firm quote, the swap chain covers a miss. */
+  bestExecution?: boolean;
 }
 
 export interface TradeRun {
@@ -151,6 +153,7 @@ export function useTrade(): TradeRun {
           provider: params.provider,
           strictProvider: params.strictProvider,
           orders: params.orders,
+          bestExecution: params.bestExecution || undefined,
           taker: address,
           recipient: params.recipient,
           slippageBps: params.slippageBps,

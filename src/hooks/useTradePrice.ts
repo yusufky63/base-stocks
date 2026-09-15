@@ -14,6 +14,8 @@ export interface TradePriceInput {
   taker?: Address;
   recipient?: Address;
   slippageBps?: number;
+  /** Prefer CoW's batch auction when it is competitive; the answer's `execution` says what happened. */
+  bestExecution?: boolean;
 }
 
 export interface TradePriceState {
@@ -43,7 +45,7 @@ export function useTradePrice(input: TradePriceInput | null, opts?: { debounceMs
   const seq = useRef(0);
 
   const active = !!input && input.sellAmount > 0n;
-  const key = active ? `${input.side}:${input.payWith ?? "USDC"}:${input.assetAddress}:${input.sellAmount.toString()}:${input.taker ?? ""}:${input.recipient ?? ""}:${input.slippageBps ?? ""}` : "";
+  const key = active ? `${input.side}:${input.payWith ?? "USDC"}:${input.assetAddress}:${input.sellAmount.toString()}:${input.taker ?? ""}:${input.recipient ?? ""}:${input.slippageBps ?? ""}:${input.bestExecution ? 1 : 0}` : "";
 
   useEffect(() => {
     if (!active || !input) return;
@@ -57,6 +59,7 @@ export function useTradePrice(input: TradePriceInput | null, opts?: { debounceMs
           taker: input.taker,
           recipient: input.recipient,
           slippageBps: input.slippageBps,
+          bestExecution: input.bestExecution || undefined,
           chainId: BASE_CHAIN_ID,
         });
         if (mySeq !== seq.current) return;

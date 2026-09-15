@@ -93,7 +93,7 @@ vi.mock("./price-service", () => ({
   impactBasis: vi.fn(() => (basisPrice === null ? null : { basis: "market", price: basisPrice })),
 }));
 
-const { tradeRouter, MAX_QUOTE_DEVIATION_PCT, quoteDeviationPct, networkFee } = await import("./trade-router");
+const { tradeRouter, MAX_QUOTE_DEVIATION_PCT, BEST_EXECUTION_MIN_USD, quoteDeviationPct, networkFee } = await import("./trade-router");
 
 beforeEach(async () => {
   providers.length = 0;
@@ -340,6 +340,95 @@ describe("trade router comparison", () => {
 
   it("rejects dust trades before asking any provider", async () => {
     await expect(tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: 1_000n })).rejects.toMatchObject({ code: "AMOUNT_TOO_SMALL" });
+  });
+});
+
+describe("trade router best execution", () => {
+  /** A $300 buy: over the suggestion threshold. The comparison memo keys on the amount, so each field below asks its own question. */
+  const LARGE = BigInt(BEST_EXECUTION_MIN_USD + 50) * 1_000_000n;
+  /** 1.5 tokens at $200: what $300 buys at the reference, so the deviation gate lets these quotes through. */
+  const LARGE_OUT = 150_000_000n;
+
+  it("moves a competitive CoW quote to the front when asked, and only then", async () => {
+    // Kyber returns 0.2% more; CoW's fee is inside its price, so it reports no network fee.
+    providers.push(
+      provider("kyber", async () => quote("kyber", 5_010_000n, 10n ** 12n)),
+      provider("cow", async () => quote("cow", 5_000_000n, 0n)),
+    );
+    const plain = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: 10_000_000n });
+    expect(plain.provider).toBe("kyber");
+    expect(plain.execution).toEqual({ mode: "swap", applied: false, suggested: false, note: null }); // $10: nothing to suggest
+
+    const best = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: 10_000_000n, bestExecution: true });
+    expect(best.provider).toBe("cow");
+    expect(best.execution?.applied).toBe(true);
+    expect(best.alternatives![0]!.provider).toBe("cow");
+    expect(best.alternatives![0]!.best).toBe(true);
+    expect(best.alternatives!.find((a) => a.provider === "kyber")!.best).toBe(false);
+  });
+
+  it("suggests the mode for a large trade CoW is competitive on, without applying it", async () => {
+    providers.push(
+      provider("kyber", async () => quote("kyber", (LARGE_OUT * 1002n) / 1000n, 10n ** 12n, { sellAmount: LARGE })),
+      provider("cow", async () => quote("cow", LARGE_OUT, 0n, { sellAmount: LARGE })),
+    );
+    const s = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: LARGE });
+    expect(s.provider).toBe("kyber");
+    expect(s.execution?.suggested).toBe(true);
+    expect(s.execution?.note).toMatch(/batch auction/);
+  });
+
+  it("keeps the swap when CoW is more than the tolerance behind, and says so", async () => {
+    providers.push(
+      provider("kyber", async () => quote("kyber", (LARGE_OUT * 1002n) / 1000n, 10n ** 12n, { sellAmount: LARGE })),
+      provider("cow", async () => quote("cow", (LARGE_OUT * 97n) / 100n, 0n, { sellAmount: LARGE })), // 3.2% behind
+    );
+    const s = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: LARGE, bestExecution: true });
+    expect(s.provider).toBe("kyber");
+    expect(s.execution).toMatchObject({ mode: "best", applied: false, suggested: false });
+    expect(s.execution?.note).toMatch(/below the best swap/);
+    // Nothing to suggest either: the mode would not have taken the trade.
+    const plain = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: LARGE });
+    expect(plain.execution?.suggested).toBe(false);
+  });
+
+  it("explains a field without CoW in it", async () => {
+    providers.push(
+      provider("kyber", async () => quote("kyber", 5_010_000n, 10n ** 12n)),
+      provider("cow", async () => {
+        throw new AppError("ROUTE_UNAVAILABLE", "cow: native ETH is not a valid sell token", 409);
+      }),
+    );
+    const s = await tradeRouter.price({ side: "buy", assetAddress: NVDA, sellAmount: 10_000_000n, bestExecution: true });
+    expect(s.provider).toBe("kyber");
+    expect(s.execution?.applied).toBe(false);
+    expect(s.execution?.note).toMatch(/USDC only/);
+  });
+
+  it("asks CoW first for the firm quote and lets the swap chain cover a miss", async () => {
+    const seen: string[] = [];
+    providers.push(
+      provider(
+        "kyber",
+        async () => quote("kyber", 5_010_000n, 10n ** 12n),
+        async () => {
+          seen.push("kyber");
+          return executableOf(quote("kyber", 5_010_000n, 10n ** 12n));
+        },
+      ),
+      provider(
+        "cow",
+        async () => quote("cow", 5_000_000n, 0n),
+        async () => {
+          seen.push("cow");
+          throw new AppError("PROVIDER_UNAVAILABLE", "cow: order book down", 502);
+        },
+      ),
+    );
+    const q = await tradeRouter.quote({ side: "buy", assetAddress: NVDA, sellAmount: 10_000_000n, taker: TAKER, bestExecution: true });
+    expect(seen[0]).toBe("cow");
+    expect(q.provider).toBe("kyber");
+    expect(q.execution).toMatchObject({ mode: "best", applied: false });
   });
 });
 

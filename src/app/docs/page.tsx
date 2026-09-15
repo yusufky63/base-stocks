@@ -300,7 +300,7 @@ export default function DocsPage() {
         </div>
         <div className="module-grid grid-cols-1 md:grid-cols-3 ticks">
           <Cell icon={GitBranch} title="Net wins, failures listed">
-            Every provider quotes at once; the route with the best net output (output minus estimated network fee) wins. Providers that fail are listed with their reasons instead of silently dropped.
+            Every provider quotes at once; the route with the best net output (output minus estimated network fee) wins. Providers that fail are listed with their reasons instead of silently dropped. With best execution on, CoW Protocol&apos;s batch auction takes the trade whenever its quote is within 0.5% of the best swap: solvers compete for the order, the winner pays the gas, and a signed order cannot be front-run. The panel suggests it above $250.
           </Cell>
           <Cell icon={Timer} title="Firm quote before signing">
             The review sheet re-fetches a binding quote right before you sign, so the numbers you approve are the numbers that execute.
