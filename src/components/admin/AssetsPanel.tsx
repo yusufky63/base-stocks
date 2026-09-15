@@ -12,8 +12,10 @@ const ORDER: Record<Discovered["verification"], number> = { discovered: 0, verif
  * Asset verification (spec §6): a token created onchain is not tradable until someone says so.
  *
  * The scan is a chain read over a few hundred thousand blocks, so it stays a button rather than
- * something the page does on load. Unreviewed tokens sort first, because they are the only rows
- * that need a decision.
+ * something the page does on load. Only tokens from Coinbase's deployer with a Chainlink feed are
+ * listed: anyone can call the B20 factory, and the scan finds dozens of copycat "NVDAc"s that no
+ * admin could ever verify, so they are counted in a footnote rather than shown as work to review.
+ * Unreviewed tokens sort first, because they are the only rows that need a decision.
  */
 export function AssetsPanel({ token }: { token: string }) {
   const discover = useMutation({ mutationFn: () => adminFetch<{ discovered: Discovered[]; all: Discovered[] }>(token, "/api/admin/assets/discover", { method: "POST" }) });
@@ -22,8 +24,9 @@ export function AssetsPanel({ token }: { token: string }) {
     onSuccess: () => discover.mutate(),
   });
 
-  const all = [...(discover.data?.all ?? [])].sort((a, b) => ORDER[a.verification] - ORDER[b.verification] || b.blockNumber - a.blockNumber);
-  const pending = all.filter((d) => d.verification === "discovered").length;
+  const shown = [...(discover.data?.discovered ?? [])].sort((a, b) => ORDER[a.verification] - ORDER[b.verification] || b.blockNumber - a.blockNumber);
+  const skipped = (discover.data?.all.length ?? 0) - shown.length;
+  const pending = shown.filter((d) => d.verification === "discovered").length;
 
   return (
     <Module>
@@ -40,9 +43,9 @@ export function AssetsPanel({ token }: { token: string }) {
       />
       {discover.error && <p className="px-4 py-3 text-[13px] text-danger-fg">{(discover.error as Error).message}</p>}
       {setState.error && <p className="px-4 py-3 text-[13px] text-danger-fg">{(setState.error as Error).message}</p>}
-      {!discover.data && !discover.isPending && <p className="px-4 py-4 text-[14px] text-ink-secondary">Run a scan to list tokens created onchain that are not in the curated registry.</p>}
-      {discover.data && all.length === 0 && <p className="px-4 py-4 text-[14px] text-ink-secondary">The scan found nothing outside the curated registry.</p>}
-      {all.map((d) => (
+      {!discover.data && !discover.isPending && <p className="px-4 py-4 text-[14px] text-ink-secondary">Run a scan to list tokens from Coinbase&apos;s deployer that are not in the curated registry.</p>}
+      {discover.data && shown.length === 0 && <p className="px-4 py-4 text-[14px] text-ink-secondary">The scan found no token from Coinbase&apos;s deployer outside the curated registry.</p>}
+      {shown.map((d) => (
         <div key={d.address} className="flex flex-col md:flex-row md:items-center justify-between gap-3 px-4 py-3 border-b border-line last:border-b-0">
           <div className="min-w-0">
             <div className="font-medium text-[14px]">
@@ -67,7 +70,10 @@ export function AssetsPanel({ token }: { token: string }) {
           </div>
         </div>
       ))}
-      <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">Verified tokens still need a Chainlink feed and tags in the curated registry before they appear in Markets.</p>
+      <p className="px-4 py-3 text-[12px] text-ink-muted border-t border-line">
+        {skipped > 0 && `${skipped} other B20Created token${skipped === 1 ? "" : "s"} skipped: not Coinbase's deployer, or no Chainlink feed. `}
+        Verified tokens still need a Chainlink feed and tags in the curated registry before they appear in Markets.
+      </p>
     </Module>
   );
 }
