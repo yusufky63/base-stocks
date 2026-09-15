@@ -120,6 +120,26 @@ describe("what the chain shows that no record explains", () => {
   });
 
   /**
+   * A swap filled across two pools delivers the stock as two Transfer logs in one transaction.
+   * That used to be two "Received" rows for one receipt, sharing an id, which React flagged as
+   * duplicate keys on the home page.
+   */
+  it("folds several transfers of one asset in one direction into one row with the total", () => {
+    const tx = hash(40);
+    const items = buildTimeline(input({ transfers: [transfer(tx, OTHER, ME, 40), { ...transfer(tx, OTHER, ME, 40), value: 250n }] }));
+    expect(items).toHaveLength(1);
+    expect(items[0]!.id).toBe(`chain:${tx}:${AAPL}:in`);
+    expect(items[0]!.rawAmount).toBe("350");
+    expect(items[0]!.counterparty).toBe(OTHER);
+  });
+
+  it("keeps a send and a receive of the same asset in one transaction as two rows", () => {
+    const tx = hash(41);
+    const items = buildTimeline(input({ transfers: [transfer(tx, OTHER, ME, 41), transfer(tx, ME, OTHER, 41)] }));
+    expect(items.map((i) => i.id).sort()).toEqual([`chain:${tx}:${AAPL}:in`, `chain:${tx}:${AAPL}:out`]);
+  });
+
+  /**
    * A claim-link gift moves twice: sender → escrow when it is funded, escrow → claimant when it
    * is taken. The claim used to surface as an unexplained "Received from 0x8D9f…" on the sender's
    * side and as a duplicate on the claimant's; both hashes belong to the gift.

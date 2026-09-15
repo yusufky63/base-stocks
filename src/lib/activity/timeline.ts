@@ -423,7 +423,16 @@ export function buildTimeline(input: TimelineInput): ActivityItem[] {
   // Received from others, or trades made elsewhere: whatever no record above explains.
   for (const [tx, list] of onchainByTx) {
     if (consumed.has(tx)) continue;
+    // One row per asset and direction within the transaction. A swap filled across two pools
+    // delivers the stock as two Transfer logs; two rows for that read as two receipts, and they
+    // shared one id (it carries no log index), which React reported as duplicate keys.
+    const byLeg = new Map<string, TimelineTransfer>();
     for (const t of list) {
+      const key = `${lower(t.asset)}:${lower(t.from) === me ? "out" : "in"}`;
+      const prev = byLeg.get(key);
+      byLeg.set(key, prev ? { ...prev, value: prev.value + t.value } : t);
+    }
+    for (const t of byLeg.values()) {
       const asset = assetOf(t.asset);
       const isOut = lower(t.from) === me;
       items.push({
