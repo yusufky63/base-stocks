@@ -4,7 +4,7 @@
  * keys (see /api/config and /status). Marks come from DefiLlama's icon CDN where one exists;
  * `mark: null` falls back to a lettered badge.
  */
-import { LAUNCHPAD_URL } from "./ecosystem";
+import { LAUNCHPAD_NAME, LAUNCHPAD_URL } from "./ecosystem";
 import type { EarnProviderId } from "@/domain/earn";
 
 export interface Integration {
@@ -67,7 +67,7 @@ export const INTEGRATIONS: IntegrationGroup[] = [
     blurb: "Base-native pieces that make the app feel simple: passkey accounts, sponsored gas, names, attribution, fast confirmations, and payments an agent can make on its own.",
     items: [
       { name: "Coinbase Tokenized Stocks", mark: null, color: "#0052ff", url: "https://www.base.org/stocks", role: "B20 assets, registry, oracles" },
-      { name: "BaseStocks Launchpad", mark: null, color: "#0370fd", url: LAUNCHPAD_URL, role: "Tokens priced in a stock, not ETH" },
+      { name: LAUNCHPAD_NAME, mark: null, color: "#0370fd", url: LAUNCHPAD_URL, role: "Tokens priced in a stock, not ETH" },
       { name: "Base Account", mark: null, color: "#0000ff", url: "https://docs.base.org/sdks/base-account/overview", role: "Passkey wallet, atomic batches" },
       { name: "CDP Paymaster", mark: null, color: "#0052ff", url: "https://docs.base.org/sdks/base-account/improve-ux/sponsor-gas", role: "Sponsored gas: trade, earn and claim with zero ETH" },
       { name: "Basenames", mark: null, color: "#0000ff", url: "https://www.base.org/names", role: "Send to alice.base.eth" },
