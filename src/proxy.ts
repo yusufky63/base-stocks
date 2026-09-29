@@ -7,20 +7,22 @@ import { NextResponse, type NextRequest } from "next/server";
  *    persons outside the United States, and 0x's tokenized-equities opt-in makes the integrator
  *    responsible for geoblocking. Browsing, prices and news stay open everywhere. The country comes
  *    from the hosting provider's header; when no header is present nothing is blocked (no guessing).
- *    GEOBLOCK_MODE=block (default) refuses outright; GEOBLOCK_MODE=attest is the softer version,
- *    where a visitor self-certifies eligibility (cookie set by POST /api/region, 30 days).
+ *    GEOBLOCK_MODE=attest (default) asks: a visitor who confirms they are not a US person
+ *    (cookie set by POST /api/region, 30 days) may continue even from a blocked country's IP.
+ *    GEOBLOCK_MODE=block refuses outright.
  */
 export const ELIGIBILITY_COOKIE = "bstocks_eligibility";
 
 /**
- * `block` is the default, and `attest` has to be asked for.
+ * `attest` is the default, and `block` has to be asked for.
  *
- * Self-certification is a real mechanism, but it means a visitor from a blocked country can tick a
- * box and trade, which is enabling trading for those users however the box is worded. The safe
- * reading has to be the one you get by configuring nothing.
+ * An IP address says where a connection comes from, not who is behind it: a non-US person
+ * travelling or on a US-hosted VPN looks the same as a US resident. So a blocked country is asked
+ * the eligibility question rather than refused, and the answer is the visitor's own statement.
+ * `block` remains for a deployment that must refuse whatever the visitor says.
  */
 function geoblockMode(): "block" | "attest" {
-  return process.env.GEOBLOCK_MODE === "attest" ? "attest" : "block";
+  return process.env.GEOBLOCK_MODE === "block" ? "block" : "attest";
 }
 /**
  * Closed to a blocked region whatever the method: these routes exist only to build an execution.

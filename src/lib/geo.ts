@@ -15,11 +15,11 @@ export function requestCountry(req: Request): string | null {
  * Where Coinbase Tokenized Stocks may not be traded, and what the app does about it.
  *
  * The issuer offers these assets only to eligible persons outside the United States, so a
- * restricted visitor must not be handed anything they could sign. The default is `block`: refuse
- * outright. `attest` is the softer mode, where a visitor self-certifies eligibility and the cookie
- * that records it unlocks the same routes; it exists for deployments that want it and has to be
- * turned on deliberately, because "enabling trading for US users" is exactly what the default must
- * not do.
+ * restricted visitor must not be handed anything they could sign until they say they are eligible.
+ * The default is `attest`: a visitor from a blocked country confirms they are not a US person, and
+ * the cookie that records it unlocks the execution routes, because an IP address is where a
+ * connection comes from, not who the person is. `block` refuses outright whatever the visitor says,
+ * and has to be turned on deliberately.
  */
 export function geoPolicy(): { blocked: string[]; mode: "block" | "attest" } {
   const env = serverEnv();
@@ -27,7 +27,7 @@ export function geoPolicy(): { blocked: string[]; mode: "block" | "attest" } {
     .split(",")
     .map((c) => c.trim().toUpperCase())
     .filter(Boolean);
-  return { blocked, mode: env.GEOBLOCK_MODE === "attest" ? "attest" : "block" };
+  return { blocked, mode: env.GEOBLOCK_MODE === "block" ? "block" : "attest" };
 }
 
 const ATTESTED = /(?:^|;\s*)bstocks_eligibility=confirmed(?:;|$)/;

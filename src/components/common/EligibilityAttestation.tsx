@@ -38,7 +38,10 @@ export function EligibilityAttestation({ onConfirmed, secondary, layout = "inlin
     <div className={cx("flex flex-col", boxed ? "gap-4" : "gap-2", className)}>
       <label className={cx("flex items-start cursor-pointer", boxed ? "gap-2.5 border border-line rounded-[8px] p-3" : "gap-2")}>
         <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--color-primary)] shrink-0" />
-        <span className="text-ink leading-relaxed">I confirm that I am not a US person and that I am eligible to hold and trade Coinbase Tokenized Stocks under the issuer&apos;s terms.</span>
+        <span className="text-ink leading-relaxed">
+          I confirm that I am not a US person: I do not live in the United States and I am not a US citizen or resident. I am eligible to hold and trade Coinbase Tokenized Stocks under the
+          issuer&apos;s terms.
+        </span>
       </label>
       <div className={cx("flex flex-wrap items-center", boxed ? "gap-2" : "gap-3")}>
         <Button size={boxed ? "md" : "sm"} disabled={!checked} loading={busy} onClick={() => void confirm()}>
