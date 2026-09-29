@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiPost, type RegionResponse } from "@/lib/client-api";
+import { storeAttestation } from "@/lib/eligibility-store";
 import { qk } from "@/hooks/queries";
 import { Button, cx } from "@/components/ui/primitives";
 
@@ -24,6 +25,8 @@ export function EligibilityAttestation({ onConfirmed, secondary, layout = "inlin
     setError(null);
     try {
       await apiPost<RegionResponse>("/api/region", { confirm: true });
+      // Kept in the browser too: inside another site's frame the cookie may not be.
+      storeAttestation(true);
       await qc.invalidateQueries({ queryKey: qk.region });
       onConfirmed?.();
     } catch {

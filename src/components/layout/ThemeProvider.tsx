@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { embedThemeFromLocation } from "@/lib/embed";
 
 export type ThemePreference = "system" | "light" | "dark";
 
@@ -15,6 +16,9 @@ const STORAGE_KEY = "bstocks:theme";
 const EVENT = "bstocks:theme";
 
 function readPreference(): ThemePreference {
+  // A widget host's `?theme=` wins inside its frame, as it does for the page itself before paint.
+  const embedded = embedThemeFromLocation(window.location);
+  if (embedded) return embedded;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark") return stored;

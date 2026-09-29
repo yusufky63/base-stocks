@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { headerAttested } from "@/lib/eligibility-store";
 
 /**
  * Edge proxy: compliance geoblock. Execution routes (quotes, trade plans, Earn call building) and
@@ -63,7 +64,8 @@ export function proxy(req: NextRequest) {
       const country = requestCountry(req);
       if (country && blockedCountries().includes(country)) {
         const mode = geoblockMode();
-        const attested = mode === "attest" && req.cookies.get(ELIGIBILITY_COOKIE)?.value === "confirmed";
+        // The cookie, or the same answer as a header from a widget whose frame could not keep it.
+        const attested = mode === "attest" && (req.cookies.get(ELIGIBILITY_COOKIE)?.value === "confirmed" || headerAttested(req.headers));
         if (!attested) {
           // In `attest` a blocked region is not banned, it is asked, and the wording has to say so
           // or a 451 that a checkbox clears reads like a wall. In `block`, the default, there is

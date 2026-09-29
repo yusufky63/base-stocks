@@ -39,6 +39,7 @@ const DESKTOP_NAV = [...NAV.filter((n) => n.href !== "/").map((n) => ({ ...n, ex
 const FOOTER_LINKS = [
   ["/news", "News", "lg:hidden"],
   ["/how-it-works", "How it works", ""],
+  ["/widgets", "Widgets", ""],
   ["/docs", "Docs", ""],
   ["/developers", "API", ""],
   ["/stats", "Stats", ""],
@@ -55,6 +56,10 @@ function isActive(path: string, href: string): boolean {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const path = usePathname();
+  // Widgets run inside other sites' frames and bring their own minimal chrome (components/embed):
+  // no ticker, header, assistant, arrival dialog or bottom nav.
+  if (path === "/embed" || path.startsWith("/embed/")) return <>{children}</>;
   return (
     <CopilotProvider>
       <AppFrame>{children}</AppFrame>

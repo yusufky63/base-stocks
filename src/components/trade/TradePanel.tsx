@@ -24,6 +24,8 @@ import { FundWallet } from "@/components/common/FundWallet";
 import { RegionNotice } from "@/components/common/RegionNotice";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { ConnectButton } from "@/components/layout/ConnectButton";
+import { useEmbedEligibility, useEmbedHidden } from "@/components/embed/EmbedOptions";
+import { Skeleton } from "@/components/ui/primitives";
 import { TradeReviewSheet } from "./TradeReviewSheet";
 import { LimitOrderPanel } from "./LimitOrderPanel";
 import { RouteCompare, PROVIDER_LABEL, ProviderMark } from "./RouteCompare";
@@ -46,7 +48,8 @@ interface Props {
   asset: B20AssetDTO;
   price: PriceView | null;
   initialSide?: TradeSide;
-  onTraded?: () => void;
+  /** After a trade or an order: the side, and the transaction hash when there is one yet. */
+  onTraded?: (trade: { side: TradeSide; txHash: string | null }) => void;
   className?: string;
 }
 
@@ -69,6 +72,12 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
   const { data: assetsData } = useAssets();
   const region = useRegion();
   const restricted = region.data?.restricted === true;
+  // A widget host may leave parts out (each falls back to its plain default) and may ask every
+  // visitor the eligibility question before a first trade, not only a blocked region.
+  const hidden = useEmbedHidden();
+  const askEveryone = useEmbedEligibility() === "always";
+  const askFirst = !restricted && askEveryone && !region.data?.attested;
+  const gated = restricted || askFirst;
   const ethUsd = assetsData?.ethUsd ?? null;
   // The one balance still read from the browser (it is not in the portfolio snapshot). It moves
   // only when its owner transacts, so it is polled as a safety net, not as a live feed.
@@ -152,7 +161,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           options={[
             { value: "buy", label: "Buy", tone: "buy" },
             { value: "sell", label: "Sell", tone: "sell" },
-            { value: "limit", label: "Limit", title: restricted ? "Not available in your region" : "Your own price, filled gaslessly by CoW Protocol", disabled: restricted },
+            ...(hidden("limit") ? [] : [{ value: "limit" as const, label: "Limit", title: restricted ? "Not available in your region" : askFirst ? "Confirm your eligibility first" : "Your own price, filled gaslessly by CoW Protocol", disabled: gated }]),
           ]}
         />
       </div>
@@ -163,11 +172,12 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         </div>
 
         {limitMode ? (
-          <LimitOrderPanel initialSide={side} asset={asset} priceUsd={displayPrice} rawStockBalance={balances.raw} usdcBalance={balances.usdc} onPlaced={() => onTraded?.()} />
+          <LimitOrderPanel initialSide={side} asset={asset} priceUsd={displayPrice} rawStockBalance={balances.raw} usdcBalance={balances.usdc} onPlaced={() => onTraded?.({ side, txHash: null })} />
         ) : (
           <>
         {side === "buy" ? (
           <>
+            {!hidden("pay") && (
             <div className="flex items-center justify-between gap-3">
               <span className="text-[12px] text-ink-secondary">Pay with</span>
               <Segmented<"USDC" | "ETH">
@@ -182,7 +192,10 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
                 ]}
               />
             </div>
+            )}
             <AmountInput value={usd} onChange={(v) => { setUsd(v);  setBuyPct(null); }} unit="USD" ariaLabel="Amount in US dollars" />
+            {!hidden("presets") && (
+            <>
             <Slider value={Math.min(buySliderMax, usdNumber)} min={0} max={buySliderMax} step={1} onChange={(v) => { setUsd(String(v));  setBuyPct(null); }} ariaLabel="Buy amount slider" marks={["$0", formatUsd(buySliderMax / 2), isConnected && payBalanceUsd >= 1 ? "Balance" : formatUsd(buySliderMax)]} />
             <Segmented<number>
               size="sm"
@@ -195,6 +208,8 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
               }}
               options={[25, 50, 75, 100].map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: !isConnected || payBalanceUsd < 1, title: !isConnected ? "Connect a wallet to use balance presets" : payBalanceUsd < 1 ? "No balance to spend" : `${p}% of your ${payEth ? "ETH balance, less a gas reserve" : "USDC balance"}` }))}
             />
+            </>
+            )}
             <div className="flex items-center justify-between text-[13px] text-ink-secondary">
               <span>{payEth ? "ETH balance" : "USDC balance"}</span>
               <span className="font-mono num">{!isConnected ? "—" : payEth ? `${formatTokenAmount(ethWei, NATIVE_ETH_DECIMALS)} ETH · ≈ ${formatUsd(ethBalanceUsd)}` : formatUsd(usdcBalanceUsd)}</span>
@@ -205,12 +220,14 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
               balance will not cover this trade and offering no way to fix it is the worst of both.
               `insufficient` is the same test the error message below uses.
             */}
-            {isConnected && !balances.isLoading && (insufficient || (payEth ? ethWei === 0n : balances.usdc === 0n)) && (
+            {!hidden("fund") && isConnected && !balances.isLoading && (insufficient || (payEth ? ethWei === 0n : balances.usdc === 0n)) && (
               <FundWallet compact onPayWithEth={!payEth ? () => setPayWith("ETH") : undefined} ethAvailable={ethWei > 0n} />
             )}
+            {!hidden("gift") && (
             <button type="button" onClick={() => setGiftMode((g) => !g)} aria-pressed={giftMode} className={cx("self-start inline-flex items-center gap-2 h-9 px-3 rounded-[6px] border text-[13px] font-medium transition-fast", giftMode ? "border-primary text-primary bg-primary-soft" : "border-line text-ink-secondary hover:text-ink hover:border-line-strong")}>
               <Gift size={14} strokeWidth={1.75} /> {giftMode ? "Buying for someone else" : "Buy for someone else"}
             </button>
+            )}
             {giftMode && (
               <Input
                 label="Recipient"
@@ -239,6 +256,8 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
         ) : (
           <>
             <AmountInput value={shares} onChange={(v) => { setShares(v); setPctState(0); }} unit={asset.underlying} ariaLabel={`Amount of ${asset.underlying} shares`} />
+            {!hidden("presets") && (
+            <>
             <Slider value={pct} min={0} max={100} step={1} onChange={setPct} ariaLabel="Percentage of position to sell" disabled={!isConnected || balances.raw === 0n} marks={["0%", "50%", "Max"]} valueLabel={`${pct}%`} />
             <Segmented<number>
               size="sm"
@@ -247,6 +266,8 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
               onChange={setPct}
               options={PCT_CHIPS.map((p) => ({ value: p, label: p === 100 ? "Max" : `${p}%`, disabled: !isConnected || balances.raw === 0n, title: !isConnected ? "Connect a wallet to use position presets" : undefined }))}
             />
+            </>
+            )}
             <div className="flex items-center justify-between text-[13px] text-ink-secondary">
               <span>Your position</span>
               <span className="font-mono num">{isConnected ? `${formatTokenAmount(balances.scaled, asset.decimals)} ${asset.underlying}` : "—"}</span>
@@ -318,6 +339,10 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
 
         {restricted ? (
           <RegionNotice region={region.data!} />
+        ) : askFirst ? (
+          // The host asks everyone: the same self-certification, whatever the server's mode, since
+          // this visitor's country is not one the server refuses.
+          region.data ? <RegionNotice region={{ ...region.data, mode: "attest" }} /> : <Skeleton className="h-[120px]" />
         ) : !isConnected ? (
           <ConnectButton full size="lg" />
         ) : (
@@ -326,8 +351,9 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           </Button>
         )}
 
-        <BestExecutionSwitch enabled={bestExecution.enabled} onChange={bestExecution.set} advice={chosenAlt ? null : (s?.execution ?? null)} manual={!!chosenAlt} />
-        {s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
+        {!hidden("routes") && <BestExecutionSwitch enabled={bestExecution.enabled} onChange={bestExecution.set} advice={chosenAlt ? null : (s?.execution ?? null)} manual={!!chosenAlt} />}
+        {!hidden("routes") && s?.alternatives && s.alternatives.length > 1 && <RouteCompare alternatives={s.alternatives} side={side} asset={asset} selected={providerChoice} onSelect={setProviderChoice} loading={priceState.status === "loading"} />}
+        {!hidden("details") && (
         <Collapsible title="Execution details">
           <KeyValue k="Market price" v={displayPrice !== null ? formatUsd(displayPrice, { precise: true }) : "—"} />
           <KeyValue k="Buy now / Sell now · per token" v={view?.executablePriceUsd !== null && view?.executablePriceUsd !== undefined ? formatUsd(view.executablePriceUsd, { precise: true }) : "—"} />
@@ -337,6 +363,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           <KeyValue k="Multiplier" v={formatUnits(multiplier, 18)} />
           <KeyValue k="Sell amount (raw units)" v={sellAmount.toString()} />
         </Collapsible>
+        )}
           </>
         )}
       </div>
@@ -350,9 +377,9 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
           payUsd={usdInput}
           open={review}
           onClose={() => setReview(false)}
-          onDone={() => {
+          onDone={(txHash) => {
             balances.refetch();
-            onTraded?.();
+            onTraded?.({ side, txHash });
           }}
           side={side}
           asset={asset}

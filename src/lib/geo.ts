@@ -1,5 +1,6 @@
 import { serverEnv } from "@/config/env";
 import { AppError } from "@/lib/errors";
+import { headerAttested } from "@/lib/eligibility-store";
 
 /**
  * Country of the incoming request as the hosting layer reports it (Vercel, Cloudflare, or the
@@ -32,11 +33,16 @@ export function geoPolicy(): { blocked: string[]; mode: "block" | "attest" } {
 
 const ATTESTED = /(?:^|;\s*)bstocks_eligibility=confirmed(?:;|$)/;
 
+/** The answer as the cookie or as the header a widget sends when its frame lost the cookie. */
+export function attestedIn(headers: Headers): boolean {
+  return headerAttested(headers) || ATTESTED.test(headers.get("cookie") ?? "");
+}
+
 /** The visitor's standing: where they are, and whether execution routes may answer them. */
 export function regionState(req: Request): { country: string | null; blocked: string[]; mode: "block" | "attest"; blockedCountry: boolean; attested: boolean; restricted: boolean } {
   const country = requestCountry(req);
   const { blocked, mode } = geoPolicy();
-  const attested = ATTESTED.test(req.headers.get("cookie") ?? "");
+  const attested = attestedIn(req.headers);
   const blockedCountry = !!country && blocked.includes(country);
   return { country, blocked, mode, blockedCountry, attested, restricted: blockedCountry && !(mode === "attest" && attested) };
 }

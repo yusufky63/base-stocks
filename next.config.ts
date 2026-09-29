@@ -51,6 +51,9 @@ const FRAME_ANCESTORS = [
   ...(process.env.FRAME_ANCESTORS_EXTRA ?? "").split(/[\s,]+/).filter(Boolean),
 ].join(" ");
 
+/** Everything in the policy except who may frame the page, which differs for /embed. */
+const CSP_REST = "object-src 'none'; base-uri 'self'; form-action 'self'";
+
 const nextConfig: NextConfig = {
   /** Share cards read fonts and brand PNGs from disk at request time; make sure the serverless bundles carry them. */
   outputFileTracingIncludes: {
@@ -80,10 +83,20 @@ const nextConfig: NextConfig = {
       headers: [
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        // Beyond framing: no plugins, no rebasing of relative URLs, and forms post only to this origin.
-        { key: "Content-Security-Policy", value: `frame-ancestors ${FRAME_ANCESTORS}; object-src 'none'; base-uri 'self'; form-action 'self'` },
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       ],
+    },
+    // Beyond framing: no plugins, no rebasing of relative URLs, and forms post only to this origin.
+    // The named hosts above may frame the site; the widgets under /embed exist to be framed by any
+    // site. A widget's clicks still end in the visitor's own wallet, which a host page can neither
+    // draw over nor answer for them.
+    {
+      source: "/((?!embed(?:/|$)).*)",
+      headers: [{ key: "Content-Security-Policy", value: `frame-ancestors ${FRAME_ANCESTORS}; ${CSP_REST}` }],
+    },
+    {
+      source: "/embed/:path*",
+      headers: [{ key: "Content-Security-Policy", value: `frame-ancestors *; ${CSP_REST}` }],
     },
   ],
 };

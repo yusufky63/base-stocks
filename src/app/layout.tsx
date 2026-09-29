@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 import { AppShell } from "@/components/layout/AppShell";
 import { appMeta } from "@/lib/miniapp";
 import { BSTOCKS_X_HANDLE, BSTOCKS_X_URL } from "@/content/social";
+import { THEME_SCRIPT } from "@/lib/embed";
 
 const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["400", "500", "600"], display: "swap" });
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", weight: ["500", "700"], display: "swap" });
@@ -55,16 +56,14 @@ const jsonLd = JSON.stringify({
   ],
 });
 
-// Runs before paint so the first frame already has the stored theme and motion choice. Motion
-// defaults to "system": the CSS honours prefers-reduced-motion for anything but an explicit "on".
-const themeScript = `(function(){try{var t=localStorage.getItem('bstocks:theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}var m=localStorage.getItem('bstocks:motion');document.documentElement.setAttribute('data-motion',(m==='off'||m==='on')?m:'system');}catch(e){document.documentElement.setAttribute('data-motion','system');}})();`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" suppressHydrationWarning className={`${body.variable} ${display.variable} ${mono.variable} h-full`}>
       <head>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {/* Before paint: the stored theme and motion choice, or a widget host's `?theme=` (lib/embed.ts). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col bg-canvas text-ink">
         <Providers>

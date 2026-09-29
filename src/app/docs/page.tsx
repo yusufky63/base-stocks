@@ -393,7 +393,13 @@ export default function DocsPage() {
         </div>
         <p className="text-[13px] text-ink-secondary leading-relaxed">
           A mini app host embeds the page in a frame, so the site allows framing from the Base and Farcaster hosts by name and refuses everyone else —
-          <span className="font-mono text-[12px]"> frame-ancestors</span> rather than a blanket denial, which would have shown a blank panel instead of the app.
+          <span className="font-mono text-[12px]"> frame-ancestors</span> rather than a blanket denial, which would have shown a blank panel instead of the app. The one
+          exception is <span className="font-mono text-[12px]">/embed</span>: the{" "}
+          <Link href="/widgets" className="text-primary font-medium">
+            widgets
+          </Link>{" "}
+          (a stock&apos;s buy / sell panel, and its price and chart) exist to be put on other sites, so any site may frame those pages. A widget&apos;s trade still ends in
+          the visitor&apos;s own wallet, which the host page can neither draw over nor answer for them.
         </p>
       </section>
 

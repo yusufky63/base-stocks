@@ -24,7 +24,8 @@ import { TxProgress } from "./TxProgress";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onDone?: () => void;
+  /** Once the trade confirms: its transaction hash, or null for a signed order that settles later. */
+  onDone?: (txHash: string | null) => void;
   side: TradeSide;
   asset: B20AssetDTO;
   summary: TradeQuoteSummary;
@@ -87,9 +88,9 @@ export function TradeReviewSheet({ open, onClose, onDone, side, asset, summary, 
   useEffect(() => {
     if (trade.state === "CONFIRMED" && !doneReported.current) {
       doneReported.current = true;
-      onDone?.();
+      onDone?.(trade.txHash ?? null);
     }
-  }, [trade.state, onDone]);
+  }, [trade.state, trade.txHash, onDone]);
 
   // Buy-for-recipient: record the gift once the purchase is submitted (side effect only).
   const giftReported = useRef<string | null>(null);

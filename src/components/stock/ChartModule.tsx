@@ -27,8 +27,24 @@ const UNTRUSTED_COPY: Record<"thin" | "deviation", string> = {
   deviation: "Chart shows raw DEX pool trades. The pool price sits too far from the Chainlink reference to be the headline, so the price shown above is the reference — the chart follows the pool and can disagree with it.",
 };
 
-export function ChartModule({ address, marketUpdatedAt, referenceUpdatedAt, displayReason = null }: { address: string; marketUpdatedAt?: number | null; referenceUpdatedAt?: number | null; displayReason?: PriceView["displayReason"] }) {
-  const [tf, setTf] = useState<Timeframe>("1M");
+export function ChartModule({
+  address,
+  marketUpdatedAt,
+  referenceUpdatedAt,
+  displayReason = null,
+  initialTimeframe = "1M",
+  timeframes = true,
+}: {
+  address: string;
+  marketUpdatedAt?: number | null;
+  referenceUpdatedAt?: number | null;
+  displayReason?: PriceView["displayReason"];
+  /** The range it opens on; a widget host may pick another. */
+  initialTimeframe?: Timeframe;
+  /** False leaves the range fixed at `initialTimeframe` (a widget host's choice). */
+  timeframes?: boolean;
+}) {
+  const [tf, setTf] = useState<Timeframe>(initialTimeframe);
   const { style, setStyle } = useChartStyle();
   const { data, isLoading, isError, isPlaceholderData } = useChart(address, tf);
   const zone = useTimeZone();
@@ -39,13 +55,17 @@ export function ChartModule({ address, marketUpdatedAt, referenceUpdatedAt, disp
     <div className="flex flex-col">
       {displayReason && data?.source === "market" && <p className="px-4 py-2 border-b border-line text-[12px] text-warning-fg">{UNTRUSTED_COPY[displayReason]}</p>}
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-line">
-        <div className="flex gap-1" role="tablist" aria-label="Timeframe">
-          {TIMEFRAMES.map((t) => (
-            <Chip key={t} active={tf === t} onClick={() => setTf(t)} className="h-8 min-h-[32px] px-2.5 text-[12px] font-mono">
-              {t}
-            </Chip>
-          ))}
-        </div>
+        {timeframes ? (
+          <div className="flex gap-1" role="tablist" aria-label="Timeframe">
+            {TIMEFRAMES.map((t) => (
+              <Chip key={t} active={tf === t} onClick={() => setTf(t)} className="h-8 min-h-[32px] px-2.5 text-[12px] font-mono">
+                {t}
+              </Chip>
+            ))}
+          </div>
+        ) : (
+          <span className="font-mono text-[12px] text-ink-secondary">{tf}</span>
+        )}
         <div className="flex items-center gap-3">
           <div className="hidden sm:block text-[11px] font-mono uppercase tracking-[0.06em] text-ink-muted">
             {sourceLabel}

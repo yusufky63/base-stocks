@@ -8,6 +8,7 @@ import type { ActivityItem } from "@/domain/activity";
 import type { GiftRecord } from "@/domain/gift";
 import type { AutomationRule } from "@/domain/community";
 import type { Address, Hash } from "viem";
+import { eligibilityHeaders } from "./eligibility-store";
 
 /** Typed client for our own API routes. Provider shapes never reach the browser. */
 export class ApiError extends Error {
@@ -25,7 +26,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
+  // The eligibility answer rides along where the browser kept it, for a frame that lost the cookie.
+  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...eligibilityHeaders(), ...(init?.headers ?? {}) } });
   const text = await res.text();
   let body: unknown = null;
   try {

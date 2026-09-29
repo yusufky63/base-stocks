@@ -88,6 +88,28 @@ describe("compliance geoblock", () => {
     }
   });
 
+  /**
+   * The same answer as a header, for a widget in another site's frame whose browser refused the
+   * cookie (Safari). It is the visitor's own statement either way, and block mode ignores both.
+   */
+  it("takes the answer as a header when the frame could not keep the cookie", () => {
+    const withHeader = (path: string, value: string) => {
+      const headers = new Headers({ "x-vercel-ip-country": "US", "x-bstocks-eligibility": value });
+      return proxy(new NextRequest(new URL(`https://basestocks.finance${path}`), { method: "POST", headers })).status === 451;
+    };
+    expect(withHeader("/api/trade/quote", "confirmed")).toBe(false);
+    expect(withHeader("/api/trade/price", "confirmed")).toBe(false);
+    expect(withHeader("/api/trade/quote", "yes")).toBe(true);
+    const prev = process.env.GEOBLOCK_MODE;
+    process.env.GEOBLOCK_MODE = "block";
+    try {
+      expect(withHeader("/api/trade/quote", "confirmed")).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.GEOBLOCK_MODE;
+      else process.env.GEOBLOCK_MODE = prev;
+    }
+  });
+
   it("never blocks a region that is not on the list", () => {
     for (const country of ["TR", "DE", "GB", "JP"]) {
       expect(blocked("/api/pools", { country, method: "POST" })).toBe(false);
