@@ -185,20 +185,32 @@ function BorrowRow({ o, onPick }: { o: Item; onPick: () => void }) {
   return (
     <button type="button" onClick={onPick} className="rail w-full text-left grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 border-b border-line last:border-b-0 hover:bg-surface transition-fast">
       <span className="flex items-center gap-3 min-w-0">
-        <Landmark size={16} strokeWidth={1.75} className="text-primary shrink-0" aria-hidden />
+        <Landmark size={16} strokeWidth={1.75} className="text-primary shrink-0 hidden sm:block" aria-hidden />
         <AssetLogo src={o.logoURI} symbol={o.symbol} size={36} />
         <span className="min-w-0">
-          <span className="block font-medium text-[14px] truncate">{o.title}</span>
+          {/* The title carries the LTV, so on a phone it wraps rather than being cut to "Borrow US…". */}
+          <span className="block font-medium text-[14px] sm:truncate">{o.title}</span>
           <span className="flex gap-2 mt-1 flex-wrap">
             <ProtocolLogo provider={o.provider} size={16} withLabel className="text-[12px] font-medium" />
-            {thin ? <Badge tone="warning">thin market</Badge> : <Badge>borrow</Badge>}
-            <Badge tone="danger">risk {o.riskLabel}</Badge>
+            {thin ? (
+              <Badge tone="warning" className="whitespace-nowrap">
+                thin market
+              </Badge>
+            ) : (
+              <Badge>borrow</Badge>
+            )}
+            <Badge tone="danger" className="whitespace-nowrap">
+              risk {o.riskLabel}
+            </Badge>
           </span>
         </span>
       </span>
       <span className="text-right">
         {o.variableApy !== undefined ? <span className="block display num text-[18px]">{formatPct(o.variableApy, { sign: false })}</span> : <span className="block text-[13px] text-ink-secondary">rate n/a</span>}
-        <span className="block text-[10px] font-mono uppercase text-ink-muted">borrow rate · {formatUsdCompact(o.liquidityUsd ?? null)} free</span>
+        <span className="block text-[10px] font-mono uppercase text-ink-muted">
+          borrow rate<span className="hidden sm:inline"> · </span>
+          <span className="block sm:inline">{formatUsdCompact(o.liquidityUsd ?? null)} free</span>
+        </span>
       </span>
     </button>
   );
