@@ -26,6 +26,7 @@ import type { Timeframe } from "@/domain/market";
 import type { OrderView } from "@/domain/trade";
 import type { CommunityPulse } from "@/domain/community";
 import type { PlatformStats } from "@/domain/stats";
+import type { PortfolioPnl } from "@/services/pnl-service";
 import { useAuth } from "./useAuth";
 
 export const qk = {
@@ -113,6 +114,16 @@ export function usePortfolio(owner?: Address) {
     enabled: !!owner,
     staleTime: 30_000,
     refetchInterval: 120_000,
+  });
+}
+
+/** Cost basis and profit for a wallet, shared by the portfolio's P&L module and the stock page's position card. */
+export function usePortfolioPnl(owner?: Address, enabled = true) {
+  return useQuery({
+    queryKey: ["portfolio", "pnl", (owner ?? "").toLowerCase()] as const,
+    queryFn: () => apiGet<{ pnl: PortfolioPnl }>(`/api/portfolio/${owner}/pnl`).then((r) => r.pnl),
+    enabled: !!owner && enabled,
+    staleTime: 30_000,
   });
 }
 

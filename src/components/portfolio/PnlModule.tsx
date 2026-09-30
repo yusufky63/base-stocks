@@ -1,10 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import type { Address } from "viem";
 import { HelpCircle } from "lucide-react";
-import type { PortfolioPnl } from "@/services/pnl-service";
-import { apiGet } from "@/lib/client-api";
+import { usePortfolioPnl } from "@/hooks/queries";
 import { formatPct, formatTokenAmount, formatUsd } from "@/lib/format";
 import { AssetLogo } from "@/components/common/display";
 import { Module, ModuleHeader, Skeleton, cx } from "@/components/ui/primitives";
@@ -22,11 +20,7 @@ const signed = (v: number) => `${v > 0 ? "+" : ""}${formatUsd(v)}`;
  * that says so.
  */
 export function PnlModule({ address, hasHoldings }: { address: Address; hasHoldings: boolean }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["portfolio", "pnl", address.toLowerCase()],
-    queryFn: () => apiGet<{ pnl: PortfolioPnl }>(`/api/portfolio/${address}/pnl`).then((r) => r.pnl),
-    staleTime: 30_000,
-  });
+  const { data, isLoading } = usePortfolioPnl(address);
 
   if (isLoading) {
     return (

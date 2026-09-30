@@ -13,6 +13,8 @@ interface ShareProps {
   /** Path on this site (e.g. /stocks/0x…). */
   path: string;
   text: string;
+  /** One line under the preview about what the link reveals, for shares that carry something personal. */
+  note?: string;
 }
 
 /**
@@ -81,7 +83,7 @@ function ShareTile({
  * primary action — a claim confirmation offers "View your portfolio" first, and a second
  * full-width primary underneath would fight it.
  */
-export function ShareActions({ path, text, className, compact }: ShareProps & { className?: string; compact?: boolean }) {
+export function ShareActions({ path, text, note, className, compact }: ShareProps & { className?: string; compact?: boolean }) {
   const [copied, setCopied] = useState<"link" | "post" | null>(null);
   const [casting, setCasting] = useState(false);
   const { isMiniApp } = useMiniApp();
@@ -134,6 +136,7 @@ export function ShareActions({ path, text, className, compact }: ShareProps & { 
           </div>
         </div>
       )}
+      {!compact && note && <p className="text-[12px] text-ink-secondary -mt-1">{note}</p>}
 
       <div className="grid grid-cols-3 gap-2">
         <ShareTile compact={compact} tone="x" href={x} label="Post on X" icon={<XMark size={compact ? 14 : 18} />} />
@@ -171,7 +174,7 @@ interface ButtonProps extends ShareProps {
 }
 
 /** Share a stock, basket, profile or gift: opens a small sheet with the share actions. */
-export function ShareButton({ path, text, title = "Share", size = "sm", className, label = "Share", iconOnly = false }: ButtonProps) {
+export function ShareButton({ path, text, note, title = "Share", size = "sm", className, label = "Share", iconOnly = false }: ButtonProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -184,15 +187,15 @@ export function ShareButton({ path, text, title = "Share", size = "sm", classNam
           <Share2 size={14} strokeWidth={1.75} /> {label}
         </Button>
       )}
-      {open && <ShareSheet open={open} onClose={() => setOpen(false)} path={path} text={text} title={title} />}
+      {open && <ShareSheet open={open} onClose={() => setOpen(false)} path={path} text={text} note={note} title={title} />}
     </>
   );
 }
 
-export function ShareSheet({ open, onClose, path, text, title = "Share" }: ShareProps & { open: boolean; onClose: () => void; title?: string }) {
+export function ShareSheet({ open, onClose, path, text, note, title = "Share" }: ShareProps & { open: boolean; onClose: () => void; title?: string }) {
   return (
     <Sheet open={open} onClose={onClose} title={title}>
-      <ShareActions path={path} text={text} />
+      <ShareActions path={path} text={text} note={note} />
     </Sheet>
   );
 }

@@ -9,7 +9,7 @@ import { Star } from "lucide-react";
 import type { Address } from "viem";
 import type { AssetResponse, LpPositionDTO } from "@/lib/client-api";
 import type { TradeSide } from "@/domain/trade";
-import { useAsset, useWatchlist, usePortfolio, useLpPositions, qk } from "@/hooks/queries";
+import { useAsset, useWatchlist, usePortfolio, usePortfolioPnl, useLpPositions, qk } from "@/hooks/queries";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { formatUsd } from "@/lib/format";
 import { PriceChange } from "@/components/common/display";
@@ -118,6 +118,12 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
   const { data: portfolio } = usePortfolio(user);
   const lpQuery = useLpPositions(user);
   const lp = useMemo(() => summarizeLp(lpQuery.data?.positions ?? [], asset.address), [lpQuery.data, asset.address]);
+  // The cost basis is only worth a request once there is a position to measure.
+  const { data: pnl } = usePortfolioPnl(user, balances.raw > 0n);
+  const basis = useMemo(() => {
+    const h = pnl?.holdings.find((x) => x.assetAddress.toLowerCase() === asset.address.toLowerCase());
+    return h && h.costUsd > 0 ? { costUsd: h.costUsd, coveredRaw: BigInt(h.coveredRaw) } : null;
+  }, [pnl, asset.address]);
   const openConnect = useOpenConnect();
 
   const [side, setSide] = useState<TradeSide>("buy");
@@ -299,6 +305,8 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                   onBuy={() => openTrade("buy")}
                   onSend={() => setSendOpen(true)}
                   lp={lp}
+                  basis={basis}
+                  owner={user}
                 />
               )}
               {tab === "trades" && <TradesModule asset={asset} user={user} />}

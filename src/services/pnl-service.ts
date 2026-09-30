@@ -1,7 +1,12 @@
 import type { Address } from "viem";
 import { getRepos } from "@/db/repositories";
 import { getPortfolioSnapshot } from "@/services/portfolio-service";
+import { getAsset, getBalances } from "@/services/b20-asset-service";
+import { getPriceViews } from "@/services/price-service";
 import { computeCostBasis, holdingPnl, type HoldingPnl } from "@/lib/portfolio/cost-basis";
+import { holdingReturn } from "@/lib/portfolio/holding-return";
+import { findCuratedAsset } from "@/lib/b20/registry";
+import { cached } from "@/lib/cache";
 
 /**
  * What a holder has actually made, as far as this app can honestly tell.
@@ -107,4 +112,56 @@ export async function getPortfolioPnl(owner: Address): Promise<PortfolioPnl> {
     noTrades: basis.size === 0,
     readAt: Date.now(),
   };
+}
+
+/**
+ * A return somebody chose to share: one stock, as a percentage and per share. The card and its page
+ * show no dollar amounts, share counts or address, since a card travels far beyond the person who
+ * posted it. Computed here from the trades this app recorded and the wallet's balance on Base,
+ * never from numbers in the link, so a card cannot claim a return that did not happen.
+ */
+export interface SharedReturn {
+  assetAddress: Address;
+  underlying: string;
+  name: string;
+  logoURI?: string;
+  returnPct: number;
+  avgCostPerShare: number;
+  pricePerShare: number;
+  /** The wallet also holds units with no purchase price; the return covers the rest. */
+  partial: boolean;
+  readAt: number;
+}
+
+/** A share card is a snapshot; five minutes keeps a burst of link previews to one computation. */
+const SHARED_RETURN_CACHE = { ttlMs: 5 * 60_000, staleMs: 30 * 60_000, shared: true };
+
+export async function getSharedReturn(owner: Address, assetAddress: string): Promise<SharedReturn | null> {
+  const entry = findCuratedAsset(assetAddress);
+  if (!entry) return null;
+  return cached(`pnl:share:${owner.toLowerCase()}:${entry.address.toLowerCase()}`, SHARED_RETURN_CACHE, async (): Promise<SharedReturn | null> => {
+    const trades = await getRepos().trades.listByOwner(owner, COST_BASIS_ROWS).catch(() => []);
+    const basis = computeCostBasis(trades).get(entry.address.toLowerCase());
+    // Nothing bought here: answered from the database alone, with no chain read for a made-up link.
+    if (!basis || basis.coveredRaw <= 0n) return null;
+    const asset = await getAsset(entry.address);
+    if (!asset) return null;
+    const [[balance], prices] = await Promise.all([getBalances(owner, [asset]), getPriceViews([asset])]);
+    const rawBalance = balance?.rawBalance ?? 0n;
+    const priceUsd = prices.get(asset.canonicalId)?.displayUsd ?? null;
+    const p = holdingPnl(asset.address, rawBalance, asset.decimals, priceUsd, basis);
+    const r = holdingReturn({ costUsd: p.costUsd, coveredRaw: p.coveredRaw, rawBalance, decimals: asset.decimals, multiplierWad: asset.multiplier, priceUsd });
+    if (!r || r.returnPct === null || r.pricePerShare === null) return null;
+    return {
+      assetAddress: asset.address,
+      underlying: asset.underlying,
+      name: asset.name,
+      logoURI: asset.logoURI,
+      returnPct: r.returnPct,
+      avgCostPerShare: r.avgCostPerShare,
+      pricePerShare: r.pricePerShare,
+      partial: r.partial,
+      readAt: Date.now(),
+    };
+  });
 }

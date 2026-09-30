@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import type { Address } from "viem";
 import { ArrowUpRight, Send } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
-import { formatTokenAmount, formatUsd, bpsToPct } from "@/lib/format";
+import { formatTokenAmount, formatUsd, formatPct, bpsToPct } from "@/lib/format";
 import { equityPricePerShare, multiplierToNumber, rawValueUsd } from "@/lib/b20/math";
-import { Button } from "@/components/ui/primitives";
+import { holdingReturn } from "@/lib/portfolio/holding-return";
+import { Button, cx } from "@/components/ui/primitives";
+import { ShareButton } from "@/components/common/ShareSheet";
 import { ColorDot } from "@/components/common/AllocationBar";
 import { PriceChange } from "@/components/common/display";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
@@ -25,6 +28,10 @@ interface Props {
   onSend: () => void;
   /** This wallet's liquidity positions that contain the stock (Uniswap v3 / Aerodrome Slipstream). */
   lp?: LpSummary | null;
+  /** What was paid for the units bought through the app (from the cost basis); null until known or when nothing was bought here. */
+  basis?: { costUsd: number; coveredRaw: bigint } | null;
+  /** The connected wallet, for the share link of the return card. */
+  owner?: Address;
 }
 
 export interface LpSummary {
@@ -47,11 +54,15 @@ export function dayPnlUsd(valueUsd: number | null, change24hPct: number | null):
 }
 
 /** "Your position": share-equivalents from scaledBalanceOf, value from raw × token price. */
-export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, portfolioWeightBps, connected, onBuy, onSend, lp }: Props) {
+export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, portfolioWeightBps, connected, onBuy, onSend, lp, basis, owner }: Props) {
   const multiplierWad = BigInt(asset.multiplier);
   const valueUsd = priceUsd !== null ? rawValueUsd(raw, asset.decimals, priceUsd) : null;
   const multiplier = multiplierToNumber(multiplierWad);
   const dayPnl = dayPnlUsd(valueUsd, change24hPct);
+  // Only units bought here have a price paid; gifts and transfers are left out, not treated as free.
+  const ret = basis ? holdingReturn({ costUsd: basis.costUsd, coveredRaw: basis.coveredRaw, rawBalance: raw, decimals: asset.decimals, multiplierWad, priceUsd }) : null;
+  const retTone = ret?.unrealisedUsd == null ? "" : ret.unrealisedUsd > 0 ? "text-positive-fg" : ret.unrealisedUsd < 0 ? "text-danger-fg" : "";
+  const signedUsd = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatUsd(Math.abs(v))}`;
 
   return (
     <div className="p-4 md:p-5 flex flex-col gap-4">
@@ -89,7 +100,7 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
             </div>
           </div>
 
-          <div className="module-grid grid-cols-3">
+          <div className={cx("module-grid", ret ? "grid-cols-2" : "grid-cols-3")}>
             <div className="p-2.5">
               <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Price / share</div>
               <div className="num text-[15px] font-medium">{priceUsd !== null ? formatUsd(equityPricePerShare(priceUsd, multiplierWad)) : "—"}</div>
@@ -98,15 +109,44 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
               <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Today</div>
               <div className="num text-[15px] font-medium">{dayPnl !== null ? `${dayPnl >= 0 ? "+" : "−"}${formatUsd(Math.abs(dayPnl))}` : "—"}</div>
             </div>
-            <div className="p-2.5">
-              <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Status</div>
-              <div className="text-[13px] font-medium">{asset.status === "paused" ? "Transfers paused" : "Transferable"}</div>
-            </div>
+            {ret ? (
+              <>
+                <div className="p-2.5">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Avg cost / share</div>
+                  <div className="num text-[15px] font-medium">{formatUsd(ret.avgCostPerShare)}</div>
+                </div>
+                <div className="p-2.5">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Return</div>
+                  <div className={cx("num text-[15px] font-medium", retTone)}>
+                    {ret.unrealisedUsd !== null ? `${signedUsd(ret.unrealisedUsd)} · ${formatPct(ret.returnPct, { digits: 1 })}` : "—"}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-2.5">
+                <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">Status</div>
+                <div className="text-[13px] font-medium">{asset.status === "paused" ? "Transfers paused" : "Transferable"}</div>
+              </div>
+            )}
           </div>
+          {ret?.partial && <p className="text-[12px] text-ink-muted -mt-2">Cost and return cover the {formatShares(ret.coveredShares)} bought here; the rest arrived without a purchase price.</p>}
+          {ret && asset.status === "paused" && <p className="text-[12px] text-danger-fg -mt-2">The issuer has paused transfers of {asset.underlying}.</p>}
 
-          <Button size="md" variant="secondary" onClick={onSend} disabled={asset.status === "paused"}>
-            <Send size={14} strokeWidth={1.75} /> Send to a wallet or Basename
-          </Button>
+          <div className={cx("grid gap-2", ret?.returnPct != null && owner ? "grid-cols-[1fr_auto]" : "grid-cols-1")}>
+            <Button size="md" variant="secondary" onClick={onSend} disabled={asset.status === "paused"}>
+              <Send size={14} strokeWidth={1.75} /> Send to a wallet or Basename
+            </Button>
+            {ret?.returnPct != null && owner && (
+              <ShareButton
+                size="md"
+                label="Share return"
+                title="Share your return"
+                path={`/pnl/${owner}/${asset.address}`}
+                text={`${formatPct(ret.returnPct, { digits: 1 })} on ${asset.underlying}, bought on BStocks. Tokenized stocks on Base.`}
+                note="The card shows the percentage and the per-share prices only, no amounts. The link contains your wallet address."
+              />
+            )}
+          </div>
         </>
       )}
       {lp && lp.count > 0 && (
@@ -129,4 +169,8 @@ export function PositionModule({ asset, raw, scaled, priceUsd, change24hPct, por
       <p className="text-[12px] text-ink-muted">Held in your wallet, not by BStocks. Issuer policies and pauses are checked before every trade or transfer.</p>
     </div>
   );
+}
+
+function formatShares(n: number): string {
+  return `${n.toLocaleString("en-US", { maximumFractionDigits: 4 })} share${n === 1 ? "" : "s"}`;
 }

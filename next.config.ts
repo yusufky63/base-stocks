@@ -60,6 +60,7 @@ const nextConfig: NextConfig = {
     "/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
     "/miniapp-image": ["./public/fonts/**", "./public/brand/**"],
     "/stocks/[address]/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
+    "/pnl/[wallet]/[asset]/opengraph-image": ["./public/fonts/**", "./public/brand/**"],
   },
   reactStrictMode: true,
   poweredByHeader: false,
