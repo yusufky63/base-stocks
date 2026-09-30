@@ -327,7 +327,7 @@ export default function DocsPage() {
             <Coins size={18} strokeWidth={1.75} className="text-primary" />
             <div className="font-medium">USDC yield venues</div>
             <Marks items={EARN_MARKS} />
-            <p className="text-[13px] text-ink-secondary leading-relaxed">Deposits and withdrawals run in-app: exact approval to the venue, simulated, signed by your wallet.</p>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">Deposits and withdrawals run in-app: exact approval to the venue, simulated, signed by your wallet. Morpho markets that lend USDC against a stock are listed apart and open on Morpho; one with under $10K free to borrow is marked thin.</p>
           </article>
           <Cell icon={Boxes} title="LP positions, end to end">
             Mint from a USD-per-share range (one token amount derives the other from the current √price), collect fees — singly or all at once — and withdraw 25–100%. Minimums sit 1% under the shown amounts; deadlines are 10 minutes.
