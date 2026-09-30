@@ -9,11 +9,15 @@ import type { V1Envelope } from "./shape";
 
 const DOCS_URL = "https://basestocks.finance/developers";
 
-/** Wide open on purpose: every v1 route is public, read-only data about a public chain. */
+/**
+ * Wide open on purpose: every v1 route is public. The one POST builds a trade for a wallet to sign
+ * and holds nothing, so a browser on any site may call it; the eligibility answer travels as a
+ * header because a cross-site request carries no cookie.
+ */
 export const V1_CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, OPTIONS",
-  "access-control-allow-headers": "content-type, x-payment, payment-signature",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type, x-payment, payment-signature, x-bstocks-eligibility",
   "access-control-max-age": "86400",
 } as const;
 

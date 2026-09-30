@@ -123,3 +123,26 @@ describe("compliance geoblock", () => {
     expect(blocked("/api/trade/quote", { method: "POST" })).toBe(false);
   });
 });
+
+/** The public trade builder is an execution route, and it is called from other sites' browsers. */
+describe("public trade builder", () => {
+  const US = { country: "US" } as const;
+
+  it("is closed to a blocked region until the visitor confirms, like the app's own quotes", () => {
+    expect(blocked("/api/v1/trade", { ...US, method: "POST" })).toBe(true);
+    expect(blocked("/api/v1/trade", { ...US, method: "POST", attested: true })).toBe(false);
+    expect(blocked("/api/v1/trade", { country: "DE", method: "POST" })).toBe(false);
+  });
+
+  it("lets the preflight through, so a caller on another site can read the refusal", () => {
+    expect(blocked("/api/v1/trade", { ...US, method: "OPTIONS" })).toBe(false);
+    const refused = proxy(request("/api/v1/trade", { ...US, method: "POST" }));
+    expect(refused.headers.get("access-control-allow-origin")).toBe("*");
+    // The app's own routes stay same-origin: their refusal carries no CORS header.
+    expect(proxy(request("/api/trade/quote", { ...US, method: "POST" })).headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("leaves the read endpoints open everywhere", () => {
+    for (const path of ["/api/v1/stocks", "/api/v1/stocks/NVDA", "/api/v1/portfolio/0x1111111111111111111111111111111111111111", "/api/v1/news"]) expect(blocked(path, US), path).toBe(false);
+  });
+});

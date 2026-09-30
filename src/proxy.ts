@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { V1_CORS } from "@/lib/api-v1/respond";
 import { headerAttested } from "@/lib/eligibility-store";
 
 /**
@@ -28,11 +29,11 @@ function geoblockMode(): "block" | "attest" {
 /**
  * Closed to a blocked region whatever the method: these routes exist only to build an execution.
  * The list mirrors the handlers that call `assertTradingAllowed` (grep for it): trade quotes and
- * signed orders, Earn deposits, the basket plan and the AI basket draft, and the owner-side run of
- * an AutoInvest plan. `/api/portfolio/quote` and `/execute` were listed here for a while and never
- * existed; a pattern that matches nothing protects nothing.
+ * signed orders, the public trade builder, Earn deposits, the basket plan and the AI basket draft,
+ * and the owner-side run of an AutoInvest plan. `/api/portfolio/quote` and `/execute` were listed
+ * here for a while and never existed; a pattern that matches nothing protects nothing.
  */
-const RESTRICTED_API = [/^\/api\/trade\//, /^\/api\/earn\/prepare/, /^\/api\/portfolio\/(plan|intent)/, /^\/api\/automation\/prepare-run/];
+const RESTRICTED_API = [/^\/api\/trade\//, /^\/api\/v1\/trade\/?$/, /^\/api\/earn\/prepare/, /^\/api\/portfolio\/(plan|intent)/, /^\/api\/automation\/prepare-run/];
 
 /**
  * Closed for writes only. Reading a gift receipt or the pool directory is browsing and stays open
@@ -59,6 +60,10 @@ export function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   if (path.startsWith("/api/")) {
+    // The public API is called from other sites' browsers. A preflight builds nothing, and a
+    // refused one would hide the 451 below behind a CORS error the caller cannot read.
+    const publicApi = path.startsWith("/api/v1/");
+    if (publicApi && req.method === "OPTIONS") return NextResponse.next();
     const write = req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
     if (RESTRICTED_API.some((r) => r.test(path)) || (write && RESTRICTED_WRITES.some((r) => r.test(path)))) {
       const country = requestCountry(req);
@@ -76,7 +81,7 @@ export function proxy(req: NextRequest) {
               : "This is not available in your region. Coinbase Tokenized Stocks are offered only to eligible persons outside the United States.";
           return NextResponse.json(
             { error: { code: "REGION_RESTRICTED", message, details: { country, mode } } },
-            { status: 451, headers: { "cache-control": "no-store" } },
+            { status: 451, headers: { "cache-control": "no-store", ...(publicApi ? V1_CORS : {}) } },
           );
         }
       }

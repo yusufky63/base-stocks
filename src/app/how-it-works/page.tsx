@@ -8,8 +8,14 @@ import { IntegrationsSection } from "@/components/common/Integrations";
 import { Dither } from "@/components/fx/lazy";
 import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
 import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
+import { PRO_PRICE_USD, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
 
 const STOCK_COUNT = CURATED_B20_ASSETS.length;
+
+/** Counted from the API catalog, so a new endpoint cannot leave this page stale. */
+const API_READS = V1_ENDPOINTS.filter((e) => e.method === "GET" && !e.paid).length;
+const API_PAID = V1_ENDPOINTS.filter((e) => e.paid).length;
+const PAID_WORDS = API_PAID === 2 ? "Two" : String(API_PAID);
 
 export const metadata: Metadata = pageMeta({ title: "How it works", path: "/how-it-works" });
 
@@ -29,7 +35,7 @@ const FEATURES = [
   {
     icon: Code2,
     title: "Public API",
-    body: "The same data, as a read-only API: prices, Chainlink references, liquidity, headlines, USDC yield venues and any wallet's position. No key, no account, open to any origin. Two heavier endpoints cost ten cents in USDC per call over x402.",
+    body: `The same data as a public API — prices, Chainlink references, liquidity, headlines, USDC yield venues and any wallet's position — and the calls to buy or sell a stock, for your own users to sign. No key, no account, open to any origin. ${PAID_WORDS} heavier endpoints cost ${PRO_PRICE_USD} in USDC per call over x402.`,
     href: "/developers",
   },
   { icon: Landmark, title: "Compliance", body: "Eligibility notice for restricted regions, issuer policies and pauses read before every action, plain-language errors.", href: "/how-it-works#faq" },
@@ -75,7 +81,7 @@ const FAQ: Array<{ q: string; a: string }> = [
   { q: "What if a stock in my plan cannot be bought one week?", a: "That leg is skipped for that run — its share simply stays in your wallet — and the plan keeps its schedule. The same rule that labels a stock Not issued, No pool or Paused on Markets decides this, and a leg that would be more than 2% of its pool is skipped too rather than filled at a bad price. An automatic plan also skips a leg whose pool price sits above the Chainlink reference by more than the plan's tolerance: the contract will not pay a premium on your behalf, and the wizard says so before you create the plan." },
   {
     q: "Is there an API I can build on?",
-    a: "Yes. Everything this app shows about tokenized stocks is a public, read-only API at /api/v1 — plain GET requests, no key, no account, and CORS open to every origin, so a browser, a script or an assistant in a chat can all read it. Six endpoints are free: every listed stock with its DEX price, Chainlink reference, liquidity, 24h volume and multiplier; one stock with the pools that trade it; headlines; USDC yield venues; any wallet's tokenized-stock position read from the chain; and platform statistics. Two more cost ten cents in USDC per call — the written market brief and full candle history — because one runs a model and the other pulls a heavy upstream series. Every response says how long it stays valid, so a polling client knows when it is worth asking again. The developer page runs every example live, and there is an OpenAPI document and an llms.txt index for machines.",
+    a: `Yes. Everything this app shows about tokenized stocks is a public API at /api/v1 — no key, no account, and CORS open to every origin, so a browser, a script or an assistant in a chat can all use it. ${API_READS} free endpoints read the data: every listed stock with its DEX price, Chainlink reference, liquidity, 24h volume and multiplier; one stock with the pools that trade it; headlines; USDC yield venues; any wallet's tokenized-stock position read from the chain; and platform statistics. One more builds a trade: send a stock, a side, an amount and a wallet, and it returns the approval and the swap from the same router this app trades with, for that wallet to sign — nothing is signed or sent for you. ${PAID_WORDS} more cost ${PRO_PRICE_USD} in USDC per call — the written market brief and full candle history — because one runs a model and the other pulls a heavy upstream series. The developer page has a Try it on every endpoint, and there is an OpenAPI document, an llms.txt index and a full llms-full.txt reference for machines.`,
   },
   {
     q: "Why do two API endpoints cost money, and how do I pay?",

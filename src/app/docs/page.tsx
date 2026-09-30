@@ -79,18 +79,21 @@ const COPILOT_SPEC: Array<[string, string]> = [
 ];
 
 /** Counted from the catalog rather than written down, so a new endpoint cannot leave this page stale. */
-const API_FREE = V1_ENDPOINTS.filter((e) => !e.paid).length;
-const API_PAID = V1_ENDPOINTS.length - API_FREE;
+const API_FREE = V1_ENDPOINTS.filter((e) => !e.paid && e.method === "GET").length;
+const API_TRADE = V1_ENDPOINTS.filter((e) => e.method === "POST").length;
+const API_PAID = V1_ENDPOINTS.filter((e) => e.paid).length;
+const TRADE_LIMIT = V1_ENDPOINTS.find((e) => e.id === "trade")?.limitPerMinute;
 
 const API_SPEC: Array<[string, string]> = [
-  ["Base URL", "https://basestocks.finance/api/v1 — plain GET, no key, no account, no sign-up; CORS is open to every origin"],
+  ["Base URL", "https://basestocks.finance/api/v1 — no key, no account, no sign-up; CORS is open to every origin"],
   ["Envelope", "Every answer is { data, meta }. meta.cacheSeconds states how long the body stays valid, so a polling client knows exactly when it is worth asking again"],
   [`Free (${API_FREE})`, "Every listed stock with DEX price, Chainlink reference, liquidity, 24h volume and multiplier; one stock with its pools; headlines; USDC yield venues; any wallet's position read from the chain; platform statistics"],
+  [`Trade (${API_TRADE})`, `POST /api/v1/trade returns the approval and the swap for a buy or a sell, from the router this app trades with, for the named wallet to sign. ${TRADE_LIMIT} a minute per caller; closed to a restricted region until the visitor confirms eligibility`],
   [`Paid (${API_PAID})`, `The written market brief and full candle history — ${PRO_PRICE_USD} in USDC per call over x402. One runs a model, the other pulls a heavy upstream series: costs a cache cannot remove`],
   ["Paying", "Call the URL, get 402 with the amount, asset, network and recipient, sign a USDC authorization, retry the same URL. Settlement happens only after a successful answer, so a failed or unknown-symbol request is never charged"],
   ["Caching", "Each route declares its own s-maxage and the CDN honours it. A thousand readers cost this app what one does, which is why the free tier can stay free"],
-  ["Machine-readable", "/api/v1/openapi.json is OpenAPI 3.1; /llms.txt is the one-fetch index an assistant reads before it calls anything"],
-  ["Read-only, by construction", "No endpoint signs, sends, executes or holds a key. The four B20 traps — multiplier, total-return reference, 24/5 feeds, address-as-identity — are returned explicitly rather than left to be inferred"],
+  ["Machine-readable", "/api/v1/openapi.json is OpenAPI 3.1; /llms.txt is the one-fetch index an assistant reads before it calls anything, and /llms-full.txt is the whole reference in one file"],
+  ["Non-custodial, by construction", "No endpoint signs, sends, executes or holds a key; the trade endpoint only returns calls. The B20 traps — multiplier, total-return reference, 24/5 feeds, pool pricing, address-as-identity — are returned explicitly rather than left to be inferred"],
 ];
 
 const GAS_SPEC: Array<[string, string]> = [
