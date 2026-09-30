@@ -13,6 +13,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "C:/Projeler/token-launcher/apps/web", "dev", "-p", "3210"],
       "port": 3210
+    },
+    {
+      "name": "journey-studio",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "hyperframes@0.8.62", "preview", "C:/Projeler/videos/bstocks-journey", "--port", "3002", "--foreground", "--no-open"],
+      "port": 3002
     }
   ]
 }
