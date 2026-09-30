@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useAccount } from "wagmi";
-import { Sprout, ShieldCheck, Layers, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Sprout, ShieldCheck, Layers, RefreshCw, ChevronLeft, ChevronRight, Landmark } from "lucide-react";
 import type { EarnOpportunity } from "@/domain/earn";
 import { apiGet } from "@/lib/client-api";
 import { formatPct, formatUsdCompact, timeAgo } from "@/lib/format";
@@ -44,15 +44,17 @@ export function EarnOverview() {
   const items = data?.items ?? [];
   const [selected, setSelected] = useState<Item | null>(null);
   const [page, setPage] = useState(0);
-  // Supply/vault and borrow venues for B20 stocks do not exist yet; filters for them were
-  // permanently-empty chrome, so everything discovered is listed directly (badges still say what
-  // each row is if a lending market ever appears). The server has already graded them by what the
-  // stock is paired against and by depth, so page one is the part worth reading.
-  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  // Pools and vaults are paged; borrow markets get their own module below, since they answer a
+  // different question (what can I do with stock I hold) and would otherwise sit on the last page.
+  // The server has already graded the pools by what the stock is paired against and by depth, so
+  // page one is the part worth reading.
+  const venues = items.filter((o) => o.type !== "borrow");
+  const borrow = items.filter((o) => o.type === "borrow");
+  const pages = Math.max(1, Math.ceil(venues.length / PAGE_SIZE));
   // Clamped rather than reset: a re-scan that returns fewer venues must not strand the reader on
   // a page that no longer exists.
   const current = Math.min(page, pages - 1);
-  const shown = items.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
+  const shown = venues.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
   return (
     <div className="flex flex-col gap-6">
       <PageTitle
@@ -105,7 +107,7 @@ export function EarnOverview() {
             <Skeleton className="h-12" />
           </div>
         )}
-        {!isLoading && items.length === 0 && (
+        {!isLoading && venues.length === 0 && (
           <p className="px-4 py-6 text-[14px] text-ink-secondary">
             No verified venue for a tokenized stock right now. This list fills in automatically when a Morpho market, Aave reserve or Aerodrome pool appears for one of the stocks.
             <ScanNote checked={data?.checked} />
@@ -146,7 +148,7 @@ export function EarnOverview() {
         {pages > 1 && (
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-muted">
-              {current * PAGE_SIZE + 1}–{current * PAGE_SIZE + shown.length} of {items.length}
+              {current * PAGE_SIZE + 1}–{current * PAGE_SIZE + shown.length} of {venues.length}
             </span>
             <span className="flex items-center gap-1.5">
               <PageButton label="Previous venues" onClick={() => setPage(current - 1)} disabled={current === 0}>
@@ -162,8 +164,43 @@ export function EarnOverview() {
           </div>
         )}
       </Module>
+
+      {borrow.length > 0 && (
+        <Module>
+          <ModuleHeader index="B" title="Borrow against your stocks" action={<span className="text-[11px] font-mono text-ink-muted">on Morpho</span>} />
+          <p className="px-4 pt-3 text-[13px] text-ink-secondary">Stock as collateral, USDC as the loan. Borrowing happens on the venue; a falling stock price can get the collateral liquidated.</p>
+          {borrow.map((o) => (
+            <BorrowRow key={o.id} o={o} onPick={() => setSelected(o)} />
+          ))}
+        </Module>
+      )}
       <VenueSheet o={selected} symbol={selected?.underlying ?? ""} onClose={() => setSelected(null)} showStockLink />
     </div>
+  );
+}
+
+/** A lending market reads by its rate and by how much is actually free to borrow, not by pool depth. */
+function BorrowRow({ o, onPick }: { o: Item; onPick: () => void }) {
+  const thin = o.metadata.thin === true;
+  return (
+    <button type="button" onClick={onPick} className="rail w-full text-left grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 border-b border-line last:border-b-0 hover:bg-surface transition-fast">
+      <span className="flex items-center gap-3 min-w-0">
+        <Landmark size={16} strokeWidth={1.75} className="text-primary shrink-0" aria-hidden />
+        <AssetLogo src={o.logoURI} symbol={o.symbol} size={36} />
+        <span className="min-w-0">
+          <span className="block font-medium text-[14px] truncate">{o.title}</span>
+          <span className="flex gap-2 mt-1 flex-wrap">
+            <ProtocolLogo provider={o.provider} size={16} withLabel className="text-[12px] font-medium" />
+            {thin ? <Badge tone="warning">thin market</Badge> : <Badge>borrow</Badge>}
+            <Badge tone="danger">risk {o.riskLabel}</Badge>
+          </span>
+        </span>
+      </span>
+      <span className="text-right">
+        {o.variableApy !== undefined ? <span className="block display num text-[18px]">{formatPct(o.variableApy, { sign: false })}</span> : <span className="block text-[13px] text-ink-secondary">rate n/a</span>}
+        <span className="block text-[10px] font-mono uppercase text-ink-muted">borrow rate · {formatUsdCompact(o.liquidityUsd ?? null)} free</span>
+      </span>
+    </button>
   );
 }
 

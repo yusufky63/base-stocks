@@ -83,6 +83,7 @@ function VenueList({ items, onPick }: { items: EarnOpportunity[]; onPick: (o: Ea
               <span className="block font-medium text-[14px] truncate">{o.title}</span>
               <span className="flex items-center gap-1.5 mt-1 flex-wrap text-[12px] text-ink-secondary">
                 <ProtocolLogo provider={o.provider} size={14} withLabel /> · {TYPE_LABEL[o.type]} · risk {o.riskLabel}
+                {o.metadata.thin === true && <Badge tone="warning">thin market</Badge>}
                 {o.inApp ? <Badge tone="positive">in-app</Badge> : <Badge>on venue</Badge>}
               </span>
             </span>
@@ -90,7 +91,7 @@ function VenueList({ items, onPick }: { items: EarnOpportunity[]; onPick: (o: Ea
               {o.variableApy !== undefined ? (
                 <>
                   <span className="block display num text-[18px]">{formatPct(o.variableApy, { sign: false })}</span>
-                  <span className="block text-[10px] font-mono uppercase text-ink-muted">{o.type === "borrow" ? "borrow rate" : "variable"} · {timeAgo(o.dataTimestamp)}</span>
+                  <span className="block text-[10px] font-mono uppercase text-ink-muted">{o.type === "borrow" ? `borrow rate · ${formatUsdCompact(o.liquidityUsd ?? null)} free` : `variable · ${timeAgo(o.dataTimestamp)}`}</span>
                 </>
               ) : (
                 <span className="block text-[12px] text-ink-secondary">{o.liquidityUsd !== undefined ? `${formatUsdCompact(o.liquidityUsd)} liquidity` : "Available"}</span>

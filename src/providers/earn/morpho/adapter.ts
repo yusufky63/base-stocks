@@ -95,8 +95,56 @@ const marketsSchema = z.object({
   errors: z.array(z.object({ message: z.string() })).optional(),
 });
 
-/** Markets too small to be usable are hidden: an unlisted $3 test market is not a borrow venue. */
-const MIN_BORROW_LIQUIDITY_USD = 10_000;
+type MorphoMarket = NonNullable<z.infer<typeof marketsSchema>["data"]>["markets"]["items"][number];
+
+/** Free liquidity at which a market counts as deep; below it the market is shown as thin, listed or not. */
+const DEEP_BORROW_LIQUIDITY_USD = 10_000;
+/**
+ * What lenders must have supplied before an unlisted market is shown at all: what separates a
+ * market people use from a $3 test market. Well-used lending markets keep little free liquidity
+ * by design (the stock markets on Base ran at about 90% utilization in September 2026).
+ */
+const MIN_BORROW_SUPPLY_USD = 1_000;
+/**
+ * Below this there is nothing to borrow at all, and the market is hidden even when Morpho lists it:
+ * in September 2026 several listed stock markets had no lenders yet and read "$0 free".
+ */
+const MIN_FREE_LIQUIDITY_USD = 100;
+
+export interface BorrowMarketView {
+  market: MorphoMarket;
+  /** Less than a deep market's free liquidity: shown, with the reason spelled out. */
+  thin: boolean;
+  /** Share of supplied assets already lent out, 0..1, when the API reports both sides. */
+  utilization: number | null;
+}
+
+/**
+ * Which Morpho markets for this collateral are worth showing: something left to borrow, and either
+ * Morpho's listing or real supply behind it. Thin below a deep market's free liquidity. Deepest
+ * supply first, so the market most people use leads.
+ */
+export function selectBorrowMarkets(items: MorphoMarket[], asset: Address): BorrowMarketView[] {
+  return items
+    .filter((m) => m.collateralAsset?.address?.toLowerCase() === asset.toLowerCase())
+    .map((m) => {
+      const free = m.state?.liquidityAssetsUsd ?? 0;
+      const supplied = m.state?.supplyAssetsUsd ?? 0;
+      const listed = m.listed ?? false;
+      const room = free >= MIN_FREE_LIQUIDITY_USD;
+      const utilization = supplied > 0 ? Math.min(1, Math.max(0, 1 - free / supplied)) : null;
+      return { market: m, show: room && (listed || supplied >= MIN_BORROW_SUPPLY_USD), thin: free < DEEP_BORROW_LIQUIDITY_USD, utilization };
+    })
+    .filter((v) => v.show)
+    .sort((a, b) => (b.market.state?.supplyAssetsUsd ?? 0) - (a.market.state?.supplyAssetsUsd ?? 0))
+    .map(({ market, thin, utilization }) => ({ market, thin, utilization }));
+}
+
+function compactUsd(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${Math.round(v)}`;
+}
 
 export class MorphoEarnProvider implements EarnProvider {
   readonly id = "morpho" as const;
@@ -106,7 +154,7 @@ export class MorphoEarnProvider implements EarnProvider {
     return [...vaults, ...borrow];
   }
 
-  /** "Borrow USDC against your stock" — shown only when a real, liquid Morpho market exists for that collateral. */
+  /** "Borrow USDC against your stock": every Morpho market for that collateral that people actually use (see `selectBorrowMarkets`). */
   private async discoverBorrow(asset: Address): Promise<EarnOpportunity[]> {
     const env = serverEnv();
     try {
@@ -126,35 +174,38 @@ export class MorphoEarnProvider implements EarnProvider {
         return [];
       }
       const now = Date.now();
-      return parsed.data.data.markets.items
-        .filter((m) => m.collateralAsset?.address?.toLowerCase() === asset.toLowerCase())
-        .filter((m) => (m.listed ?? false) || (m.state?.liquidityAssetsUsd ?? 0) >= MIN_BORROW_LIQUIDITY_USD)
-        .map((m) => {
-          const ts = m.state?.timestamp;
-          const dataTimestamp = ts ? Number(ts) * (Number(ts) < 1e12 ? 1000 : 1) : now;
-          const lltvPct = m.lltv !== null && m.lltv !== undefined ? (Number(m.lltv) / 1e18) * 100 : null;
-          const loan = m.loanAsset?.symbol ?? "USDC";
-          return {
-            id: `morpho:market:${m.marketId.toLowerCase()}`,
-            provider: "morpho" as const,
-            assetAddress: asset,
-            type: "borrow" as const,
-            title: `Borrow ${loan} against ${m.collateralAsset?.symbol?.replace(/c$/, "") ?? "this stock"}${lltvPct !== null ? ` · up to ${lltvPct.toFixed(0)}% LTV` : ""}`,
-            variableApy: m.state?.borrowApy !== null && m.state?.borrowApy !== undefined ? m.state.borrowApy * 100 : undefined,
-            liquidityUsd: m.state?.liquidityAssetsUsd ?? undefined,
-            riskLabel: "higher" as const,
-            dataTimestamp,
-            url: `https://app.morpho.org/base/market/${m.marketId}`,
-            risks: [
-              "Liquidation risk: if the stock price falls and your loan exceeds the liquidation LTV, collateral is sold.",
-              "Variable borrow rate: interest accrues every block and can rise with utilization.",
-              "Oracle risk: the market prices collateral through its own oracle, which can lag or pause.",
-              "The stock token stays subject to issuer policies while held as collateral.",
-            ],
-            inApp: false,
-            metadata: { marketId: m.marketId, lltv: m.lltv ?? null, loanAsset: m.loanAsset?.address ?? null, listed: m.listed ?? false, liquidityUsd: m.state?.liquidityAssetsUsd ?? null },
-          };
-        });
+      return selectBorrowMarkets(parsed.data.data.markets.items, asset).map(({ market: m, thin, utilization }) => {
+        const ts = m.state?.timestamp;
+        const dataTimestamp = ts ? Number(ts) * (Number(ts) < 1e12 ? 1000 : 1) : now;
+        const lltvPct = m.lltv !== null && m.lltv !== undefined ? (Number(m.lltv) / 1e18) * 100 : null;
+        const loan = m.loanAsset?.symbol ?? "USDC";
+        return {
+          id: `morpho:market:${m.marketId.toLowerCase()}`,
+          provider: "morpho" as const,
+          assetAddress: asset,
+          type: "borrow" as const,
+          title: `Borrow ${loan} against ${m.collateralAsset?.symbol?.replace(/c$/, "") ?? "this stock"}${lltvPct !== null ? ` · up to ${lltvPct.toFixed(0)}% LTV` : ""}`,
+          variableApy: m.state?.borrowApy !== null && m.state?.borrowApy !== undefined ? m.state.borrowApy * 100 : undefined,
+          liquidityUsd: m.state?.liquidityAssetsUsd ?? undefined,
+          tvlUsd: m.state?.supplyAssetsUsd ?? undefined,
+          riskLabel: "higher" as const,
+          dataTimestamp,
+          url: `https://app.morpho.org/base/market/${m.marketId}`,
+          risks: [
+            ...(thin
+              ? [
+                  `Thin market: about ${compactUsd(m.state?.liquidityAssetsUsd ?? 0)} is free to borrow right now${utilization !== null ? ` and ${Math.round(utilization * 100)}% of what lenders supplied is already lent out` : ""}, so a larger loan waits for new supply and the rate can jump as the rest is borrowed.`,
+                ]
+              : []),
+            "Liquidation risk: if the stock price falls and your loan exceeds the liquidation LTV, collateral is sold.",
+            "Variable borrow rate: interest accrues every block and can rise with utilization.",
+            "Oracle risk: the market prices collateral through its own oracle, which can lag or pause.",
+            "The stock token stays subject to issuer policies while held as collateral.",
+          ],
+          inApp: false,
+          metadata: { marketId: m.marketId, lltv: m.lltv ?? null, loanAsset: m.loanAsset?.address ?? null, listed: m.listed ?? false, liquidityUsd: m.state?.liquidityAssetsUsd ?? null, suppliedUsd: m.state?.supplyAssetsUsd ?? null, utilization, thin },
+        };
+      });
     } catch (err) {
       metrics.count("morpho.markets", false, err instanceof Error ? err.message : String(err));
       return [];

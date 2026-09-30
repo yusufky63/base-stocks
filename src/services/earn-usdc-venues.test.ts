@@ -150,6 +150,12 @@ describe("stock venue ranking", () => {
     expect(ids(out)).toEqual(["usdc", "unknown-quote"]);
   });
 
+  it("lists borrow markets after the pools, by supply, without holding them to pool depth", () => {
+    const market = (id: string, asset: Address, suppliedUsd: number, freeUsd: number) => ({ ...pool(id, asset, undefined, freeUsd), provider: "morpho", type: "borrow", tvlUsd: suppliedUsd }) as EarnOpportunity;
+    const out = rankStockVenues([market("aapl-borrow", AAPL, 28_843, 2_818), pool("nvda-usdc", NVDA, "USDC", 20_000), market("nvda-borrow", NVDA, 44_355, 4_399), pool("dust", NVDA, "USDC", 446)], STOCKS);
+    expect(ids(out)).toEqual(["nvda-usdc", "nvda-borrow", "aapl-borrow"]);
+  });
+
   it("refuses anything that is not a pool on a listed stock", () => {
     const notAStock = "0x4200000000000000000000000000000000000006" as Address;
     const out = rankStockVenues([pool("eth-usdc", notAStock, "USDC", 50_000_000), pool("nvda-usdc", NVDA, "USDC", 20_000)], STOCKS);

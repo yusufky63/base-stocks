@@ -238,11 +238,16 @@ function poolDepth(o: EarnOpportunity): number {
  * Every venue here is already a stock pool by construction — discovery runs per B20 asset, so a
  * plain USDC or ETH/USDC pool has no way in. The assertion is kept explicit so a future provider
  * that scans more broadly cannot quietly widen the list.
+ *
+ * Borrow markets follow the pools and are not held to pool depth: a well-used lending market keeps
+ * little free liquidity by design, so the provider already filtered them on what lenders supplied
+ * (`selectBorrowMarkets`). They are ordered by that supply.
  */
 export function rankStockVenues<T extends EarnOpportunity>(items: T[], stocks: ReadonlySet<string>): T[] {
-  return items
-    .filter((o) => stocks.has(o.assetAddress.toLowerCase()) && poolDepth(o) >= MIN_POOL_LIQUIDITY_USD)
-    .sort((a, b) => quoteRank(a) - quoteRank(b) || poolDepth(b) - poolDepth(a));
+  const onStocks = items.filter((o) => stocks.has(o.assetAddress.toLowerCase()));
+  const pools = onStocks.filter((o) => o.type !== "borrow" && poolDepth(o) >= MIN_POOL_LIQUIDITY_USD).sort((a, b) => quoteRank(a) - quoteRank(b) || poolDepth(b) - poolDepth(a));
+  const borrow = onStocks.filter((o) => o.type === "borrow").sort((a, b) => (b.tvlUsd ?? 0) - (a.tvlUsd ?? 0));
+  return [...pools, ...borrow];
 }
 
 /**
