@@ -7,7 +7,7 @@ import { base } from "viem/chains";
 import { useQueryClient } from "@tanstack/react-query";
 import type { LpPositionDTO } from "@/lib/client-api";
 import { BASE_CHAIN_ID, USDC_ADDRESS } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { apiPost } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { walletCapabilities } from "@/lib/trade/execute";

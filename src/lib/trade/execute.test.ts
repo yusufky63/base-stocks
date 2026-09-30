@@ -25,7 +25,7 @@ vi.mock("@/lib/client-api", () => {
   return { apiPost: (...args: unknown[]) => apiPost(...args), apiGet: vi.fn(), apiDelete: vi.fn(), ApiError };
 });
 vi.mock("@/lib/attribution", () => ({ withAttribution: (d: string) => d, attributionCapabilities: () => ({}) }));
-vi.mock("@/config/env", () => ({ publicEnv: { paymasterUrl: "" } }));
+vi.mock("@/config/public-env", () => ({ publicEnv: { paymasterUrl: "" } }));
 
 const { ApiError } = await import("@/lib/client-api");
 const { callAfterApproval, executeTrade, isReviewAgain, postTradeRecord, refetchedQuoteAcceptable } = await import("./execute");

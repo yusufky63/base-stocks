@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, Copy, Share2, Smartphone } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button, cx } from "@/components/ui/primitives";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { useMiniApp } from "@/components/layout/MiniAppProvider";
 import { composeCast } from "@/lib/miniapp-actions";
 import { XMark } from "@/components/brand/Logo";

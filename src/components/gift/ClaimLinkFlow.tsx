@@ -9,7 +9,7 @@ import { Link2, TriangleAlert } from "lucide-react";
 import type { B20AssetDTO } from "@/domain/asset";
 import type { GiftRecord } from "@/domain/gift";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { apiPost, ApiError } from "@/lib/client-api";
 import { claimPath, GIFT_ESCROW_ADDRESS, giftEscrowAbi, makeClaimSecret, type ClaimSecret } from "@/lib/escrow";
 import { formatShares } from "@/lib/gift/format";

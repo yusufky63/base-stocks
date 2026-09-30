@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 
 /**
  * Crawlers index the product pages; the admin panel and secret-bearing claim links stay out.

@@ -1,4 +1,4 @@
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 
 /**
  * The `fc:miniapp` embed tag: what turns a shared BStocks link into a launchable card inside the

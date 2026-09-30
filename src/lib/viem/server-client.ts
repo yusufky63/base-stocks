@@ -1,3 +1,4 @@
+import "server-only";
 import { createPublicClient, fallback, http } from "viem";
 import { base } from "viem/chains";
 import { serverEnv } from "@/config/env";

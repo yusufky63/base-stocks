@@ -7,7 +7,7 @@ import { base } from "viem/chains";
 import { useQueryClient } from "@tanstack/react-query";
 import type { EarnOpportunity } from "@/domain/earn";
 import { BASE_CHAIN_ID, USDC_ADDRESS, USDC_DECIMALS } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { apiPost } from "@/lib/client-api";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { poolTokensAbi, slipstreamMintAbi, slipstreamPoolSlot0Abi, uniswapV3MintAbi, uniswapV3PoolSlot0Abi } from "@/lib/earn/abis";

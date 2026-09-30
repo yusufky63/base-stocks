@@ -14,7 +14,7 @@ import { useAutoInvest } from "@/hooks/useAutoInvest";
 import { useNow } from "@/hooks/useNow";
 import { AUTO_INVEST, CADENCES, cadenceNoun, decodeAutoInvestError } from "@/lib/auto-invest";
 import { isIssued, legBlockedReason, premiumBeyondFloor, referenceGap, referenceGapNote } from "@/lib/trading-status";
-import { validateAllocations } from "@/services/portfolio-service";
+import { validateAllocations } from "@/lib/portfolio/validate";
 import { formatUsd, bpsToPct } from "@/lib/format";
 import { MIN_TRADE_USD, BASE_EXPLORER_URL } from "@/config/chain";
 import { humanizeError } from "@/lib/errors";

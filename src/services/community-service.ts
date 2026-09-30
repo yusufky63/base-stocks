@@ -3,7 +3,7 @@ import type { Badge, CommunityBasket, CommunityPulse, Profile } from "@/domain/c
 import type { Allocation } from "@/domain/portfolio";
 import { getRepos } from "@/db/repositories";
 import { getAssets } from "./b20-asset-service";
-import { validateAllocations } from "./portfolio-service";
+import { validateAllocations } from "@/lib/portfolio/validate";
 import { cached } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/execution/portfolio-execution";

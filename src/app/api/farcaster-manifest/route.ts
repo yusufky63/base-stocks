@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { BASE_CHAIN_ID } from "@/config/chain";
 
 /**

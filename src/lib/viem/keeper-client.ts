@@ -1,3 +1,4 @@
+import "server-only";
 import { createWalletClient, fallback, http, type Address } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { base } from "viem/chains";

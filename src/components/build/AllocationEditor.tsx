@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import type { Address } from "viem";
 import type { B20AssetDTO } from "@/domain/asset";
 import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation } from "@/domain/portfolio";
-import { validateAllocations } from "@/services/portfolio-service";
+import { validateAllocations } from "@/lib/portfolio/validate";
 import { AssetLogo } from "@/components/common/display";
 import { Button, cx } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/Select";

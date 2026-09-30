@@ -2,7 +2,7 @@
 
 import { base as appkitBase } from "@reown/appkit/networks";
 import { APP_NAME, hasReown, networks, projectId, wagmiAdapter } from "./wagmi";
-import { publicEnv } from "./env";
+import { publicEnv } from "./public-env";
 import { BASE_ACCOUNT_WALLET_ID } from "./chain";
 
 type AppKitModule = typeof import("@reown/appkit/react");

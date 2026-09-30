@@ -6,7 +6,7 @@ import type { TradeProviderId, TradeSide, TradeState } from "@/domain/trade";
 import { humanizeError, TRADE_ERROR_COPY } from "@/lib/errors";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { BASE_CHAIN_ID, DEFAULT_SLIPPAGE_BPS } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { newId } from "@/lib/execution/portfolio-execution";
 
 export interface ExecuteTradeParams {

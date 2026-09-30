@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 
 /**

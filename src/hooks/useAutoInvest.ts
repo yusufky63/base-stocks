@@ -5,7 +5,7 @@ import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { encodeFunctionData, erc20Abi, parseEventLogs, type Address, type Hash, type Hex } from "viem";
 import { base } from "viem/chains";
 import { BASE_CHAIN_ID, USDC_ADDRESS } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import type { Allocation } from "@/domain/portfolio";
 import { USDC_ALLOCATION_KEY } from "@/domain/portfolio";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";

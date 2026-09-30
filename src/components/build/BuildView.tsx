@@ -24,7 +24,7 @@ import { useRecentBaskets } from "@/hooks/useRecentBaskets";
 import type { SavedBasketSource } from "@/lib/recent-baskets";
 import { TemplateCard } from "./TemplateCard";
 import { partitionTemplates } from "@/lib/templates";
-import { validateAllocations } from "@/services/portfolio-service";
+import { validateAllocations } from "@/lib/portfolio/validate";
 import { automateHref, giftBasketHref } from "@/lib/automate-link";
 import { SignInButton } from "@/components/layout/SignInButton";
 import { Dither } from "@/components/fx/lazy";

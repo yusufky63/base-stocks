@@ -4,7 +4,7 @@ import { MIN_TRADE_USD, USDC_DECIMALS } from "@/config/chain";
 import type { B20Asset } from "@/domain/asset";
 import type { PriceView } from "@/domain/market";
 import { TOTAL_BPS, USDC_ALLOCATION_KEY, type Allocation, type PortfolioHolding, type PortfolioIntent, type PortfolioPlan, type PortfolioPlanLeg, type PortfolioSnapshot, type RebalanceSuggestion } from "@/domain/portfolio";
-import { isCuratedAsset, findCuratedAsset, allAssetEntries } from "@/lib/b20/registry";
+import { findCuratedAsset } from "@/lib/b20/registry";
 import { rawValueUsd, splitByWeights } from "@/lib/b20/math";
 import { driftRows } from "@/lib/portfolio/drift";
 import { legBlockedReason } from "@/lib/trading-status";
@@ -18,54 +18,13 @@ import { getEarnPositions } from "./earn-opportunity-service";
 import { getLpPositions } from "./lp-positions-service";
 import { metrics } from "@/lib/http";
 import { bumpWalletVersion, walletVersion } from "@/lib/portfolio/wallet-version";
+import { validateAllocations } from "@/lib/portfolio/validate";
 
 /* ------------------------------ Allocation validation ------------------------------ */
 
-export interface AllocationValidation {
-  ok: boolean;
-  errors: string[];
-  normalized: Allocation[];
-}
-
-function symbolFor(key: string): string {
-  const entry = allAssetEntries().find((e) => e.address.toLowerCase() === key);
-  return entry?.underlying ?? `${key.slice(0, 6)}…${key.slice(-4)}`;
-}
-
-/** Shared client+server validation: sums to 10,000 bps, unique canonical assets, positive weights. */
-export function validateAllocations(input: Allocation[], opts?: { allowedAssets?: Set<string> }): AllocationValidation {
-  const errors: string[] = [];
-  const seen = new Set<string>();
-  const normalized: Allocation[] = [];
-  for (const a of input) {
-    const key = a.assetAddress === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : a.assetAddress.toLowerCase();
-    if (!Number.isInteger(a.weightBps) || a.weightBps <= 0 || a.weightBps > TOTAL_BPS) {
-      const label = key === USDC_ALLOCATION_KEY ? "USDC" : symbolFor(key);
-      errors.push(a.weightBps <= 0 ? `${label} has no weight yet: give it a share above 0% or remove it.` : `${label} needs a weight between 0.01% and 100%.`);
-      continue;
-    }
-    if (seen.has(key)) {
-      errors.push(`Duplicate allocation for ${key}.`);
-      continue;
-    }
-    seen.add(key);
-    if (key !== USDC_ALLOCATION_KEY) {
-      if (!isCuratedAsset(key)) {
-        errors.push(`${key} is not a verified Coinbase Tokenized Stock.`);
-        continue;
-      }
-      if (opts?.allowedAssets && !opts.allowedAssets.has(key)) {
-        errors.push(`${key} is not available for trading.`);
-        continue;
-      }
-    }
-    normalized.push({ assetAddress: key === USDC_ALLOCATION_KEY ? USDC_ALLOCATION_KEY : (a.assetAddress as Address), weightBps: a.weightBps });
-  }
-  const sum = normalized.reduce((s, a) => s + a.weightBps, 0);
-  if (sum !== TOTAL_BPS) errors.push(`Allocations must total 100% (currently ${(sum / 100).toFixed(1)}%).`);
-  if (normalized.filter((a) => a.assetAddress !== USDC_ALLOCATION_KEY).length === 0) errors.push("Add at least one stock.");
-  return { ok: errors.length === 0, errors, normalized };
-}
+// Lives in lib so client screens can use it without this module (see lib/portfolio/validate.ts).
+export { validateAllocations };
+export type { AllocationValidation } from "@/lib/portfolio/validate";
 
 /* ------------------------------ Snapshot ------------------------------ */
 

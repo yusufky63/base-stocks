@@ -6,7 +6,7 @@ import { cached, invalidate } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { newId } from "@/lib/execution/portfolio-execution";
 import { USDC_DECIMALS } from "@/config/chain";
-import { validateAllocations } from "./portfolio-service";
+import { validateAllocations } from "@/lib/portfolio/validate";
 import { isCuratedAsset, findCuratedAsset } from "@/lib/b20/registry";
 import { AUTO_INVEST_ADDRESS, KNOWN_AUTO_INVEST_ADDRESSES, allocationsFromLegs, autoInvestAddressOf, intervalToCadenceDays, isAutoInvestDeployed, isKnownAutoInvest, usdcToUsd, type OnchainPlan, type PlanFunding } from "@/lib/auto-invest";
 import { readFunding, readFundingMany, readOnchainPlan, readOnchainPlansOf } from "./auto-invest-chain";

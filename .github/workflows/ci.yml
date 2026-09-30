@@ -32,3 +32,33 @@ jobs:
       - run: pnpm exec tsc --noEmit -p tsconfig.json
       - run: pnpm exec eslint src
       - run: pnpm exec vitest run
+
+  # The deployed escrow, pool and AutoInvest contracts hold real funds; their suites run on every push.
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          # The version the contracts were built and verified with; bump deliberately.
+          version: v1.7.1
+      - run: forge test
+        working-directory: contracts
+
+  # Type checks and tests pass files one by one; only a build sees the module graph, which is where a
+  # server-only import reaching a client component (see config/env.ts) is caught.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec next build

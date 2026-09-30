@@ -5,7 +5,7 @@ import { AppError, errorResponse } from "@/lib/errors";
 import { recordError } from "@/lib/error-sink";
 import { enforceDurableRateLimit, enforceRateLimit, type RateLimitOptions } from "@/lib/rate-limit";
 import { normalizeAddress } from "@/lib/address";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import type { Address } from "viem";
 
 export const addressSchema = z

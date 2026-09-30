@@ -11,7 +11,7 @@ vi.mock("@/services/b20-asset-service", () => ({
 vi.mock("@/lib/rate-limit", () => ({ enforceDurableRateLimit: mocks.limit }));
 
 import { AppError } from "@/lib/errors";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { POST } from "./route";
 
 const NVDA = "0xb20000000000000000000078ee7ce2fe4908108c" as Address;

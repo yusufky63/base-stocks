@@ -5,7 +5,7 @@ import { V1_CAVEATS, V1_ENDPOINTS, V1_GROUPS, apiRules, endpointsIn } from "@/li
 import { exampleRequest, curlOf } from "@/lib/api-v1/try";
 import { tradeExample } from "@/lib/api-v1/llms";
 import { PRO_PRICE_USD, paymentInfo } from "@/lib/api-v1/x402";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { Module, ModuleHeader, PageTitle } from "@/components/ui/primitives";
 import { EndpointCard } from "@/components/developers/EndpointCard";
 import { CopyBlock } from "@/components/developers/CopyBlock";

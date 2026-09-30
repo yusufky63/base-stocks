@@ -7,7 +7,7 @@ import { base } from "viem/chains";
 import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { walletCapabilities } from "@/lib/trade/execute";
 import { MAX_UINT128, positionManagerCommonAbi } from "@/lib/earn/abis";

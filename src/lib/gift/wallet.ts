@@ -1,7 +1,7 @@
 import type { Address, Hash, Hex, PublicClient, WalletClient } from "viem";
 import { base } from "viem/chains";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { humanizeError, type HumanError } from "@/lib/errors";
 

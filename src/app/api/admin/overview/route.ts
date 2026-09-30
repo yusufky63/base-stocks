@@ -1,5 +1,6 @@
 import { route, json, requireAdmin } from "@/lib/api";
-import { serverEnv, publicEnv } from "@/config/env";
+import { serverEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { getSupabaseAdmin } from "@/db/supabase";
 import { getRepos } from "@/db/repositories";
 import { indexStatus } from "@/services/chain-index-service";

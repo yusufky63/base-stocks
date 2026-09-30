@@ -5,7 +5,7 @@ import { formatUnits, type Address } from "viem";
 import { baseAccount, injected } from "wagmi/connectors";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { base as appkitBase, type AppKitNetwork } from "@reown/appkit/networks";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { BASE_CHAIN_ID, PUBLIC_BASE_RPC_URLS } from "@/config/chain";
 
 /**

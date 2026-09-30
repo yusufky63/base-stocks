@@ -1,6 +1,6 @@
 import { V1_CAVEATS, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
 import { PRO_PRICE_USD, paymentInfo } from "@/lib/api-v1/x402";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 
 /**

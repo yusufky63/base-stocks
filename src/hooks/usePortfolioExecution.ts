@@ -12,7 +12,7 @@ import { executeTrade, simulateBundle, waitForConfirmation, walletCapabilities }
 import { attributionCapabilities, withAttribution } from "@/lib/attribution";
 import { humanizeError, TRADE_ERROR_COPY } from "@/lib/errors";
 import { BASE_CHAIN_ID } from "@/config/chain";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { useAuth } from "./useAuth";
 
 type QuotedStep = QuotedLeg & { step: PortfolioExecutionStep; quote: ExecutableQuoteDTO };

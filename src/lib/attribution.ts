@@ -1,6 +1,6 @@
 import { Attribution } from "ox/erc8021";
 import { concatHex, type Hex } from "viem";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 
 /**
  * Base Builder Codes (ERC-8021) attribution.

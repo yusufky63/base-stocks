@@ -1,6 +1,6 @@
 import { Attribution } from "ox/erc8021";
 import { concatHex, encodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { isNativeEth } from "@/config/chain";
 import type { ExecutableQuoteDTO } from "@/domain/trade";
 

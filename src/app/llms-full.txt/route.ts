@@ -1,4 +1,4 @@
-import { publicEnv } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { llmsFullTxt } from "@/lib/api-v1/llms";
 
 /**
