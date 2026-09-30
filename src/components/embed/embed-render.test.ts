@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createElement, type ReactElement } from "react";
+import { createElement, type ComponentProps, type ReactElement } from "react";
 import { renderToString } from "react-dom/server";
 import { WagmiProvider, createConfig, custom } from "wagmi";
 import { base } from "wagmi/chains";
@@ -73,10 +73,12 @@ const region = (over: Partial<RegionResponse>): RegionResponse => ({ country: "T
 const US = region({ country: "US", blockedCountry: true, restricted: true });
 const ATTEST = "I confirm that I am not a US person";
 
+/** The shell around one widget, its content passed the way createElement takes children. */
+const shell = (props: Omit<ComponentProps<typeof EmbedShell>, "children">, child: ReactElement) => createElement(EmbedShell, props as ComponentProps<typeof EmbedShell>, child);
 const trade = (opts: { hide?: EmbedSection[]; eligibility?: "region" | "always"; state?: RegionResponse } = {}) =>
-  render(createElement(EmbedShell, { widget: "trade", hide: opts.hide ?? [], eligibility: opts.eligibility ?? "region", children: createElement(TradeWidget, { address: NVDA, initialData: data }) }), opts.state ?? region({}));
+  render(shell({ widget: "trade", hide: opts.hide ?? [], eligibility: opts.eligibility ?? "region" }, createElement(TradeWidget, { address: NVDA, initialData: data })), opts.state ?? region({}));
 const stock = (hide: EmbedSection[] = [], accent: string | null = null) =>
-  render(createElement(EmbedShell, { widget: "stock", hide, accent, children: createElement(StockWidget, { address: NVDA, initialData: data, range: "1W" }) }), region({}));
+  render(shell({ widget: "stock", hide, accent }, createElement(StockWidget, { address: NVDA, initialData: data, range: "1W" })), region({}));
 
 describe("trade widget", () => {
   it("is the site's trade panel under the stock's name and price, with a way out to the full page", () => {
