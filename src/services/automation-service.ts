@@ -1,6 +1,7 @@
 import { formatUnits, type Address, type Hash } from "viem";
 import type { AutomationOnchain, AutomationRule, AutomationRunRecord } from "@/domain/community";
 import { getRepos } from "@/db/repositories";
+import { StorageError } from "@/db/resilient";
 import { AppError } from "@/lib/errors";
 import { cached, invalidate } from "@/lib/cache";
 import { metrics } from "@/lib/http";
@@ -228,17 +229,23 @@ export async function listRulesSynced(owner: Address): Promise<AutomationRule[]>
     const active = plans.filter((p) => p.status === "active");
     const fundings = await readFundingMany(active.map((p) => ({ contract: p.contract, owner, amountPerRun: p.amountPerRun }))).catch(() => [] as PlanFunding[]);
     const fundingByPlan = new Map(active.map((p, i) => [key(p.contract, p.planId.toString()), fundings[i]]));
+    // The chain is the truth here and a mirror only a copy of it, so a mirror that fails to save is
+    // still shown for this read (the StorageError is already in the error sink) and saved next time.
+    const unsaved = <T>(err: unknown, fallback: T): T => {
+      if (err instanceof StorageError) return fallback;
+      throw err;
+    };
     for (const plan of plans) {
       const funding = fundingByPlan.get(key(plan.contract, plan.planId.toString()));
       const rule = byPlan.get(key(plan.contract, plan.planId.toString()));
       if (!rule) {
-        const created = await repos.automation.create(mirrorRule(owner, plan, funding, {}, Date.now()));
-        out.push(created);
+        const mirror = mirrorRule(owner, plan, funding, {}, Date.now());
+        out.push(await repos.automation.create(mirror).catch((err) => unsaved(err, mirror)));
         continue;
       }
       const patch = mirrorPatch(rule, plan, funding);
       if (patch) {
-        const updated = await repos.automation.update(rule.id, owner, patch);
+        const updated = await repos.automation.update(rule.id, owner, patch).catch((err) => unsaved(err, { ...rule, ...patch } as AutomationRule));
         if (updated) out[out.indexOf(rule)] = updated;
       }
     }

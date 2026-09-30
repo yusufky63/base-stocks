@@ -1051,19 +1051,21 @@ export function getRepos(): Repos {
     repos = {
       backend: "supabase",
       // Reads fall back to seeds/empty and writes are dropped (logged) when a table is missing.
+      // `durable` writes store something a person did: any other failure is recorded and raised
+      // as a StorageError instead of answering "saved" (see resilient.ts).
       templates: resilient("templates", new SupabaseTemplateRepo(), { list: (activeOnly?: boolean) => memoryTemplates.list(activeOnly), getBySlug: (slug: string) => memoryTemplates.getBySlug(slug) }),
-      gifts: resilient("gifts", new SupabaseGiftRepo(), { create: (g: GiftRecord) => g, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [] }),
-      executions: resilient("executions", new SupabaseExecutionRepo(), { create: (e: PortfolioExecution) => e, update: null, get: null, listByOwner: [], listAll: [] }),
-      trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, get: null, listByOwner: [], listSince: [], listAll: [], listBetween: [], listUnverified: [] }),
-      watchlists: resilient("watchlists", new SupabaseWatchlistRepo(), { list: [], add: undefined, remove: undefined, summary: { entries: 0, wallets: 0 } }),
-      discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined }),
-      profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined, listAll: [] }),
-      baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }),
+      gifts: resilient("gifts", new SupabaseGiftRepo(), { create: (g: GiftRecord) => g, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [] }, { durable: ["create", "update"] }),
+      executions: resilient("executions", new SupabaseExecutionRepo(), { create: (e: PortfolioExecution) => e, update: null, get: null, listByOwner: [], listAll: [] }, { durable: ["create", "update"] }),
+      trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, get: null, listByOwner: [], listSince: [], listAll: [], listBetween: [], listUnverified: [] }, { durable: ["create", "update"] }),
+      watchlists: resilient("watchlists", new SupabaseWatchlistRepo(), { list: [], add: undefined, remove: undefined, summary: { entries: 0, wallets: 0 } }, { durable: ["add", "remove"] }),
+      discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined }, { durable: ["setVerification"] }),
+      profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined, listAll: [] }, { durable: ["upsert"] }),
+      baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }, { durable: ["create"] }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [], countWallets: 0, listWallets: [] }),
-      automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], listAuto: [], listAll: [], create: (r: unknown) => r, update: null, remove: undefined }),
-      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [], listOpportunityIds: [] }),
+      automation: resilient("automation", new SupabaseAutomationRepo(), { list: [], listAuto: [], listAll: [], create: (r: unknown) => r, update: null, remove: undefined }, { durable: ["create", "update", "remove"] }),
+      earnActions: resilient("earnActions", new SupabaseEarnActionRepo(), { create: (a: EarnActionRecord) => a, update: null, listByOwner: [], listAll: [], listBetween: [], listUnverified: [], listOpportunityIds: [] }, { durable: ["create", "update"] }),
       digests: resilient("digests", new SupabaseDigestRepo(), { get: null, put: undefined, latest: null, summary: { count: 0, costUsd: 0 } }),
-      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [], listBetween: [], listUnverified: [] }),
+      pools: resilient("pools", new SupabasePoolRepo(), { create: (p: PoolRecord) => p, update: null, get: null, getByOnchainId: null, listByCreator: [], listPublic: [], listOpen: [], listAll: [], listBetween: [], listUnverified: [] }, { durable: ["create", "update"] }),
       // `claimOnce` falls back to allowing the claim: the contract, not this table, is what stops
       // an address taking two shares. A storage blip must not lock people out of a live campaign.
       poolClaims: resilient("poolClaims", new SupabasePoolClaimRepo(), { claimOnce: (c: PoolClaim) => c, update: null, get: null, listByPool: [], listByClaimant: [], countByPool: 0, listAll: [], listBetween: [] }),

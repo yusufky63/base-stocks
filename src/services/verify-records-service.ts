@@ -1,5 +1,6 @@
 import type { Hash } from "viem";
 import { getRepos } from "@/db/repositories";
+import { StorageError } from "@/db/resilient";
 import { metrics } from "@/lib/http";
 import { invalidate } from "@/lib/cache";
 import { FILED_BY_OWNER, settleTrade } from "@/app/api/trades/route";
@@ -19,6 +20,9 @@ import { USDC_DECIMALS } from "@/config/chain";
  * the chain once the receipt is in. Runs from the cron and before the statistics. A record whose
  * receipt never appears is given a day and then marked failed; one the receipt contradicts is
  * marked failed with the reason, so a hash filed under the wrong wallet can never count.
+ *
+ * A `StorageError` is the database failing, not the receipt: it stops the sweep instead of being
+ * read as a mismatch, so a blip can never mark a genuine record failed. The next run starts over.
  */
 const BATCH = 100;
 /** How long a pending record may wait for its receipt before it is written off. */
@@ -58,6 +62,7 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
         result.trades.failed += 1;
       }
     } catch (err) {
+      if (err instanceof StorageError) throw err;
       // A receipt that contradicts the record (or a hash the network never saw): the record is not this wallet's.
       await repos.trades.update(t.id, { status: "failed", verifyNote: err instanceof Error ? err.message.slice(0, 200) : "mismatch" }).catch(() => undefined);
       result.trades.failed += 1;
@@ -80,7 +85,8 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
         await repos.trades.update(t.id, { status: "failed" });
         result.orders.failed += 1;
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof StorageError) throw err;
       // The order book was unreachable, or the settlement is not matched yet: the next sweep asks again.
     }
   }
@@ -118,6 +124,7 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
       await repos.gifts.update(g.id, patch);
       result.gifts.verified += 1;
     } catch (err) {
+      if (err instanceof StorageError) throw err;
       await repos.gifts.update(g.id, { status: "failed", verifyNote: err instanceof Error ? err.message.slice(0, 200) : "mismatch" }).catch(() => undefined);
       result.gifts.failed += 1;
     }
@@ -161,6 +168,7 @@ export async function verifyPendingRecords(): Promise<VerifySweepResult> {
         result.pools.failed += 1;
       }
     } catch (err) {
+      if (err instanceof StorageError) throw err;
       await repos.pools.update(p.id, { status: "failed", verifyNote: err instanceof Error ? err.message.slice(0, 200) : "mismatch" }).catch(() => undefined);
       result.pools.failed += 1;
     }
