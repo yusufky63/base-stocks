@@ -71,6 +71,25 @@ it("answers within the probe budget when a quote provider hangs, keeping what wa
   await vi.advanceTimersByTimeAsync(5_000);
   expect(await pending).toHaveLength(1);
 });
+it("waits for a slow first route probe instead of leaving a live stock off the list", async () => {
+  vi.useFakeTimers();
+  h.assets.mockResolvedValue([asset(1)]);
+  h.markets.mockResolvedValue(new Map([reading(1)]));
+  h.routes.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(true), 7_000)));
+  const pending = getTradableAssets();
+  await vi.advanceTimersByTimeAsync(7_500);
+  expect(await pending).toHaveLength(1);
+});
+it("does not hold a render on the probe of a stock confirmed inside the grace window", async () => {
+  h.assets.mockResolvedValue([asset(1)]);
+  h.markets.mockResolvedValue(new Map([reading(1)]));
+  expect(await getTradableAssets()).toHaveLength(1);
+  vi.useFakeTimers();
+  h.routes.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(true), 7_000)));
+  const pending = getTradableAssets();
+  await vi.advanceTimersByTimeAsync(300);
+  expect(await pending).toHaveLength(1);
+});
 it("returns the whole registry beside the catalog, so an unlisted stock can still be looked up", async () => {
   const assets = [asset(1), asset(2, { totalSupply: 0n })];
   h.assets.mockResolvedValue(assets);

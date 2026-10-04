@@ -12,8 +12,18 @@ import { LISTING_MARKET_MAX_AGE_MS, MIN_LISTING_LIQUIDITY_USD, filterWithConcurr
  * removed it from Markets for the visitor who happened to ask during the bad minute.
  */
 export const CATALOG_GRACE_MS = 30 * 60_000;
-/** A page render waits this long for a route probe; the probe itself keeps running and fills the cache. */
-const PROBE_BUDGET_MS = 4_000;
+/**
+ * A page render waits this long for the route probe of a stock with no confirmation inside the
+ * grace window; the probe itself keeps running and fills the cache. A buy and then a sell quote
+ * through hedged providers can outrun 4 seconds on a cold cache: at 4 s the first list after a
+ * quiet spell held 28 of 36 live stocks (2026-10-04).
+ */
+const PROBE_BUDGET_MS = 10_000;
+/**
+ * A stock confirmed inside the grace window stays listed while its next probe runs, so for it the
+ * render only takes an answer the cache already holds and lets the providers finish in the background.
+ */
+const CONFIRMED_PROBE_WAIT_MS = 250;
 /** Confirmation times are rewritten at most this often, so a busy minute is not a write per request. */
 const CONFIRM_REFRESH_MS = 5 * 60_000;
 const CONFIRMED_KEY = "stock:catalog:confirmed";
@@ -26,10 +36,10 @@ function hasFreshDustPool(market: TokenMarketData | null | undefined, now: numbe
   return typeof market.liquidityUsd === "number" && Number.isFinite(market.liquidityUsd) && market.liquidityUsd < MIN_LISTING_LIQUIDITY_USD;
 }
 
-async function probeWithinBudget(asset: B20Asset): Promise<boolean | null> {
+async function probeWithinBudget(asset: B20Asset, budgetMs: number): Promise<boolean | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), PROBE_BUDGET_MS);
+    timer = setTimeout(() => resolve(null), budgetMs);
   });
   try {
     return await Promise.race([hasTwoWayStockRoute(asset.address, asset.decimals).catch(() => null), timeout]);
@@ -69,9 +79,11 @@ async function selectTradable(all: B20Asset[]): Promise<B20Asset[]> {
   const verdicts = new Map<string, Verdict>();
   await filterWithConcurrency(assets, async (asset) => {
     const market = markets.get(asset.canonicalId);
+    const last = previous.get(asset.canonicalId);
+    const budgetMs = last !== undefined && now - last <= CATALOG_GRACE_MS ? CONFIRMED_PROBE_WAIT_MS : PROBE_BUDGET_MS;
     let verdict: Verdict = "unknown";
     if (hasFreshDustPool(market, now)) verdict = "rejected";
-    else if (!marketListingBlockedReason(market, now) && (await probeWithinBudget(asset)) === true) verdict = "confirmed";
+    else if (!marketListingBlockedReason(market, now) && (await probeWithinBudget(asset, budgetMs)) === true) verdict = "confirmed";
     verdicts.set(asset.canonicalId, verdict);
     return true;
   });
