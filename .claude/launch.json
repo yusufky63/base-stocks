@@ -9,6 +9,12 @@
       "autoPort": true
     },
     {
+      "name": "blocks-start",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start", "-p", "3100"],
+      "port": 3100
+    },
+    {
       "name": "stockpair-dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "C:/Projeler/token-launcher/apps/web", "dev", "-p", "3210"],
