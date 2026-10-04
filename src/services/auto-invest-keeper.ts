@@ -59,7 +59,8 @@ export interface RunPlanResult {
 /**
  * One swap per leg. A leg is skipped — its share stays in the wallet — when the stock cannot be
  * bought today (not issued, no pool, paused, too thin for the size), when no allow-listed route
- * quotes it, or when the best route falls under the contract's reference floor.
+ * quotes it, when the contract has no reference floor for it, or when the best route falls
+ * under that floor.
  */
 export async function buildRunSwaps(plan: OnchainPlan, opts: { skipIndexes?: Set<number> } = {}): Promise<RunPlanResult> {
   const assets = await getAssets();
@@ -110,15 +111,16 @@ export async function buildRunSwaps(plan: OnchainPlan, opts: { skipIndexes?: Set
     }
     const floor = await readFloor(contract, leg.asset, amountIn, plan.maxSlippageBps).catch(() => 0n);
     // The contract answers 0 when the leg has no usable feed (none registered, or the answer is
-    // older than its four-day limit) and then enforces only the route's own minOut. For a stock
-    // that *has* a reference feed that is not a price check, it is the absence of one: a keeper
-    // key in the wrong hands could route through an allow-listed router at minOut 1 and take the
-    // difference. Such a leg waits for the feed rather than running without it.
-    if (floor === 0n && asset.oracle) {
-      skip("the contract's reference floor is unavailable (feed stale or not registered); the leg waits rather than run unchecked");
+    // older than its four-day limit) and then enforces only the route's own minOut, which is not a
+    // price check: a keeper key in the wrong hands could route through an allow-listed router at
+    // minOut 1 and take the difference. No other source can stand in for the feed here, because
+    // the contract reads only the feed registered for the stock. So no leg runs without a floor:
+    // a stock with a feed waits for it, and one without a feed is never bought automatically.
+    if (floor === 0n) {
+      skip(asset.oracle ? "the contract's reference floor is unavailable (feed stale or not registered); the leg waits rather than run unchecked" : "this stock has no Chainlink reference, so an automatic run cannot price-check it; buy it from its stock page or in a plan you confirm each run");
       continue;
     }
-    if (floor > 0n && quote.buyAmount < floor) {
+    if (quote.buyAmount < floor) {
       skip("pool price is further from the Chainlink reference than the plan allows");
       continue;
     }

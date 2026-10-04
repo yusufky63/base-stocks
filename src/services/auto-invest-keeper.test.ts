@@ -614,12 +614,23 @@ describe("buildRunSwaps and the tick: legs that must not run are skipped, not se
     expect(built.legs.every((l) => /reference floor is unavailable/.test(l.skipped ?? ""))).toBe(true);
   });
 
-  it("runs a stock without a feed on the route's own minimum", async () => {
+  it("never runs a stock without a feed on the route's own minimum", async () => {
     h.getAssets.mockResolvedValue([asset(NVDA, "NVDAc", { oracle: undefined }), asset(AAPL, "AAPLc")]);
     h.chain.readFloor.mockResolvedValue(0n);
     const built = await buildRunSwaps(plan());
-    expect(built.swaps[0]).toMatchObject({ amountIn: 30_000_000n, minOut: 97_000_000n });
+    expect(built.total).toBe(0n);
+    expect(built.swaps[0]).toEqual({ target: ZERO, spender: ZERO, amountIn: 0n, minOut: 0n, data: "0x" });
+    expect(built.legs[0]?.skipped).toMatch(/no Chainlink reference/);
     expect(built.legs[1]?.skipped).toMatch(/reference floor is unavailable/);
+  });
+
+  it("buys the stocks that have a floor and skips the one without a feed", async () => {
+    h.getAssets.mockResolvedValue([asset(NVDA, "NVDAc", { oracle: undefined }), asset(AAPL, "AAPLc")]);
+    h.chain.readFloor.mockImplementation(async (_c: Address, a: Address) => (a === NVDA ? 0n : 95_000_000n));
+    const built = await buildRunSwaps(plan());
+    expect(built.legs[0]?.skipped).toMatch(/no Chainlink reference/);
+    expect(built.legs[1]?.skipped).toBeUndefined();
+    expect(built.total).toBe(20_000_000n);
   });
 
   it("skips a leg whose pool quotes under the contract's floor", async () => {

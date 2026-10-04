@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContracts } from "wagmi";
 import { Repeat, Sparkles, Zap } from "lucide-react";
-import type { Address } from "viem";
+import { zeroAddress, type Address } from "viem";
 import type { Allocation, PortfolioTemplate } from "@/domain/portfolio";
 import { TOTAL_BPS, USDC_ALLOCATION_KEY } from "@/domain/portfolio";
 import { apiPost, ApiError, type AutomationDraft } from "@/lib/client-api";
@@ -12,11 +12,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAutomation } from "@/hooks/useAutomation";
 import { useAutoInvest } from "@/hooks/useAutoInvest";
 import { useNow } from "@/hooks/useNow";
-import { AUTO_INVEST, CADENCES, cadenceNoun, decodeAutoInvestError } from "@/lib/auto-invest";
+import { AUTO_INVEST, AUTO_INVEST_ADDRESS, CADENCES, autoInvestAbi, cadenceNoun, decodeAutoInvestError } from "@/lib/auto-invest";
 import { isIssued, legBlockedReason, premiumBeyondFloor, referenceGap, referenceGapNote } from "@/lib/trading-status";
 import { validateAllocations } from "@/lib/portfolio/validate";
 import { formatUsd, bpsToPct } from "@/lib/format";
-import { MIN_TRADE_USD, BASE_EXPLORER_URL } from "@/config/chain";
+import { BASE_CHAIN_ID, MIN_TRADE_USD, BASE_EXPLORER_URL } from "@/config/chain";
 import { humanizeError } from "@/lib/errors";
 import { AssetLogo, ErrorBanner, InfoBanner } from "@/components/common/display";
 import { ColorDot } from "@/components/common/AllocationBar";
@@ -119,8 +119,28 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
     }
   }
 
-  const live = (assets?.assets ?? []).filter((a) => a.status === "active" && isIssued(a));
-  const assetOptions = live.map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}` }));
+  const registry = assets?.assets ?? [];
+  // An automatic run is checked onchain against the Chainlink feed registered for the stock in the
+  // contract, and the keeper runs no leg without that check. The feed is read from the contract
+  // itself rather than inferred from the stock: a stock whose feed was never registered there
+  // would sit in the plan and be skipped every run.
+  const feedReads = useReadContracts({
+    contracts: registry.map((a) => ({ address: AUTO_INVEST_ADDRESS as Address, abi: autoInvestAbi, functionName: "feeds", args: [a.address as Address], chainId: BASE_CHAIN_ID }) as const),
+    allowFailure: true,
+    query: { enabled: autoAvailable && registry.length > 0, staleTime: 10 * 60_000 },
+  });
+  /** Whether the contract can price-check this stock; null while the read is out, the stock's own feed if it failed. */
+  const hasReference = (canonicalId: string): boolean | null => {
+    const i = registry.findIndex((a) => a.canonicalId === canonicalId);
+    if (i < 0) return false;
+    const read = feedReads.data?.[i];
+    if (read?.status === "success") return (read.result as Address).toLowerCase() !== zeroAddress;
+    if (feedReads.isLoading) return null;
+    return !!registry[i]!.oracle;
+  };
+
+  const live = registry.filter((a) => a.status === "active" && isIssued(a));
+  const assetOptions = live.map((a) => ({ value: a.address as string, label: `${a.underlying} — ${a.name}${mode === "auto" && hasReference(a.canonicalId) === false ? " · no Chainlink reference" : ""}` }));
   const templateOptions = templates.map((t) => ({ value: t.id, label: t.name }));
   const template = templates.find((t) => t.id === templateId);
   const infoOf = (address: string) => assets?.assets.find((x) => x.canonicalId === address.toLowerCase());
@@ -143,14 +163,21 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
     const gap = referenceGapNote(price);
     const gapPct = referenceGap(price)?.pct ?? null;
     const beyondFloor = mode === "auto" && premiumBeyondFloor(price, slippage);
-    return { key: a.assetAddress as string, weightBps: a.weightBps, usd, info, blocked, gap, gapPct, beyondFloor };
+    const reference = mode === "auto" && info ? hasReference(info.canonicalId) : true;
+    return { key: a.assetAddress as string, weightBps: a.weightBps, usd, info, blocked, gap, gapPct, beyondFloor, noReference: reference === false, referencePending: reference === null };
   });
-  const premiumLegs = legs.filter((l) => !l.blocked && l.beyondFloor);
+  const premiumLegs = legs.filter((l) => !l.blocked && !l.noReference && l.beyondFloor);
+  const unreferenced = legs.filter((l) => l.noReference);
+  const referencesSettled = !legs.some((l) => l.referencePending);
   const smallestBps = stockLegs.reduce((m, a) => Math.min(m, a.weightBps), TOTAL_BPS);
   /** The amount per run at which every stock leg clears the minimum. */
   const amountForAllLegs = stockLegs.length > 0 ? Math.ceil((MIN_TRADE_USD * TOTAL_BPS) / smallestBps) : MIN_TRADE_USD;
   const tooSmall = legs.filter((l) => l.usd < MIN_TRADE_USD);
-  const ready = ownValid && legs.length > 0 && legs.length <= AUTO_INVEST.MAX_LEGS && amount >= MIN_TRADE_USD && tooSmall.length < legs.length;
+  const ready = ownValid && legs.length > 0 && legs.length <= AUTO_INVEST.MAX_LEGS && amount >= MIN_TRADE_USD && tooSmall.length < legs.length && (mode !== "auto" || (unreferenced.length === 0 && referencesSettled));
+  const confirmEachRun = () => {
+    setMode("manual");
+    setModeTouched(true);
+  };
   const runsInDuration = duration > 0 ? Math.max(1, Math.ceil(duration / cadence)) : Math.max(1, Math.ceil(180 / cadence));
   const suggestedApprove = Math.min(1_000_000, Math.ceil(amount * runsInDuration));
   const approveUsd = approveOverride ?? suggestedApprove;
@@ -232,6 +259,8 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
                 <span className="font-mono num text-[12px] text-ink-secondary">{bpsToPct(l.weightBps)} · {formatUsd(l.usd)}</span>
                 {l.blocked ? (
                   <span className="ml-auto text-[11px] text-warning-fg truncate">{l.blocked}</span>
+                ) : l.noReference ? (
+                  <span className="ml-auto text-[11px] text-warning-fg truncate">no Chainlink reference</span>
                 ) : l.gap ? (
                   <span className={cx("ml-auto text-[11px] truncate", l.beyondFloor ? "text-warning-fg" : "text-ink-muted")} title={l.gap}>
                     {(l.gapPct ?? 0) > 0 ? "+" : ""}
@@ -243,16 +272,25 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
             {cashBps > 0 && <li className="text-[12px] text-ink-muted md:col-span-2">{bpsToPct(cashBps)} cash share stays in your wallet each run.</li>}
           </ul>
         )}
-        {kind === "basket" && basketSource === "own" && legs.some((l) => l.blocked || l.gap) && (
+        {kind === "basket" && basketSource === "own" && legs.some((l) => l.blocked || l.noReference || l.gap) && (
           <ul className="text-[12px] flex flex-col gap-0.5">
             {legs
-              .filter((l) => l.blocked || l.gap)
+              .filter((l) => l.blocked || l.noReference || l.gap)
               .map((l) => (
-                <li key={l.key} className={l.blocked || l.beyondFloor ? "text-warning-fg" : "text-ink-muted"}>
-                  {l.info?.underlying ?? l.key.slice(0, 6)} · {formatUsd(l.usd)} per run: {l.blocked ?? l.gap}
+                <li key={l.key} className={l.blocked || l.noReference || l.beyondFloor ? "text-warning-fg" : "text-ink-muted"}>
+                  {l.info?.underlying ?? l.key.slice(0, 6)} · {formatUsd(l.usd)} per run: {l.blocked ?? (l.noReference ? "no Chainlink reference" : l.gap)}
                 </li>
               ))}
           </ul>
+        )}
+        {unreferenced.length > 0 && (
+          <InfoBanner tone="warning">
+            {unreferenced.map((l) => l.info?.underlying ?? l.key.slice(0, 6)).join(", ")} {unreferenced.length === 1 ? "has" : "have"} no Chainlink reference. An automatic run is checked onchain against that reference, so an automatic plan only takes stocks that have one. Remove {unreferenced.length === 1 ? "it" : "them"}, or{" "}
+            <button type="button" className="font-medium text-primary" onClick={confirmEachRun}>
+              confirm each run yourself
+            </button>{" "}
+            instead.
+          </InfoBanner>
         )}
         {premiumLegs.length > 0 && (
           <InfoBanner tone="warning">
@@ -296,22 +334,13 @@ export function PlanWizard({ templates, draft, seed }: { templates: PortfolioTem
             disabled={!autoAvailable}
             icon={Zap}
             title="Automatic"
-            body={autoAvailable ? "Runs by itself when due, within limits the contract enforces. One signature to start." : "Not enabled on this deployment yet."}
+            body={autoAvailable ? "Runs by itself when due, within limits the contract enforces, for stocks with a Chainlink reference. One signature to start." : "Not enabled on this deployment yet."}
             onClick={() => {
               setMode("auto");
               setModeTouched(true);
             }}
           />
-          <ModeCard
-            active={mode === "manual"}
-            icon={Repeat}
-            title="You confirm each run"
-            body="A due run shows up here and waits for your wallet. Nothing runs unattended."
-            onClick={() => {
-              setMode("manual");
-              setModeTouched(true);
-            }}
-          />
+          <ModeCard active={mode === "manual"} icon={Repeat} title="You confirm each run" body="A due run shows up here and waits for your wallet. Nothing runs unattended. Any live stock." onClick={confirmEachRun} />
         </div>
         {mode === "auto" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 border border-line rounded-[6px] p-3">

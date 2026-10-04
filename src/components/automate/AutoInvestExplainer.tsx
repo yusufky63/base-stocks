@@ -21,7 +21,7 @@ export function AutoInvestExplainer() {
 
   const promises = [
     { icon: Timer, title: "Runs by itself, on your schedule", body: "Weekly, daily or monthly: when a run is due, the plan buys your stocks at the best route of the moment. You do not have to be there." },
-    { icon: ShieldCheck, title: "Limits the chain enforces", body: `Never more than the amount per run, never more often than the cadence, only through allow-listed routes, and the stock has to land in your wallet — at least the Chainlink reference less your tolerance (${AUTO_INVEST.DEFAULT_SLIPPAGE_BPS / 100}% by default).` },
+    { icon: ShieldCheck, title: "Limits the chain enforces", body: `Never more than the amount per run, never more often than the cadence, only through allow-listed routes, and the stock has to land in your wallet — at least the Chainlink reference less your tolerance (${AUTO_INVEST.DEFAULT_SLIPPAGE_BPS / 100}% by default). That is why a plan only takes stocks with a Chainlink reference.` },
     { icon: Wallet, title: "Your USDC stays yours until the moment it becomes stock", body: "The plan draws on a normal USDC allowance you set. Nothing is deposited anywhere; a run pulls one run's worth and swaps it in the same transaction." },
     { icon: Hand, title: "Stop any time", body: "Pause, cancel or edit from this page with one signature. Revoking the USDC allowance stops everything, whatever any server thinks." },
   ];
