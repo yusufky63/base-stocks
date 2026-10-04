@@ -26,14 +26,22 @@ type SortKey = "default" | "price" | "change24h" | "liquidity";
 const DOT: Record<TradingStatusView["tone"], string> = { positive: "bg-positive-fg", warning: "bg-warning-fg", neutral: "bg-ink-muted", danger: "bg-danger-fg" };
 const TEXT: Record<TradingStatusView["tone"], string> = { positive: "text-positive-fg", warning: "text-warning-fg", neutral: "text-ink-muted", danger: "text-danger-fg" };
 
-/** Compact status chip: dot + label, detail on hover. Same component on the row and on mobile cards. */
+/**
+ * Columns of the table, shared by the header and every row so they cannot drift apart. The six fixed
+ * columns with their gaps and padding take about 770px, so the table starts at `lg`: from `md` it left
+ * the stock column at 0px on tablets. At 1024px the stock column still gets about 190px; below `lg`
+ * each stock is a card row.
+ */
+const TABLE_COLS = "lg:grid-cols-[1fr_88px_116px_84px_116px_112px_150px]";
+
+/** Compact status chip: dot + label, detail on hover. Same component on the table row and on the card rows. */
 export function StatusChip({ view, className }: { view: TradingStatusView; className?: string }) {
   return (
     <span title={view.detail} className={cx("inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.08em]", TEXT[view.tone], className)}>
       <span className={cx("inline-block w-1.5 h-1.5 rounded-full", DOT[view.tone])} aria-hidden />
       {view.label}
-      {/* Liquidity shows on mobile only; the desktop table has a dedicated Liquidity column, so it would be a duplicate there. */}
-      {view.status === "tradable" || view.status === "thin" ? <span className="md:hidden text-ink-muted normal-case tracking-normal">· {view.detail.split(" ·")[0]}</span> : null}
+      {/* Liquidity shows on the card rows only; the table has a dedicated Liquidity column, so it would be a duplicate there. */}
+      {view.status === "tradable" || view.status === "thin" ? <span className="lg:hidden text-ink-muted normal-case tracking-normal">· {view.detail.split(" ·")[0]}</span> : null}
     </span>
   );
 }
@@ -109,7 +117,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
       </div>
       {view === "heatmap" && data && <Heatmap rows={rows} />}
       <div className={cx("border border-line rounded-[8px] overflow-hidden bg-canvas ticks", view === "heatmap" && "hidden")}>
-        <div className="hidden md:grid grid-cols-[1fr_96px_130px_96px_130px_120px_150px] gap-3 px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted whitespace-nowrap items-center">
+        <div className={cx("hidden lg:grid gap-3 px-4 py-2 border-b border-line font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted whitespace-nowrap items-center", TABLE_COLS)}>
           <span>Stock</span>
           <span className="text-right">7d</span>
           <SortHeader label="Price" col="price" sort={sort} onSort={onSort} />
@@ -154,7 +162,7 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
       </button>
     ) : null;
   return (
-    <div className={cx("rail relative grid grid-cols-[1fr_auto] md:grid-cols-[1fr_96px_130px_96px_130px_120px_150px] items-center px-4 py-3 border-b border-line last:border-b-0 gap-3 hover:bg-surface transition-fast", muted && "opacity-75 hover:opacity-100")}>
+    <div className={cx("rail relative grid grid-cols-[1fr_auto] items-center px-4 py-3 border-b border-line last:border-b-0 gap-3 hover:bg-surface transition-fast", TABLE_COLS, muted && "opacity-75 hover:opacity-100")}>
       <Link href={`/stocks/${asset.address}`} className="flex items-center gap-3 min-w-0 after:absolute after:inset-0 after:content-['']">
         <span className="w-1 self-stretch rounded-full" style={{ background: assetColor(asset.address) }} aria-hidden />
         <AssetLogo src={asset.logoURI} symbol={asset.symbol} size={36} />
@@ -163,11 +171,11 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
             {asset.underlying} <span className="text-ink-muted font-mono text-[11px]">{asset.symbol}</span>
           </span>
           <span className="block text-[13px] text-ink-secondary truncate">{asset.name}</span>
-          {/* "Live" is the norm and the desktop table has its own columns, so only flag it on mobile; thin/paused/not-issued always show. */}
-          <StatusChip view={view} className={cx("mt-0.5", view.status === "tradable" && "md:hidden")} />
+          {/* "Live" is the norm and the table has its own columns, so only flag it on the card rows; thin/paused/not-issued always show. */}
+          <StatusChip view={view} className={cx("mt-0.5", view.status === "tradable" && "lg:hidden")} />
         </span>
       </Link>
-      <div className="md:hidden text-right flex flex-col items-end gap-1.5">
+      <div className="lg:hidden text-right flex flex-col items-end gap-1.5">
         <div>
           <div className="display num text-[16px]">
             <AnimatedNumber value={display} format={(v) => formatUsd(v)} />
@@ -183,27 +191,27 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
           )}
         </div>
       </div>
-      <div className="hidden md:flex justify-end">
+      <div className="hidden lg:flex justify-end">
         <Sparkline points={spark ?? []} width={84} height={26} />
       </div>
-      <div className="hidden md:block text-right display num text-[16px]">
+      <div className="hidden lg:block text-right display num text-[16px]">
         <AnimatedNumber value={display} format={(v) => formatUsd(v)} />
         {price?.displaySource === "reference" && <span className="block text-[11px] font-mono text-ink-muted uppercase">reference</span>}
       </div>
-      <div className="hidden md:block text-right">
+      <div className="hidden lg:block text-right">
         <PriceChange value={hasMeaningfulChange(view.status, price) ? price?.marketChange24hPct : null} />
       </div>
-      <div className="hidden md:block text-right font-mono num text-[12px]">
+      <div className="hidden lg:block text-right font-mono num text-[12px]">
         <span className="block">{price?.liquidityUsd ? formatUsdCompact(price.liquidityUsd) : "—"}</span>
         <span className="block text-ink-muted">{price?.volume24hUsd ? `${formatUsdCompact(price.volume24hUsd)} vol` : muted ? "no market" : "no volume"}</span>
       </div>
-      <div className="hidden md:block text-right font-mono num text-[13px] text-ink-secondary">
+      <div className="hidden lg:block text-right font-mono num text-[13px] text-ink-secondary">
         {formatUsd(price?.referenceUsd)}
         {price?.referenceUsd != null && price.referenceFreshness === "stale" && <span className="block text-[11px] uppercase text-ink-muted">stale</span>}
         {price?.referenceUsd != null && price.referenceFreshness === "last-close" && <span className="block text-[11px] uppercase text-ink-muted">last close</span>}
         {price?.referenceUsd != null && price.referenceFreshness === "frozen" && <span className="block text-[11px] uppercase text-warning-fg">frozen</span>}
       </div>
-      <div className="hidden md:flex items-center justify-end gap-1.5">
+      <div className="hidden lg:flex items-center justify-end gap-1.5">
         {watchButton("h-9 w-9")}
         {canBuy ? (
           <Link href={`/stocks/${asset.address}?trade=buy`} className="relative z-10 inline-flex items-center justify-center gap-1 h-9 min-w-[88px] px-3 rounded-[6px] text-[13px] font-medium bg-primary-fill text-primary-contrast hover:brightness-[1.08] transition-fast">
