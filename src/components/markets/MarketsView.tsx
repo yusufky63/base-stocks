@@ -8,7 +8,7 @@ import type { Address } from "viem";
 import { useAssets, useRegion, useSparklines, useWatchlist } from "@/hooks/queries";
 import type { AssetsResponse } from "@/lib/client-api";
 import { formatUsd, formatUsdCompact } from "@/lib/format";
-import { hasMeaningfulChange, sortByTradingStatus, tradingStatus, type TradingStatusView } from "@/lib/trading-status";
+import { hasMeaningfulChange, isListed, sortByTradingStatus, tradingStatus, type TradingStatusView } from "@/lib/trading-status";
 import { AssetLogo, PriceChange } from "@/components/common/display";
 import { TimeAgo } from "@/components/common/TimeAgo";
 import { RegionNotice } from "@/components/common/RegionNotice";
@@ -65,7 +65,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
   // Click cycles a column: unsorted → high-to-low → low-to-high → back to the default status order.
   const onSort = (key: SortKey) => setSort((s) => (s.key !== key ? { key, dir: "desc" } : s.dir === "desc" ? { key, dir: "asc" } : { key: "default", dir: "desc" }));
 
-  const all = useMemo(() => (data ? sortByTradingStatus(data.assets.map((a) => ({ asset: a, price: data.prices[a.canonicalId] })), (x) => x) : []), [data]);
+  const all = useMemo(() => (data ? sortByTradingStatus(data.assets.filter(isListed).map((a) => ({ asset: a, price: data.prices[a.canonicalId] })), (x) => x) : []), [data]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -129,7 +129,7 @@ export function MarketsView({ initialData }: { initialData?: AssetsResponse }) {
         {rows.map(({ asset, price }) => (
           <MarketRow key={asset.canonicalId} asset={asset} price={price} spark={sparks?.series[asset.canonicalId]} watched={watchlist.has(asset.address)} onToggleWatch={address ? () => watchlist.toggle(asset.address as Address) : undefined} restricted={restricted} />
         ))}
-        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{query ? `No stocks match “${query}”.` : "No stocks match."}</p>}
+        {data && rows.length === 0 && <p className="p-4 text-[14px] text-ink-secondary">{query ? `No stocks match “${query}”.` : "No stocks have confirmed liquidity and trading routes right now."}</p>}
       </div>
       <p className="text-[12px] text-ink-muted">{LEGEND}</p>
     </div>
@@ -199,9 +199,9 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
       </div>
       <div className="hidden md:block text-right font-mono num text-[13px] text-ink-secondary">
         {formatUsd(price?.referenceUsd)}
-        {price?.referenceFreshness === "stale" && <span className="block text-[11px] uppercase text-ink-muted">stale</span>}
-        {price?.referenceFreshness === "last-close" && <span className="block text-[11px] uppercase text-ink-muted">last close</span>}
-        {price?.referenceFreshness === "frozen" && <span className="block text-[11px] uppercase text-warning-fg">frozen</span>}
+        {price?.referenceUsd != null && price.referenceFreshness === "stale" && <span className="block text-[11px] uppercase text-ink-muted">stale</span>}
+        {price?.referenceUsd != null && price.referenceFreshness === "last-close" && <span className="block text-[11px] uppercase text-ink-muted">last close</span>}
+        {price?.referenceUsd != null && price.referenceFreshness === "frozen" && <span className="block text-[11px] uppercase text-warning-fg">frozen</span>}
       </div>
       <div className="hidden md:flex items-center justify-end gap-1.5">
         {watchButton("h-9 w-9")}

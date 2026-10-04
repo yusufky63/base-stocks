@@ -12,7 +12,6 @@ import { useMiniApp } from "@/components/layout/MiniAppProvider";
 import { addMiniApp } from "@/lib/miniapp-actions";
 import { ConnectButton } from "@/components/layout/ConnectButton";
 import { AddressLabel, LegalNotice } from "@/components/common/display";
-import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 
 export function SettingsView() {
   const { preference, setPreference } = useTheme();
@@ -87,7 +86,7 @@ export function SettingsView() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-[14px] font-medium">Prices row</div>
-              <div className="text-[12px] text-ink-muted">Live prices for all {CURATED_B20_ASSETS.length} stocks. On by default.</div>
+              <div className="text-[12px] text-ink-muted">Live prices for every listed stock. On by default.</div>
             </div>
             <div className="flex gap-2">
               <Chip active={ticker.prices} onClick={() => ticker.set({ prices: true })}>

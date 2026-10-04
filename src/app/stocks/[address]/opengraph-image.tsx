@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import { OG, OgCard, OgChip, OgCoins, OgCta, hasCoinArt, ogFonts } from "@/lib/og";
 import { findCuratedAsset } from "@/lib/b20/registry";
 import { loadAssetResponse } from "@/lib/server-data";
+import { ensureDiscoveredRegistry } from "@/services/b20-asset-service";
 import { hasMeaningfulChange, isNotIssued, tradingStatus } from "@/lib/trading-status";
 
 export const alt = "BStocks";
@@ -19,6 +20,7 @@ export const revalidate = 300;
  */
 export default async function Image({ params }: { params: Promise<{ address: string }> }) {
   const { address } = await params;
+  await ensureDiscoveredRegistry();
   const entry = findCuratedAsset(address);
   const data = entry ? await loadAssetResponse(address).catch(() => null) : null;
   const asset = data?.asset ?? null;

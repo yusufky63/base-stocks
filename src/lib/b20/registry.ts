@@ -6,12 +6,11 @@ import type { CuratedAssetEntry } from "@/domain/asset";
  * Source: https://docs.base.org/specifications/b20/tokenized-stocks-on-base (verified 2026-09-02).
  *
  * Identity is the contract address. Names/symbols are read onchain at runtime because
- * B20 metadata is mutable. This list is a bootstrap: new stocks are discovered from the
- * factory's `B20Created` events, matched to their Chainlink "Coinbase <TICKER>" feed and the
- * Coinbase oracle registry, and added to the live registry (see b20-asset-service
- * `syncDiscoveredAssets`) — no deploy needed when Coinbase lists a 14th stock.
+ * B20 metadata is mutable. This list is a bootstrap: Coinbase API listings, saved pending
+ * candidates and B20Created events are rechecked by syncDiscoveredAssets. New stocks enter
+ * the live registry after issuer/onchain verification, DEX liquidity and two-way route checks.
  */
-export const CURATED_B20_ASSETS: readonly CuratedAssetEntry[] = [
+export const CURATED_B20_ASSETS: readonly (CuratedAssetEntry & { chainlinkFeed: Address })[] = [
   { address: "0xb200000000000000000000C2e324d24d7eEcd1fb", underlying: "AAPL", chainlinkFeed: "0x787f13dEa48Db0897CbCDD985de77809D837F988", tags: ["technology"] },
   { address: "0xb200000000000000000000d9192b6B456483C2E8", underlying: "AMZN", chainlinkFeed: "0x06A8E4b3aBB3B7543d8396FB2B763d22820cB295", tags: ["technology", "ai"] },
   { address: "0xb200000000000000000000c85a31389D71F3ecfb", underlying: "COIN", chainlinkFeed: "0x408e44f504A7371a345F03a73dDC96A4b48e8aa7", tags: ["finance", "crypto"] },

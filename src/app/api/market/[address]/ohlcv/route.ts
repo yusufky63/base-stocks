@@ -19,7 +19,7 @@ export const GET = route<{ params: Promise<{ address: string }> }>({ rateLimit: 
   // only a discovered stock pays for the full asset read.
   const curated = findCuratedAsset(address);
   let subject: ChartSubject;
-  if (curated) subject = { address: curated.address as Address, feed: curated.chainlinkFeed as Address };
+  if (curated) subject = { address: curated.address as Address, feed: curated.chainlinkFeed ?? null };
   else {
     const asset = await getAsset(address);
     if (!asset) throw new AppError("NOT_FOUND", "Unknown asset", 404);

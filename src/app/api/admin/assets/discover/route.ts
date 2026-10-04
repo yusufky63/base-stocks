@@ -5,8 +5,8 @@ import { syncDiscoveredAssets, loadDiscoveredRegistry, invalidateAssetCaches } f
 import { getRepos } from "@/db/repositories";
 
 /**
- * Admin: scan `B20Created` events and record newly discovered tokens. They remain
- * `discovered` (not tradable) until an admin flips verification (spec §6).
+ * Admin: recheck Coinbase listings, stored candidates and B20 events. Verified issuer assets
+ * with supply, unpaused transfers, DEX liquidity and two-way routes are added automatically.
  */
 export const POST = route({ rateLimit: { key: "admin.discover", limit: 5, windowMs: 60_000 } }, async (req) => {
   requireAdmin(req, serverEnv().ADMIN_API_TOKEN);
@@ -21,7 +21,7 @@ export const PATCH = route({ rateLimit: { key: "admin.discover", limit: 20, wind
   requireAdmin(req, serverEnv().ADMIN_API_TOKEN);
   const { address, verification } = await parseBody(req, verifySchema);
   await getRepos().discoveredAssets.setVerification(address, verification);
-  await loadDiscoveredRegistry();
+  await loadDiscoveredRegistry(true);
   invalidateAssetCaches();
   return json({ ok: true });
 });

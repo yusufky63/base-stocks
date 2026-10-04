@@ -17,7 +17,7 @@ const shortName = (name: string) => name.replace(/\b(Corporation|Inc\.?|Corp\.?|
  *   ?ticker=NVDA        → per-stock feed (Google News, Yahoo Finance, Nasdaq, Seeking Alpha)
  *   ?scope=markets      → market-wide business headlines (CNBC, MarketWatch, WSJ, Investing.com)
  *   ?scope=ecosystem    → tokenized stocks on Base and Coinbase's listings, tagged with the tickers named
- *   default             → mixed feed across the 13 stocks
+ *   default             → mixed feed across the listed stocks
  */
 export const GET = route({ rateLimit: { key: "news", limit: 120, windowMs: 60_000 } }, async (req) => {
   const { ticker, scope, limit } = parseQuery(req, querySchema);

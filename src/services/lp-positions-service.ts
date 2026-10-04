@@ -2,7 +2,6 @@ import { erc20Abi, type Address } from "viem";
 import { cached } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { getServerPublicClient } from "@/lib/viem/server-client";
-import { CURATED_B20_ASSETS, canonicalId } from "@/lib/b20/registry";
 import { USDC_ADDRESS, USDC_DECIMALS, WETH_ADDRESS } from "@/config/chain";
 import { amountsForLiquidity, inRange, rangeUsd, sqrtPriceX96ToSqrtPrice } from "@/lib/earn/lp-math";
 import { bumpWalletVersion, walletVersion } from "@/lib/portfolio/wallet-version";
@@ -86,7 +85,7 @@ export async function getLpPositions(owner: Address): Promise<LpPosition[]> {
     for (const a of assets) tokenInfo.set(a.canonicalId, { address: a.address, symbol: a.underlying, decimals: a.decimals, priceUsd: views.get(a.canonicalId)?.displayUsd ?? null, isStock: true });
     tokenInfo.set(USDC_ADDRESS.toLowerCase(), { address: USDC_ADDRESS, symbol: "USDC", decimals: USDC_DECIMALS, priceUsd: 1, isStock: false });
     tokenInfo.set(WETH_ADDRESS.toLowerCase(), { address: WETH_ADDRESS, symbol: "WETH", decimals: 18, priceUsd: ethUsd, isStock: false });
-    const stockAddresses = new Set(CURATED_B20_ASSETS.map((a) => canonicalId(a.address)));
+    const stockAddresses = new Set(assets.map((a) => a.canonicalId));
 
     // The three managers are independent; read them side by side rather than one after another.
     // Within a manager the reads stay staged (ids, then positions, then pools), each stage one multicall.

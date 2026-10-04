@@ -1,15 +1,17 @@
 import { V1_CAVEATS, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
 import { PRO_PRICE_USD, paymentInfo } from "@/lib/api-v1/x402";
 import { publicEnv } from "@/config/public-env";
-import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
+import { allAssetEntries } from "@/lib/b20/registry";
+import { ensureDiscoveredRegistry } from "@/services/b20-asset-service";
 
 /**
  * The convention Base's own docs follow: a plain-text index an assistant can read in one fetch to
- * learn what exists before going deeper. Generated from the endpoint catalog and the curated stock
- * list so it cannot fall behind the API it describes. The base URL is the deployment's own, so a
+ * learn what exists before going deeper. Generated from the endpoint catalog and the stock
+ * registry so it cannot fall behind the API it describes. The base URL is the deployment's own, so a
  * preview deployment describes itself rather than production.
  */
 export async function GET(): Promise<Response> {
+  await ensureDiscoveredRegistry();
   const base = publicEnv.appUrl.replace(/\/$/, "");
   const pay = paymentInfo();
   const paidCount = V1_ENDPOINTS.filter((e) => e.paid).length;
@@ -37,9 +39,9 @@ export async function GET(): Promise<Response> {
     "",
     "## Listed stocks",
     "",
-    "Identity is the contract address; tickers are accepted by the API for convenience. Stocks Coinbase lists later are discovered onchain and appear in `/api/v1/stocks` without a change here.",
+    "Identity is the contract address; tickers are accepted by the API for convenience. The registry below also holds stocks without a market yet; `/api/v1/stocks` returns the ones that can be traded right now.",
     "",
-    ...CURATED_B20_ASSETS.map((a) => `- ${a.underlying}: ${a.address} ([page](${base}/stocks/${a.address}), [API](${base}/api/v1/stocks/${a.underlying}))`),
+    ...allAssetEntries().map((a) => `- ${a.underlying}: ${a.address} ([page](${base}/stocks/${a.address}), [API](${base}/api/v1/stocks/${a.underlying}))`),
     "",
     "## About the app",
     "",

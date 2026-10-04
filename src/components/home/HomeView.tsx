@@ -2,9 +2,8 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { hasMeaningfulChange, isIssued, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
+import { hasMeaningfulChange, isIssued, isListed, sortByTradingStatus, tradingStatus } from "@/lib/trading-status";
 import { liveMarketRows, liveMarketTotals, type MarketRow as Row } from "@/components/markets/live-markets";
-import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 import { GiftsCard } from "@/components/pool/PoolList";
 import { useAccount } from "wagmi";
 import { ArrowRight, Search, BookOpen, ShoppingCart, Wallet, Layers, Send } from "lucide-react";
@@ -40,7 +39,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
   const watchlist = useWatchlist(address);
 
   // Derived once per assets change, so the portfolio's own refetch cannot re-sort or re-animate the lists.
-  const priced = useMemo(() => (assets?.assets ?? []).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] })), [assets]);
+  const priced = useMemo(() => (assets?.assets ?? []).filter(isListed).map((a) => ({ asset: a, price: assets?.prices[a.canonicalId] })), [assets]);
   const ordered = useMemo(() => sortByTradingStatus(priced, (x) => x), [priced]);
   // Biggest moves first, in half-point buckets with the ticker symbol breaking ties: two stocks a
   // few hundredths apart would otherwise swap places on every refresh.
@@ -245,7 +244,7 @@ export function HomeView({ initialAssets, initialTemplates }: { initialAssets?: 
 }
 
 const HOW_IT_WORKS = [
-  { icon: Search, title: "Find", body: `${CURATED_B20_ASSETS.length} Coinbase Tokenized Stocks on Base, identified by contract address, read live from the chain.` },
+  { icon: Search, title: "Find", body: "Coinbase Tokenized Stocks on Base, identified by contract address, read live from the chain." },
   { icon: BookOpen, title: "Understand", body: "One price: the pool's, the one you trade at. The stock's own price is kept only as a check. Share counts already include splits and dividends." },
   { icon: ShoppingCart, title: "Buy & sell", body: "Firm quote, price impact and fee up front. Scoped approvals, simulation, one confirmation." },
   { icon: Wallet, title: "Hold", body: "Assets stay in your wallet. Issuer policies and pauses are explained, never hidden." },

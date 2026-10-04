@@ -49,7 +49,7 @@ export class CoinGeckoMarketDataProvider implements MarketDataProvider {
   async getTokenMarkets(addresses: Address[]): Promise<Map<string, TokenMarketData>> {
     const out = new Map<string, TokenMarketData>();
     if (addresses.length === 0) return out;
-    const key = `cg:prices:${addresses.map((a) => a.toLowerCase()).sort().join(",")}`;
+    const key = `cg:prices:v2:${addresses.map((a) => a.toLowerCase()).sort().join(",")}`;
     const rows = await cached(key, TTL.market, async () => {
       const list = addresses.map((a) => a.toLowerCase()).join(",");
       const raw = await get<unknown>(
@@ -77,6 +77,10 @@ export class CoinGeckoMarketDataProvider implements MarketDataProvider {
           },
         ]);
       }
+      await Promise.all(result.map(async ([, market]) => {
+        const pool = await this.getPrimaryPool(market.address);
+        if (pool) market.primaryPool = pool.pool;
+      }));
       return result;
     });
     for (const [k, v] of rows) out.set(k, v);

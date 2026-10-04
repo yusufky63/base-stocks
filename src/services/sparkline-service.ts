@@ -1,11 +1,20 @@
 import type { B20Asset } from "@/domain/asset";
+import type { Candle } from "@/domain/market";
 import { readRoundHistory } from "@/providers/market-data/chainlink/history";
-import { cached } from "@/lib/cache";
+import { cached, invalidate } from "@/lib/cache";
 import { metrics } from "@/lib/http";
+import { recallGood } from "@/lib/last-good";
+import { chartCandlesKey, getChartSeries } from "./market-service";
 
 const D1_S = 24 * 3600;
 const D7_S = 7 * 24 * 3600;
 const POINTS = 32;
+const SPARKLINES_KEY = "sparklines:1d7d:v2";
+
+/** A remembered DEX series older than this is not drawn: a week's shape that ends half a day ago misleads. */
+const DEX_SERIES_MAX_AGE_MS = 12 * 3600_000;
+/** A DEX series younger than this is left alone by the refresher. */
+const DEX_SERIES_REFRESH_MS = 30 * 60_000;
 
 /** Bucket an ascending round history into POINTS samples over [now - windowS, now], carrying the last known price forward. */
 function bucketSeries(rounds: { time: number; price: number }[], start: number, windowS: number): number[] {
@@ -25,24 +34,44 @@ function bucketSeries(rounds: { time: number; price: number }[], start: number, 
   return series;
 }
 
+/** Stocks whose sparkline has to come from the pool because there is no feed to read rounds from. */
+function needsDexSeries(asset: B20Asset): boolean {
+  return !asset.oracle && asset.status === "active" && asset.totalSupply > 0n;
+}
+
 /**
- * Reference-price sparklines for every asset from Chainlink round history, in two windows from a
- * single history read: `d1` (24 hours, to sit beside the 24h change) and `d7` (7 days, for the
- * markets table's labelled "7d" column). One cached computation serves all visitors; 15-minute TTL.
+ * Sparklines for every asset, in two windows from a single history read: `d1` (24 hours, to sit
+ * beside the 24h change) and `d7` (7 days, for the markets table's labelled "7d" column). One
+ * cached computation serves all visitors; 15-minute TTL.
+ *
+ * A stock with a feed is drawn from Chainlink round history. A stock without one is drawn from its
+ * pool's hourly candles, the series the 1W chart already fetches and remembers. That series is only
+ * read here, never fetched: the candle provider allows about thirty calls a minute, and thirty
+ * stocks asking at once would spend the whole budget inside one request. `refreshDexSparklines`
+ * keeps the remembered series current a few stocks at a time.
  */
 export async function getSparklines(assets: B20Asset[]): Promise<{ d1: Record<string, number[]>; d7: Record<string, number[]> }> {
-  return cached("sparklines:1d7d:v1", { ttlMs: 15 * 60_000, staleMs: 60 * 60_000, shared: true }, async () => {
-    const now = Math.floor(Date.now() / 1000);
+  return cached(SPARKLINES_KEY, { ttlMs: 15 * 60_000, staleMs: 60 * 60_000, shared: true }, async () => {
+    const nowMs = Date.now();
+    const now = Math.floor(nowMs / 1000);
     const d1: Record<string, number[]> = {};
     const d7: Record<string, number[]> = {};
+    const put = (asset: B20Asset, points: { time: number; price: number }[]) => {
+      d1[asset.canonicalId] = bucketSeries(points, now - D1_S, D1_S);
+      d7[asset.canonicalId] = bucketSeries(points, now - D7_S, D7_S);
+    };
     await Promise.all(
       assets.map(async (a) => {
-        if (!a.oracle) return;
         try {
-          const rounds = await readRoundHistory(a.oracle.feed, 400);
-          if (rounds.length === 0) return;
-          d1[a.canonicalId] = bucketSeries(rounds, now - D1_S, D1_S);
-          d7[a.canonicalId] = bucketSeries(rounds, now - D7_S, D7_S);
+          if (a.oracle) {
+            const rounds = await readRoundHistory(a.oracle.feed, 400);
+            if (rounds.length > 0) put(a, rounds);
+            return;
+          }
+          if (!needsDexSeries(a)) return;
+          const good = await recallGood<Candle[]>(chartCandlesKey(a.address, "1W"));
+          if (!good || good.value.length < 2 || nowMs - good.at > DEX_SERIES_MAX_AGE_MS) return;
+          put(a, good.value.map((c) => ({ time: c.time, price: c.close })));
         } catch (err) {
           metrics.count("sparklines", false, err instanceof Error ? err.message : String(err));
         }
@@ -50,4 +79,37 @@ export async function getSparklines(assets: B20Asset[]): Promise<{ d1: Record<st
     );
     return { d1, d7 };
   });
+}
+
+let refreshing = false;
+
+/**
+ * Fetch the hourly pool series for the stocks without a feed whose remembered one is missing or
+ * oldest, `limit` per call, one after another. Meant to run after a response has been sent; a
+ * second call while one is running does nothing. Returns how many series were refreshed.
+ */
+export async function refreshDexSparklines(assets: B20Asset[], limit = 6): Promise<number> {
+  if (refreshing) return 0;
+  refreshing = true;
+  try {
+    const now = Date.now();
+    const ages = await Promise.all(
+      assets.filter(needsDexSeries).map(async (asset) => {
+        const good = await recallGood<Candle[]>(chartCandlesKey(asset.address, "1W")).catch(() => null);
+        return { asset, at: good?.at ?? 0 };
+      }),
+    );
+    const due = ages.filter((x) => now - x.at > DEX_SERIES_REFRESH_MS).sort((a, b) => a.at - b.at).slice(0, limit);
+    let refreshed = 0;
+    for (const { asset } of due) {
+      // getChartSeries remembers a series it could fetch; a failure leaves the older one in place.
+      const series = await getChartSeries({ address: asset.address, feed: null }, "1W").catch(() => null);
+      if (series?.source === "market" && series.candles.length > 1) refreshed += 1;
+    }
+    // Let the next reader see the new series instead of waiting out the window.
+    if (refreshed > 0) await invalidate(SPARKLINES_KEY);
+    return refreshed;
+  } finally {
+    refreshing = false;
+  }
 }

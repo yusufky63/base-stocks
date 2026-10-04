@@ -85,7 +85,8 @@ export interface AssetBalance {
 export interface CuratedAssetEntry {
   address: Address;
   underlying: string;
-  chainlinkFeed: Address;
+  /** Optional independent reference; DEX tradability does not require a feed. */
+  chainlinkFeed?: Address;
   tags: MarketTag[];
 }
 
@@ -106,6 +107,12 @@ export interface B20AssetDTO {
   totalSupply: string;
   /** Omitted when true; false means the supply is unknown right now and must not be read as zero. */
   supplyKnown?: boolean;
+  /**
+   * False for a registry stock outside the trading catalog (not issued, paused, no pool or no
+   * route). Lists that offer stocks leave it out; lookups by address still find it. Omitted by
+   * responses that carry no catalog, which read as listed.
+   */
+  listed?: boolean;
   transferPaused: boolean;
   transferSenderPolicyId: string;
   transferReceiverPolicyId: string;

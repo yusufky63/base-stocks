@@ -1,5 +1,6 @@
+import { getAssetCatalog } from "@/services/stock-catalog-service";
 import { toAssetDTO } from "@/domain/asset";
-import { getAssets, getAsset, enrichLogos } from "@/services/b20-asset-service";
+import { getAsset, enrichLogos } from "@/services/b20-asset-service";
 import { getPriceViews, getEthUsd } from "@/services/price-service";
 import { getRepos } from "@/db/repositories";
 import type { AssetsResponse, AssetResponse } from "@/lib/client-api";
@@ -12,9 +13,9 @@ import type { PortfolioTemplate } from "@/domain/portfolio";
  */
 export async function loadAssetsResponse(): Promise<AssetsResponse | null> {
   try {
-    const assets = await getAssets();
+    const { assets, listed } = await getAssetCatalog();
     const [views, ethUsd] = await Promise.all([getPriceViews(assets), getEthUsd().catch(() => null), enrichLogos(assets)]);
-    return { assets: assets.map(toAssetDTO), prices: Object.fromEntries(views), ethUsd, readAt: Date.now() };
+    return { assets: assets.map((a) => ({ ...toAssetDTO(a), listed: listed.has(a.canonicalId) })), prices: Object.fromEntries(views), ethUsd, readAt: Date.now() };
   } catch (err) {
     console.error("[server-data] assets", err instanceof Error ? err.message : err);
     return null;

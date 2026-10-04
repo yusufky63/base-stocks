@@ -171,7 +171,7 @@ async function runChecks(): Promise<ServiceCheck[]> {
       const top = pools[0];
       return pools.length ? { detail: `${pools.length} pools for ${SAMPLE.underlying} · deepest ${top!.dexLabel} $${Math.round(top!.reserveUsd).toLocaleString("en-US")}` } : { status: "degraded", detail: "no pools returned" };
     }),
-    probe("discovery", "Chain", "New-stock discovery (B20Created + Chainlink directory)", async () => {
+    probe("discovery", "Chain", "New-stock discovery (Coinbase listings + DEX liquidity and swap routes)", async () => {
       const d = discoveryStatus();
       if (d.lastError) return { status: "degraded", detail: `last scan failed: ${d.lastError.slice(0, 100)}` };
       if (!d.lastSyncAt) return process.env.VERCEL ? { detail: `serverless: scans run on the cron schedule · ${d.discovered.length} discovered stock(s) loaded from storage${d.discovered.length ? ` (${d.discovered.join(", ")})` : ""}` } : { status: "degraded", detail: "no scan yet in this process" };

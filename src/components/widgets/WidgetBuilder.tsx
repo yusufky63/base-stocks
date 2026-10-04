@@ -3,7 +3,9 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TIMEFRAMES, type Timeframe } from "@/domain/market";
+import { useAssets } from "@/hooks/queries";
 import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
+import { isListed } from "@/lib/trading-status";
 import {
   APP_URL,
   EMBED_HEIGHT,
@@ -42,6 +44,9 @@ function useSettled<T>(value: T, ms = 300): T {
 export function WidgetBuilder({ initialAsset }: { initialAsset?: string }) {
   const [widget, setWidget] = useState<EmbedWidget>("trade");
   const [asset, setAsset] = useState(initialAsset ?? DEFAULT_ASSET);
+  // The trading catalog once it has loaded, so a stock listed after the last deploy can be picked; the bootstrap list until then.
+  const { data: catalog } = useAssets();
+  const stocks = catalog ? catalog.assets.filter(isListed).map((a) => ({ address: a.address, underlying: a.underlying })) : CURATED_B20_ASSETS;
   const [side, setSide] = useState<EmbedSide>("buy");
   const [range, setRange] = useState<Timeframe>("1M");
   const [theme, setTheme] = useState<EmbedTheme>("auto");
@@ -79,7 +84,7 @@ export function WidgetBuilder({ initialAsset }: { initialAsset?: string }) {
             <div className="flex flex-col gap-1.5">
               <span className="text-[12px] text-ink-secondary">Stock</span>
               <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Stock">
-                {CURATED_B20_ASSETS.map((a) => (
+                {stocks.map((a) => (
                   <Chip key={a.address} active={asset.toLowerCase() === a.address.toLowerCase()} onClick={() => setAsset(a.address)} role="radio" aria-checked={asset.toLowerCase() === a.address.toLowerCase()}>
                     {a.underlying}
                   </Chip>

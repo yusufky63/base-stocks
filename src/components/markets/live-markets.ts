@@ -57,7 +57,7 @@ function compactUsd(n: number): string {
 /**
  * The legend under the Markets list, generated from `tradingStatus()` so the labels are the very
  * strings the chips use. The display-price rule quotes the price service's own gate: the pool price
- * is the headline only within 20% of a live Chainlink reference and with at least $20k of depth.
+ * is checked against Chainlink only when an independent reference is available.
  */
 export function marketLegend(): string {
   const label = (status: TradingStatus) => {
@@ -84,5 +84,5 @@ export function marketLegend(): string {
     `${label("not-issued")} = the contract exists but Coinbase has not minted tokens on Base`,
     `${label("paused")} = transfers paused by the issuer`,
   ].join("; ");
-  return `${statuses}. The pool price is shown only while it sits within 20% of a live Chainlink reference and the pool holds at least $20k; otherwise the reference is shown and marked. Executable prices come from a live quote when you trade.`;
+  return `${statuses}. Listings require issued tokens, DEX liquidity and confirmed buy/sell routes. Chainlink is optional. Without a usable reference, the DEX price is shown. When a live reference exists, the pool price is checked against it (within 20% and at least $20k depth); otherwise the reference is shown and marked. Executable prices come from a live quote when you trade.`;
 }

@@ -94,7 +94,7 @@ export interface DiscoveredAsset {
   underlying?: string;
   chainlinkFeed?: Address;
   tags?: string[];
-  /** Chainlink lists a "Coinbase <TICKER>" feed and the Coinbase oracle registry knows the token. */
+  /** Verified issuer/identity, positive supply, unpaused transfers, DEX liquidity and two-way routes. */
   eligible?: boolean;
   autoVerified?: boolean;
   creator?: Address;
@@ -194,7 +194,14 @@ export interface CursorRepo {
 export interface DiscoveredAssetRepo {
   upsert(items: DiscoveredAsset[]): Promise<void>;
   list(): Promise<DiscoveredAsset[]>;
+  /**
+   * The same rows, but a storage failure is raised instead of answered with the empty fallback.
+   * The registry is rebuilt from this read, and "no discovered stocks" must not be what an outage looks like.
+   */
+  listStrict(): Promise<DiscoveredAsset[]>;
   setVerification(address: Address, v: DiscoveredAsset["verification"]): Promise<void>;
+  /** Atomic promotion of pending rows; a concurrent admin disable always wins. */
+  autoVerify(address: Address): Promise<void>;
 }
 
 export interface Repos {
@@ -444,6 +451,13 @@ class MemoryDiscoveredAssetRepo implements DiscoveredAssetRepo {
   }
   async list() {
     return [...this.items.values()];
+  }
+  async listStrict() {
+    return this.list();
+  }
+  async autoVerify(address: Address) {
+    const cur = this.items.get(lower(address));
+    if (cur?.verification === "discovered") this.items.set(lower(address), { ...cur, verification: "verified", updatedAt: Date.now() });
   }
   async setVerification(address: Address, v: DiscoveredAsset["verification"]) {
     const cur = this.items.get(lower(address));
@@ -1034,6 +1048,13 @@ class SupabaseDiscoveredAssetRepo implements DiscoveredAssetRepo {
       };
     });
   }
+  async listStrict() {
+    return this.list();
+  }
+  async autoVerify(address: Address) {
+    const { error } = await sb().from("discovered_assets").update({ verification: "verified", updated_at: new Date().toISOString() }).eq("address", address.toLowerCase()).eq("verification", "discovered");
+    if (error) throw error;
+  }
   async setVerification(address: Address, v: DiscoveredAsset["verification"]) {
     const { error } = await sb().from("discovered_assets").update({ verification: v, updated_at: new Date().toISOString() }).eq("address", address.toLowerCase());
     if (error) throw error;
@@ -1058,7 +1079,7 @@ export function getRepos(): Repos {
       executions: resilient("executions", new SupabaseExecutionRepo(), { create: (e: PortfolioExecution) => e, update: null, get: null, listByOwner: [], listAll: [] }, { durable: ["create", "update"] }),
       trades: resilient("trades", new SupabaseTradeRepo(), { create: (t: TradeRecord) => t, update: null, get: null, listByOwner: [], listSince: [], listAll: [], listBetween: [], listUnverified: [] }, { durable: ["create", "update"] }),
       watchlists: resilient("watchlists", new SupabaseWatchlistRepo(), { list: [], add: undefined, remove: undefined, summary: { entries: 0, wallets: 0 } }, { durable: ["add", "remove"] }),
-      discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined }, { durable: ["setVerification"] }),
+      discoveredAssets: resilient("discoveredAssets", new SupabaseDiscoveredAssetRepo(), { upsert: undefined, list: [], setVerification: undefined, autoVerify: undefined }, { durable: ["setVerification", "autoVerify"] }),
       profiles: resilient("profiles", new SupabaseProfileRepo(), { get: null, getByHandle: null, upsert: (p: unknown) => p, touch: undefined, listAll: [] }, { durable: ["upsert"] }),
       baskets: resilient("baskets", new SupabaseBasketRepo(), { list: [], get: null, create: (b: unknown) => b, listByOwner: [], vote: { voted: false, votes: 0 }, hasVoted: false, incrementClones: undefined }, { durable: ["create"] }),
       snapshots: resilient("snapshots", new SupabaseSnapshotRepo(), { record: undefined, list: [], countWallets: 0, listWallets: [] }),
@@ -1087,7 +1108,7 @@ export function getRepos(): Repos {
       executions: new MemoryExecutionRepo(),
       trades: new MemoryTradeRepo(),
       watchlists: new MemoryWatchlistRepo(),
-      discoveredAssets: new MemoryDiscoveredAssetRepo(),
+      discoveredAssets: ((globalThis as unknown as { __bstocksMemoryDiscoveredAssets?: DiscoveredAssetRepo }).__bstocksMemoryDiscoveredAssets ??= new MemoryDiscoveredAssetRepo()),
       profiles: new MemoryProfileRepo(),
       baskets: new MemoryBasketRepo(),
       snapshots: new MemorySnapshotRepo(),

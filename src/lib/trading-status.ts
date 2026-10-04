@@ -37,6 +37,11 @@ export function isNotIssued(asset: SupplyFacts): boolean {
   return asset.supplyKnown !== false && BigInt(asset.totalSupply ?? "0") === 0n;
 }
 
+/** In the trading catalog. A response without a catalog carries no flag and reads as listed. */
+export function isListed(asset: Pick<B20AssetDTO, "listed">): boolean {
+  return asset.listed !== false;
+}
+
 /** Issued for certain: a supply that was read and is above zero. */
 export function isIssued(asset: SupplyFacts): boolean {
   return asset.supplyKnown !== false && BigInt(asset.totalSupply ?? "0") > 0n;

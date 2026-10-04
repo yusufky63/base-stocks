@@ -1,4 +1,4 @@
-import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
+import { allAssetEntries } from "@/lib/b20/registry";
 import { PRO_PRICE_USD, V1_CAVEATS, V1_ENDPOINTS, V1_GROUPS, apiRules, endpointsIn, type V1Endpoint, type V1Param } from "./catalog";
 import { curlOf, exampleRequest } from "./try";
 
@@ -86,9 +86,9 @@ export function llmsFullTxt(base: string): string {
   lines.push(
     "## Listed stocks",
     "",
-    "Identity is the contract address; tickers are accepted for convenience. Stocks Coinbase lists later are discovered onchain and appear in /api/v1/stocks.",
+    "Identity is the contract address; tickers are accepted for convenience. The registry below also holds stocks without a market yet; /api/v1/stocks returns the ones that can be traded right now.",
     "",
-    ...CURATED_B20_ASSETS.map((a) => `- ${a.underlying}: ${a.address}`),
+    ...allAssetEntries().map((a) => `- ${a.underlying}: ${a.address}`),
     "",
     `Endpoints in this file: ${V1_ENDPOINTS.length}. OpenAPI: ${base}/api/v1/openapi.json. Docs with runnable examples: ${base}/developers.`,
     "",

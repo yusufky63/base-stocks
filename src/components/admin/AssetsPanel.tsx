@@ -50,7 +50,7 @@ export function AssetsPanel({ token }: { token: string }) {
           <div className="min-w-0">
             <div className="font-medium text-[14px]">
               {d.symbol} <span className="text-ink-secondary font-normal">{d.name}</span>
-              {d.eligible && <span className="ml-2 font-mono text-[10px] uppercase text-positive-fg">eligible · feed {d.chainlinkFeed?.slice(0, 8)}…</span>}
+              {d.eligible && <span className="ml-2 font-mono text-[10px] uppercase text-positive-fg">eligible · liquidity and routes confirmed</span>}
               {d.autoVerified && <span className="ml-2 font-mono text-[10px] uppercase text-primary">auto-verified</span>}
               {!d.eligible && d.reason && <span className="ml-2 font-mono text-[10px] text-ink-muted">{d.reason}</span>}
             </div>

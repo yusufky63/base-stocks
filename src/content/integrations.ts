@@ -53,11 +53,12 @@ export const INTEGRATIONS: IntegrationGroup[] = [
   {
     id: "data",
     title: "Prices and market data",
-    blurb: "Three separate prices: Chainlink reference, DEX market price, and the executable quote you trade at.",
+    blurb: "Three separate prices: the reference (Chainlink, where a stock has a feed), the DEX market price, and the executable quote you trade at.",
     items: [
       { name: "Chainlink", mark: "chainlink", color: "#2a5ada", url: "https://chain.link", role: "Reference stock prices, staleness" },
+      { name: "Tokenized Stocks API", mark: null, color: "#0052ff", url: "https://docs.base.org/sdks/tokenized-stocks/overview", role: "Coinbase's stock list, and its copy of each feed reading" },
       { name: "DexScreener", mark: null, color: "#0f172a", url: "https://dexscreener.com/base", role: "Live DEX price and liquidity" },
-      { name: "GeckoTerminal", mark: "geckoterminal", color: "#0b3d2e", url: "https://www.geckoterminal.com/base", role: "Candles, pools, volume" },
+      { name: "GeckoTerminal", mark: "geckoterminal", color: "#0b3d2e", url: "https://www.geckoterminal.com/base", role: "Candles, sparklines for stocks without a feed, pools, volume" },
       { name: "CoinGecko", mark: null, color: "#8dc63f", url: "https://www.coingecko.com", role: "Optional paid onchain API" },
     ],
   },

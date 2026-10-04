@@ -1,20 +1,22 @@
-import type { Address } from "viem";
+import { getAddress, isAddress, type Address } from "viem";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 import { b20AssetAbi, b20FactoryAbi, B20_PAUSABLE_FEATURE, B20_POLICY_SCOPE, stockOracleRegistryAbi } from "@/lib/b20/abi";
-import { allAssetEntries, canonicalId, discoveredEntries, findCuratedAsset, setDiscoveredEntries } from "@/lib/b20/registry";
+import { CURATED_B20_ASSETS, allAssetEntries, canonicalId, discoveredEntries, findCuratedAsset, setDiscoveredEntries } from "@/lib/b20/registry";
 import { findCoinbaseFeed } from "@/providers/market-data/chainlink/directory";
+import { getCoinbaseNavReadings, getCoinbaseStockListings, type CoinbaseNavReading } from "@/providers/coinbase/tokenized-stocks";
 import { getRepos, type DiscoveredAsset } from "@/db/repositories";
 import { WAD } from "@/lib/b20/math";
 import { B20_FACTORY_ADDRESS, COINBASE_B20_CREATORS, STOCK_ORACLE_REGISTRY_ADDRESS, USDC_ADDRESS } from "@/config/chain";
 import { serverEnv } from "@/config/env";
 import type { AssetBalance, B20Asset, CuratedAssetEntry, OracleState, PendingMultiplier } from "@/domain/asset";
 import { cached, TTL, invalidate } from "@/lib/cache";
-import { readFeeds } from "@/providers/market-data/chainlink/reader";
+import { readFeeds, type FeedReading } from "@/providers/market-data/chainlink/reader";
 import { recallGood, rememberGood } from "@/lib/last-good";
 import { classifyFreshness, isUsMarketOpen, secondsSinceUsMarketClose, secondsSinceUsMarketOpen } from "@/lib/market-hours";
 import { AppError } from "@/lib/errors";
 import { metrics } from "@/lib/http";
 import { getMarketDataProvider } from "@/providers/market-data";
+import { filterWithConcurrency, hasTwoWayStockRoute, marketListingBlockedReason } from "./asset-tradability-service";
 
 interface StaticMeta {
   name: string;
@@ -144,6 +146,29 @@ async function loadFeeds(feeds: Address[]): Promise<Awaited<ReturnType<typeof re
   return merged;
 }
 
+/**
+ * A feed the node did not answer for, with no earlier reading to stand in, takes the reading
+ * Coinbase's API publishes for the same token. It is the same Chainlink round copied off-chain
+ * (`nav_price` and its `updatedAt`), so it is a second path to the number, not a second source of
+ * it, and the freshness rules apply to it unchanged. Asked only when something is missing.
+ */
+async function fillFeedsFromCoinbase(entries: readonly CuratedAssetEntry[], read: Map<string, FeedReading | null>): Promise<Map<string, FeedReading | null>> {
+  const missing = entries.filter((e) => e.chainlinkFeed && !read.get(e.chainlinkFeed.toLowerCase()));
+  if (missing.length === 0) return read;
+  // A copy: `read` is the cached object, and a borrowed reading must not outlive this request in it.
+  const feeds = new Map(read);
+  const nav = await getCoinbaseNavReadings().catch(() => new Map<string, CoinbaseNavReading>());
+  let filled = 0;
+  for (const e of missing) {
+    const r = nav.get(canonicalId(e.address));
+    if (!r) continue;
+    feeds.set(e.chainlinkFeed!.toLowerCase(), { feed: e.chainlinkFeed!, answer: BigInt(Math.round(r.priceUsd * 1e8)), updatedAt: BigInt(r.updatedAt), decimals: 8 });
+    filled += 1;
+  }
+  if (filled > 0) metrics.count("b20.feeds.coinbase", true, `${filled} reading(s) from the Coinbase API`);
+  return feeds;
+}
+
 async function readLiveState(entries: readonly CuratedAssetEntry[], good: Map<string, LiveState> | null): Promise<Map<string, LiveState>> {
   const client = getServerPublicClient();
   const contracts = entries.flatMap((e) => [
@@ -182,7 +207,7 @@ async function readLiveState(entries: readonly CuratedAssetEntry[], good: Map<st
 }
 
 function buildOracleState(entry: CuratedAssetEntry, live: LiveState, feed: { answer: bigint; updatedAt: bigint; decimals: number } | null): OracleState | undefined {
-  if (!feed) return undefined;
+  if (!feed || !entry.chainlinkFeed || feed.answer <= 0n || feed.updatedAt <= 0n || feed.updatedAt > BigInt(Math.floor(Date.now() / 1000))) return undefined;
   const threshold = serverEnv().ORACLE_STALENESS_SECONDS;
   const paused = live.oracleRegistryPaused ?? false;
   const now = new Date();
@@ -212,18 +237,20 @@ function deriveStatus(transferPaused: boolean, metaOk: boolean): B20Asset["statu
 }
 
 async function assembleAssets(entries: readonly CuratedAssetEntry[]): Promise<B20Asset[]> {
-  const [meta, live, feeds] = await Promise.all([
+  const feedAddresses = entries.map((e) => e.chainlinkFeed).filter((f): f is Address => !!f);
+  const [meta, live, readFeedsResult] = await Promise.all([
     cached(`b20:meta:${entries.map((e) => e.address).join(",")}`, TTL.assetMetadata, () => loadStaticMeta(entries)),
     cached(`b20:live:${entries.map((e) => e.address).join(",")}`, TTL.oracleLive, () => loadLiveState(entries)),
-    cached(`b20:feeds:${entries.map((e) => e.chainlinkFeed).join(",")}`, TTL.oracleFeed, () => loadFeeds(entries.map((e) => e.chainlinkFeed))),
+    cached(`b20:feeds:${feedAddresses.join(",")}`, TTL.oracleFeed, () => loadFeeds(feedAddresses)).catch(() => new Map()),
   ]);
+  const feeds = await fillFeedsFromCoinbase(entries, readFeedsResult);
   const now = Date.now();
   const assets: B20Asset[] = [];
   for (const e of entries) {
     const id = canonicalId(e.address);
     const m = meta.get(id);
     const l: LiveState = live.get(id) ?? { multiplier: WAD, transferPaused: false, oracleRegistryPaused: null, oracleRegistryMultiplier: null, totalSupply: null, pendingMultiplier: undefined };
-    const f = feeds.get(e.chainlinkFeed.toLowerCase()) ?? null;
+    const f = e.chainlinkFeed ? feeds.get(e.chainlinkFeed.toLowerCase()) ?? null : null;
     assets.push({
       address: e.address,
       canonicalId: id,
@@ -254,11 +281,13 @@ async function assembleAssets(entries: readonly CuratedAssetEntry[]): Promise<B2
 
 /** All verified assets (curated bootstrap + discovered stocks) with live state. */
 export async function getAssets(): Promise<B20Asset[]> {
+  await refreshDiscoveredRegistry();
   return assembleAssets(allAssetEntries());
 }
 
 /** Single asset by canonical address. Returns null when not canonical. */
 export async function getAsset(address: string): Promise<B20Asset | null> {
+  await refreshDiscoveredRegistry();
   const entry = findCuratedAsset(address);
   if (!entry) return null;
   const [asset] = await assembleAssets([entry]);
@@ -324,29 +353,49 @@ export interface DiscoveredCandidate {
   name: string;
   symbol: string;
   blockNumber: bigint;
-  txHash: `0x${string}`;
+  txHash?: `0x${string}`;
   underlying: string;
   chainlinkFeed: Address | null;
   /** The oracle registry answers 1e18 for any address, so it is informational only. */
   oracleRegistered: boolean;
   /** EOA that sent the `createB20` transaction. */
   creator: Address | null;
-  /** True only when the token was created by Coinbase's known deployer, Chainlink lists a "Coinbase <TICKER>" feed and the ticker is not already listed. Copycat "NVDAc" tokens exist by the dozen. */
+  /** Issuer identity, matching onchain symbol, positive supply, DEX liquidity and a two-way swap route. */
   eligible: boolean;
   reason: string;
 }
 
 /**
- * Scans the factory's `B20Created` events (variant 0 = ASSET) over a bounded recent range and keeps
- * only tokens that look like Coinbase stocks. Tens of thousands of B20 tokens exist on Base, so the
- * symbol convention (`NVDAc`) is applied while decoding; only the few candidates cost extra reads.
+ * Rechecks the issuer list and saved candidates as well as recent B20Created events.
+ * A token may wait months for liquidity: its old creation event must not limit its readiness check.
+ * API listings establish issuer identity; event-only candidates require the known Coinbase creator.
  */
 export async function discoverNewAssets(lookbackBlocks = 60_000n): Promise<DiscoveredCandidate[]> {
   const client = getServerPublicClient();
+  const [stored, listings] = await Promise.all([
+    getRepos().discoveredAssets.list(),
+    getCoinbaseStockListings().catch((err) => {
+      metrics.count("b20.discover.coinbase", false, err instanceof Error ? err.message : String(err));
+      return [];
+    }),
+  ]);
+  const storedById = new Map(stored.map((r) => [canonicalId(r.address), r]));
+  const bootstrapIds = new Set(CURATED_B20_ASSETS.map((e) => canonicalId(e.address)));
+  type Candidate = { token: Address; name: string; symbol: string; blockNumber: bigint; txHash?: `0x${string}`; creator?: Address; issuerListed?: boolean };
+  const raw = new Map<string, Candidate>();
+  // Revisit pending tokens even when their creation event has aged out of the scan window.
+  for (const row of stored) {
+    if (row.verification === "disabled" || bootstrapIds.has(canonicalId(row.address)) || !isAddress(row.address, { strict: false })) continue;
+    raw.set(canonicalId(row.address), { token: getAddress(row.address.toLowerCase()), name: row.name, symbol: row.symbol, blockNumber: BigInt(row.blockNumber), creator: row.creator });
+  }
+  for (const listing of listings) {
+    const id = canonicalId(listing.address);
+    if (bootstrapIds.has(id) || storedById.get(id)?.verification === "disabled") continue;
+    raw.set(id, { ...raw.get(id), token: listing.address, name: listing.name, symbol: listing.symbol, blockNumber: BigInt(storedById.get(id)?.blockNumber ?? 0), issuerListed: true });
+  }
   const latest = await client.getBlockNumber();
   const fromBlock = latest > lookbackBlocks ? latest - lookbackBlocks : 0n;
   const step = 9_999n;
-  const raw: Array<{ token: Address; name: string; symbol: string; blockNumber: bigint; txHash: `0x${string}` }> = [];
   for (let from = fromBlock; from <= latest; from += step + 1n) {
     const to = from + step > latest ? latest : from + step;
     try {
@@ -356,7 +405,9 @@ export async function discoverNewAssets(lookbackBlocks = 60_000n): Promise<Disco
         const symbol = log.args.symbol ?? "";
         if (!token || Number(log.args.variant ?? 0) !== 0 || findCuratedAsset(token)) continue;
         if (!/^[A-Z0-9.]{1,7}c$/.test(symbol)) continue; // Coinbase naming: ticker + lowercase c
-        raw.push({ token, name: log.args.name ?? "", symbol, blockNumber: log.blockNumber, txHash: log.transactionHash });
+        const id = canonicalId(token);
+        if (storedById.get(id)?.verification === "disabled") continue;
+        raw.set(id, { ...raw.get(id), token: getAddress(token.toLowerCase()), name: log.args.name ?? "", symbol, blockNumber: log.blockNumber, txHash: log.transactionHash });
       }
     } catch (err) {
       metrics.count("b20.discover", false, err instanceof Error ? err.message : String(err));
@@ -364,23 +415,62 @@ export async function discoverNewAssets(lookbackBlocks = 60_000n): Promise<Disco
     }
   }
   const out: DiscoveredCandidate[] = [];
-  const known = new Set(allAssetEntries().map((e) => e.underlying.toUpperCase()));
+  const known = new Map([
+    ...allAssetEntries().map((e) => [e.underlying.toUpperCase(), canonicalId(e.address)] as const),
+    ...stored.filter((r) => r.verification === "verified" && r.underlying).map((r) => [r.underlying!.toUpperCase(), canonicalId(r.address)] as const),
+  ]);
   const creators = new Set(COINBASE_B20_CREATORS.map((a) => a.toLowerCase()));
-  for (const c of raw) {
+  const candidates = [...raw.values()].filter((c) => /^[A-Z0-9.]{1,7}c$/.test(c.symbol));
+  // Resolve event creators in a bounded batch before asking price APIs about tokens. This keeps
+  // copycat stocks out of the slower GeckoTerminal fallback and avoids sequential transaction RPCs.
+  await filterWithConcurrency(candidates, async (candidate) => {
+    if (candidate.txHash && !candidate.creator) {
+      const tx = await client.getTransaction({ hash: candidate.txHash }).catch(() => null);
+      candidate.creator = tx?.from;
+    }
+    return true;
+  });
+  // Identity and issuance are checked before asking DEX APIs about the many unissued tokens.
+  const state = await client.multicall({ contracts: candidates.flatMap((c) => [
+    { address: c.token, abi: b20AssetAbi, functionName: "symbol" } as const,
+    { address: c.token, abi: b20AssetAbi, functionName: "totalSupply" } as const,
+    { address: B20_FACTORY_ADDRESS, abi: b20FactoryAbi, functionName: "isB20", args: [c.token] } as const,
+    { address: c.token, abi: b20AssetAbi, functionName: "isPaused", args: [B20_PAUSABLE_FEATURE.TRANSFER] } as const,
+    { address: c.token, abi: b20AssetAbi, functionName: "decimals" } as const,
+  ]), allowFailure: true }).catch(() => []);
+  const issued = candidates.filter((c, i) => state[i * 5 + 1]?.status === "success" && (state[i * 5 + 1].result as bigint) > 0n && (c.issuerListed || (c.creator && creators.has(c.creator.toLowerCase())) || storedById.get(canonicalId(c.token))?.verification === "verified"));
+  const markets = await getMarketDataProvider().getTokenMarkets(issued.map((c) => c.token)).catch(() => new Map());
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
     const underlying = c.symbol.slice(0, -1).toUpperCase();
-    const [feed, oracle, tx] = await Promise.all([
-      findCoinbaseFeed(underlying),
-      client.readContract({ address: STOCK_ORACLE_REGISTRY_ADDRESS, abi: stockOracleRegistryAbi, functionName: "getOracleParams", args: [c.token] }).catch(() => null),
-      client.getTransaction({ hash: c.txHash }).catch(() => null),
-    ]);
+    const feed = await findCoinbaseFeed(underlying).catch(() => null);
+    const oracle = await (
+      feed && (c.issuerListed || (c.creator && creators.has(c.creator.toLowerCase())) || storedById.get(canonicalId(c.token))?.verification === "verified") ? client.readContract({ address: STOCK_ORACLE_REGISTRY_ADDRESS, abi: stockOracleRegistryAbi, functionName: "getOracleParams", args: [c.token] }).catch(() => null) : Promise.resolve(null)
+    );
     const oracleRegistered = !!oracle && (oracle as readonly [bigint, boolean])[0] > 0n;
-    const creator = (tx?.from as Address | undefined) ?? null;
+    const creator = c.creator ?? null;
     const reasons: string[] = [];
-    if (!feed) reasons.push("no Chainlink Coinbase feed");
-    if (known.has(underlying)) reasons.push(`${underlying} already listed`);
-    if (!creator || !creators.has(creator.toLowerCase())) reasons.push("creator is not Coinbase's deployer");
-    out.push({ ...c, underlying, chainlinkFeed: feed?.proxyAddress ?? null, oracleRegistered, creator, eligible: reasons.length === 0, reason: reasons.length ? reasons.join("; ") : "eligible" });
+    if (known.has(underlying) && known.get(underlying) !== canonicalId(c.token)) reasons.push(`${underlying} already listed`);
+    if (!c.issuerListed && storedById.get(canonicalId(c.token))?.verification !== "verified" && (!creator || !creators.has(creator.toLowerCase()))) reasons.push("issuer is not verified by Coinbase's list or deployer");
+    const r = state.slice(i * 5, i * 5 + 5);
+    if (r[0]?.status !== "success" || r[0].result !== c.symbol) reasons.push("onchain symbol does not match the listing");
+    if (r[1]?.status !== "success" || (r[1].result as bigint) <= 0n) reasons.push("no confirmed token supply");
+    if (r[2]?.status !== "success" || r[2].result !== true) reasons.push("token is not a confirmed B20 asset");
+    if (r[3]?.status !== "success" || r[3].result !== false) reasons.push("transfers are paused or unknown");
+    if (r[4]?.status !== "success" || !Number.isInteger(Number(r[4].result)) || Number(r[4].result) < 0 || Number(r[4].result) > 36) reasons.push("token decimals are unknown or unsupported");
+    const marketReason = marketListingBlockedReason(markets.get(canonicalId(c.token)));
+    if (marketReason) reasons.push(marketReason);
+    if (reasons.length === 0) known.set(underlying, canonicalId(c.token));
+    out.push({ ...c, underlying, chainlinkFeed: feed?.proxyAddress ?? storedById.get(canonicalId(c.token))?.chainlinkFeed ?? null, oracleRegistered, creator, eligible: reasons.length === 0, reason: reasons.length ? reasons.join("; ") : "eligible" });
   }
+  await filterWithConcurrency(out.filter((c) => c.eligible), async (candidate) => {
+    const index = candidates.findIndex((c) => canonicalId(c.token) === canonicalId(candidate.token));
+    if (!await hasTwoWayStockRoute(candidate.token, Number(state[index * 5 + 4].result))) {
+      candidate.eligible = false;
+      candidate.reason = "no confirmed two-way USDC swap route";
+    }
+    return candidate.eligible;
+  });
   return out;
 }
 
@@ -392,24 +482,56 @@ export function discoveryStatus() {
 }
 
 function toEntry(d: DiscoveredAsset): CuratedAssetEntry | null {
-  if (!d.underlying || !d.chainlinkFeed) return null;
+  if (!d.underlying) return null;
   const tags = (d.tags && d.tags.length ? d.tags : ["other"]) as CuratedAssetEntry["tags"];
   return { address: d.address, underlying: d.underlying, chainlinkFeed: d.chainlinkFeed, tags };
 }
 
-/** Load verified discovered stocks from storage into the live registry (boot, after admin changes). */
-export async function loadDiscoveredRegistry(): Promise<number> {
-  const rows = await getRepos().discoveredAssets.list();
-  const entries = rows.filter((r) => r.verification === "verified").map(toEntry).filter((e): e is CuratedAssetEntry => e !== null);
+const DISCOVERED_REGISTRY_KEY = "registry:b20:discovered";
+
+/**
+ * Reload at most once a minute per instance; admin/discovery writes force a refresh.
+ *
+ * Memory only, on purpose. The shared tier would save nothing (the list is one storage read either
+ * way) and it would let any process on the same store, a local dev server or an older build with a
+ * different idea of a valid entry, hand its list to every other instance.
+ */
+export async function loadDiscoveredRegistry(force = false): Promise<number> {
+  if (force) await invalidate(DISCOVERED_REGISTRY_KEY);
+  const entries = await cached(DISCOVERED_REGISTRY_KEY, { ttlMs: 60_000 }, async () => {
+    // The strict read: the ordinary one answers an outage with an empty list, which would unlist
+    // every discovered stock on every instance for the length of this window.
+    const rows = await getRepos().discoveredAssets.listStrict();
+    return rows.filter((r) => r.verification === "verified").map(toEntry).filter((e): e is CuratedAssetEntry => e !== null);
+  });
+  const changed = JSON.stringify(discoveredEntries()) !== JSON.stringify(entries);
   setDiscoveredEntries(entries);
-  discoveryState.active = entries.length;
-  invalidateAssetCaches();
-  return entries.length;
+  discoveryState.active = discoveredEntries().length;
+  if (changed) invalidateAssetCaches();
+  return discoveryState.active;
 }
 
 /**
- * Discovery sync: scan → store candidates → auto-verify the eligible ones (Chainlink feed + oracle
- * registry + Coinbase naming; an admin "disabled" flag always wins) → refresh the live registry.
+ * Bring this instance's registry up to date before a synchronous lookup. A page that asks
+ * `findCuratedAsset` on a cold instance would otherwise answer 404 for every discovered stock
+ * until some other request happened to load the list.
+ */
+export async function ensureDiscoveredRegistry(): Promise<void> {
+  await refreshDiscoveredRegistry();
+}
+
+async function refreshDiscoveredRegistry(): Promise<void> {
+  try {
+    await loadDiscoveredRegistry();
+  } catch (err) {
+    // Storage failure keeps the current known registry; it does not take Markets down.
+    metrics.count("b20.registry", false, err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Discovery sync: Coinbase list + saved pending tokens + events → verify issuer, token and
+ * DEX liquidity and two-way USDC routes → store → refresh. An admin "disabled" flag always wins.
  * Runs at boot and every 30 minutes, so a new Coinbase listing appears without a deploy.
  */
 /** Traffic-driven light discovery: at most one scan per interval per instance, off the request path. */
@@ -433,7 +555,7 @@ export async function syncDiscoveredAssets(opts: { lookbackBlocks?: bigint } = {
   const repos = getRepos();
   try {
     const found = await discoverNewAssets(opts.lookbackBlocks ?? 60_000n);
-    const existing = new Map((await repos.discoveredAssets.list()).map((r) => [r.address.toLowerCase(), r]));
+    const existing = new Map((await repos.discoveredAssets.listStrict()).map((r) => [r.address.toLowerCase(), r]));
     const rows: DiscoveredAsset[] = found.map((f) => {
       const prev = existing.get(f.token.toLowerCase());
       const autoVerify = f.eligible && prev?.verification !== "disabled";
@@ -455,7 +577,7 @@ export async function syncDiscoveredAssets(opts: { lookbackBlocks?: bigint } = {
     });
     if (rows.length > 0) {
       await repos.discoveredAssets.upsert(rows);
-      for (const r of rows) if (r.verification !== existing.get(r.address.toLowerCase())?.verification) await repos.discoveredAssets.setVerification(r.address, r.verification);
+      for (const r of rows) if (r.verification === "verified" && existing.get(r.address.toLowerCase())?.verification !== "verified") await repos.discoveredAssets.autoVerify(r.address);
     }
     discoveryState.lastSyncAt = Date.now();
     discoveryState.lastScanBlocks = Number(opts.lookbackBlocks ?? 60_000n);
@@ -467,6 +589,10 @@ export async function syncDiscoveredAssets(opts: { lookbackBlocks?: bigint } = {
     discoveryState.lastError = err instanceof Error ? err.message : String(err);
     metrics.count("b20.discover", false, discoveryState.lastError);
   }
-  await loadDiscoveredRegistry();
+  // A reload that cannot read storage leaves the registry as it was; the run still reports.
+  await loadDiscoveredRegistry(true).catch((err) => {
+    discoveryState.lastError ??= err instanceof Error ? err.message : String(err);
+    metrics.count("b20.registry", false, discoveryState.lastError);
+  });
   return discoveryStatus();
 }

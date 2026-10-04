@@ -69,7 +69,7 @@ export const V1_ENDPOINTS: V1Endpoint[] = [
     group: "market",
     path: "/api/v1/stocks",
     example: "/api/v1/stocks",
-    summary: "Every listed tokenized stock: DEX price, Chainlink reference, liquidity, 24h volume, multiplier and trading status.",
+    summary: "Every tokenized stock that can be traded right now (supply, a pool and a quote in both directions): DEX price, Chainlink reference where one exists, liquidity, 24h volume, multiplier and trading status.",
     paid: false,
     cacheSeconds: 30,
     returns: "{ count, stocks: Stock[] }",
@@ -81,7 +81,7 @@ export const V1_ENDPOINTS: V1Endpoint[] = [
     group: "market",
     path: "/api/v1/stocks/{symbol}",
     example: "/api/v1/stocks/NVDA",
-    summary: "One stock by ticker, token symbol or contract address, with the pools that trade it.",
+    summary: "One stock by ticker, token symbol or contract address, with the pools that trade it. Answers for any verified stock, including one that is not in the list above because it has no market yet.",
     paid: false,
     cacheSeconds: 30,
     params: [{ name: "symbol", in: "path", required: true, type: "string", description: 'Ticker ("NVDA"), token symbol ("NVDAc") or 0x address.' }],
@@ -213,6 +213,10 @@ export const V1_CAVEATS = [
   {
     title: "Feeds run 24/5 and then hold",
     body: "Outside US trading hours, and during a corporate action, a feed stops updating and keeps its last value while staying callable. Read reference.updatedAt and reference.isStale before relying on it.",
+  },
+  {
+    title: "Not every stock has a reference",
+    body: "A newer stock may have no Chainlink feed yet. Its reference is null, displaySource is \"market\" and displayUsd is the pool price with nothing to check it against. Read liquidityUsd and status before relying on it: a pool of a few thousand dollars moves with a single trade.",
   },
   {
     title: "A pool is not automatically a price",

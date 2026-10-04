@@ -87,7 +87,7 @@ const TRADE_LIMIT = V1_ENDPOINTS.find((e) => e.id === "trade")?.limitPerMinute;
 const API_SPEC: Array<[string, string]> = [
   ["Base URL", "https://basestocks.finance/api/v1 — no key, no account, no sign-up; CORS is open to every origin"],
   ["Envelope", "Every answer is { data, meta }. meta.cacheSeconds states how long the body stays valid, so a polling client knows exactly when it is worth asking again"],
-  [`Free (${API_FREE})`, "Every listed stock with DEX price, Chainlink reference, liquidity, 24h volume and multiplier; one stock with its pools; headlines; USDC yield venues; any wallet's position read from the chain; platform statistics"],
+  [`Free (${API_FREE})`, "Every tradable stock with DEX price, Chainlink reference where one exists, liquidity, 24h volume and multiplier; one stock with its pools; headlines; USDC yield venues; any wallet's position read from the chain; platform statistics"],
   [`Trade (${API_TRADE})`, `POST /api/v1/trade returns the approval and the swap for a buy or a sell, from the router this app trades with, for the named wallet to sign. ${TRADE_LIMIT} a minute per caller; closed to a restricted region until the visitor confirms eligibility`],
   [`Paid (${API_PAID})`, `The written market brief and full candle history — ${PRO_PRICE_USD} in USDC per call over x402. One runs a model, the other pulls a heavy upstream series: costs a cache cannot remove`],
   ["Paying", "Call the URL, get 402 with the amount, asset, network and recipient, sign a USDC authorization, retry the same URL. Settlement happens only after a successful answer, so a failed or unknown-symbol request is never charged"],
@@ -139,7 +139,7 @@ const CONTRACTS: Array<{ label: string; address: string; note: string }> = [
   { label: "Activation registry", address: B20_ACTIVATION_REGISTRY_ADDRESS, note: "B20 activation state" },
   { label: "Policy registry", address: B20_POLICY_REGISTRY_ADDRESS, note: "Transfer policies; approve() is not policy-gated" },
   { label: "Stock OracleRegistry", address: STOCK_ORACLE_REGISTRY_ADDRESS, note: "getOracleParams(token) → (multiplier, paused)" },
-  { label: "Coinbase B20 creator", address: COINBASE_B20_CREATORS[0]!, note: "Only tokens created by this EOA are trusted in discovery" },
+  { label: "Coinbase B20 creator", address: COINBASE_B20_CREATORS[0]!, note: "Discovery trusts a token created by this EOA or named on Coinbase's own stock list; a matching ticker alone never counts" },
   { label: "USDC", address: USDC_ADDRESS, note: "Quote and settlement currency, 6 decimals" },
   ...OWN_CONTRACTS,
   { label: "CoW GPv2Settlement", address: GPV2_SETTLEMENT, note: "EIP-712 domain “Gnosis Protocol” v2; settles limit orders" },
@@ -282,14 +282,14 @@ export default function DocsPage() {
             <div className="flex items-center gap-2 text-[14px] font-medium">
               DexScreener <span className="text-ink-muted">→</span> GeckoTerminal
             </div>
-            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down. Only pools quoted in USDC or ETH are priced from, and the figure has to agree with the reference to be the headline.</p>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down. Only pools quoted in USDC or ETH are priced from, and the figure has to agree with the reference to be the headline. A stock with no feed yet has nothing to be checked against: its pool price is shown as it is, beside the pool&apos;s size.</p>
           </article>
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
             <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>
             <div className="flex items-center gap-2 text-[14px] font-medium">
               8 decimals · total-return · 24/5
             </div>
-            <p className="text-[13px] text-ink-secondary leading-relaxed">Priced from traditional market data, so no pool can move it. That is why it is the check: a market price more than 20% away from a live feed is refused and this is shown instead. Marked stale after one hour without an update.</p>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">Priced from traditional market data, so no pool can move it. That is why it is the check: a market price more than 20% away from a live feed is refused and this is shown instead. Marked stale after one hour without an update. Optional: a stock is listed on its supply, pool and routes, and a feed is attached when Chainlink publishes one. When the node does not answer, Coinbase&apos;s Tokenized Stocks API supplies the same round (its <span className="font-mono text-[12px]">nav_price</span>), age and all.</p>
           </article>
         </div>
         <Formula label="Per-share figures" lines={["per share = token price ÷ multiplier"]} />

@@ -15,8 +15,8 @@ const querySchema = z.object({ job: z.enum([...JOBS, "all"]).optional(), blocks:
  * GitHub Actions schedule calls the time-sensitive jobs one by one every fifteen minutes:
  * `index` (stock transfers touching indexed wallets), `verify` (records filed while their receipt
  * was pending), `earn` (venue events), `pools` (`PoolClaimed` logs), `stats` (recompute and
- * share) and `status` (probes). `discovery` and `sweep` (expired cache and rate-limit rows) are
- * daily work. Every call carries `Authorization: Bearer <CRON_SECRET>`; anyone else gets 401.
+ * share), `status` (probes) and `sparklines` (pool candles for stocks without a feed). `discovery`
+ * and `sweep` (expired cache and rate-limit rows) are daily work. Every call carries `Authorization: Bearer <CRON_SECRET>`; anyone else gets 401.
  *
  * The jobs themselves live in `maintenance-service`, so the admin console can run the same ones.
  */

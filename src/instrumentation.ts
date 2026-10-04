@@ -39,7 +39,12 @@ export async function register() {
   // Serverless (Vercel): instances are short-lived, so timers and the deep boot scan would repeat on
   // every cold start. Load the stored registry only; the cron route does discovery and probes.
   const serverless = !!process.env.VERCEL;
-  void loadDiscoveredRegistry()
+  // Watchlist writes, plan and basket validation and the widget page look the registry up
+  // synchronously, so the stored stocks are loaded before the first request is served. Bounded: a
+  // slow store costs a cold start this long at most, and the list catches up on the next asset read.
+  const stored = loadDiscoveredRegistry();
+  await Promise.race([stored.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 2_500))]);
+  void stored
     .then(() => refresh())
     .then(() => (serverless ? undefined : discover(450_000n)))
     .catch((err) => console.warn("[warmup] discovery failed:", err instanceof Error ? err.message : err));

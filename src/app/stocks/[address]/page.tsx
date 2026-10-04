@@ -5,6 +5,7 @@ import { StockDetailView } from "@/components/stock/StockDetailView";
 import { loadAssetResponse } from "@/lib/server-data";
 import { CURATED_B20_ASSETS, findCuratedAsset } from "@/lib/b20/registry";
 import { Skeleton } from "@/components/ui/primitives";
+import { ensureDiscoveredRegistry } from "@/services/b20-asset-service";
 import { pageMeta } from "@/lib/page-meta";
 
 /** Rendered at most every 30 s and served from the cache between; the client refreshes prices itself. */
@@ -19,6 +20,7 @@ type Props = { params: Promise<{ address: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { address } = await params;
+  await ensureDiscoveredRegistry();
   const entry = findCuratedAsset(address);
   if (!entry) return { title: "Stock" };
   return pageMeta({
@@ -32,6 +34,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 /** Canonical routing by contract address (spec §41). */
 export default async function StockPage({ params }: Props) {
   const { address } = await params;
+  // Discovered stocks live in storage; a cold instance has to load them before it can say "unknown".
+  await ensureDiscoveredRegistry();
   if (!findCuratedAsset(address)) notFound();
   const data = await loadAssetResponse(address);
   if (!data) notFound();

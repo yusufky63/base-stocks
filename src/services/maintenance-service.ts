@@ -1,4 +1,5 @@
-import { syncDiscoveredAssets } from "@/services/b20-asset-service";
+import { getAssets, syncDiscoveredAssets } from "@/services/b20-asset-service";
+import { refreshDexSparklines } from "@/services/sparkline-service";
 import { getStatusReport } from "@/services/status-service";
 import { sweepOpenPools } from "@/services/pool-service";
 import { sweepEarn } from "@/services/earn-reconcile-service";
@@ -19,12 +20,13 @@ import { pruneErrors } from "@/lib/error-sink";
  * reconciliation is re-run after a provider outage — without pasting a shared cron secret into a
  * browser. Both go through `runJob`, so what an admin triggers is exactly what the schedule runs.
  */
-export const JOBS = ["discovery", "status", "pools", "verify", "earn", "index", "rollup", "stats", "sweep"] as const;
+export const JOBS = ["discovery", "sparklines", "status", "pools", "verify", "earn", "index", "rollup", "stats", "sweep"] as const;
 export type Job = (typeof JOBS)[number];
 
 /** Shown in the admin console next to each job's button, so nobody has to read this file to use it. */
 export const JOB_DESCRIPTIONS: Record<Job, string> = {
-  discovery: "Scan B20Created for new tokenized stocks and record them as discovered.",
+  discovery: "Recheck Coinbase listings and pending stocks; publish only with supply, DEX liquidity and two-way swap routes.",
+  sparklines: "Fetch the pool candles behind the sparklines of stocks without a Chainlink feed, oldest first.",
   status: "Run the service probes behind the Status page.",
   pools: "Sweep PoolClaimed logs so gift pools show what has been claimed.",
   verify: "Re-check records filed while their receipt was still pending.",
@@ -57,6 +59,9 @@ export interface JobRun {
 
 const runners: Record<Job, (o: JobOpts) => Promise<unknown>> = {
   discovery: () => syncDiscoveredAssets({ lookbackBlocks: 120_000n }),
+  // Eight series is about twenty seconds at the candle provider's keyless pace; a quiet day has no
+  // visitors to trigger the refresh, and a pool series older than twelve hours is not drawn.
+  sparklines: async () => ({ refreshed: await refreshDexSparklines(await getAssets(), 8) }),
   status: async () => {
     const s = await getStatusReport();
     return { overall: s.overall, checks: s.checks.length };

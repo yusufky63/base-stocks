@@ -7,10 +7,8 @@ import { LegalNotice } from "@/components/common/display";
 import { IntegrationsSection } from "@/components/common/Integrations";
 import { Dither } from "@/components/fx/lazy";
 import { DocSearch, type DocEntry } from "@/components/common/DocSearch";
-import { CURATED_B20_ASSETS } from "@/lib/b20/registry";
 import { PRO_PRICE_USD, V1_ENDPOINTS } from "@/lib/api-v1/catalog";
 
-const STOCK_COUNT = CURATED_B20_ASSETS.length;
 
 /** Counted from the API catalog, so a new endpoint cannot leave this page stale. */
 const API_READS = V1_ENDPOINTS.filter((e) => e.method === "GET" && !e.paid).length;
@@ -20,7 +18,7 @@ const PAID_WORDS = API_PAID === 2 ? "Two" : String(API_PAID);
 export const metadata: Metadata = pageMeta({ title: "How it works", path: "/how-it-works" });
 
 const FEATURES = [
-  { icon: LineChart, title: "Markets", body: `${STOCK_COUNT} Coinbase Tokenized Stocks with live DEX price, Chainlink reference, candles, volume, liquidity and a Live / Thin / Very thin / No pool / Not issued status.`, href: "/markets" },
+  { icon: LineChart, title: "Markets", body: "Every Coinbase Tokenized Stock that has supply, a pool and a working buy and sell route, with live DEX price, a Chainlink reference where one exists, candles, volume, liquidity and a Live / Thin / Very thin status.", href: "/markets" },
   { icon: BarChart3, title: "Trade", body: "Every quote asks KyberSwap, Velora, Uniswap, Aerodrome and, when enabled, 0x and OKX at once; you pick auto (best net) or a provider, including gasless CoW signed orders (0x joins outside the US, where its API serves). Limit orders at your own price. Pay with USDC or ETH.", href: "/markets" },
   { icon: Blocks, title: "Build", body: "Baskets from sliders or templates, previewed with live quotes, executed leg by leg. Not-issued names stay as USDC or spread across live ones.", href: "/build" },
   { icon: Repeat, title: "Automate", body: "A stock or a basket bought on a schedule. Automatic plans run through the AutoInvest contract within limits the chain enforces — amount, cadence, routes, minimum output — and can be paused, cancelled or revoked any time; or keep a plan that waits for your confirmation per run.", href: "/automate" },
@@ -43,7 +41,7 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { n: "01", title: "Find", body: `${STOCK_COUNT} Coinbase Tokenized Stocks live on Base as B20 tokens. BStocks identifies each one by its contract address, never by ticker, because names and symbols can change onchain.`, detail: "Assets are read straight from the chain: name, decimals, multiplier, transfer policy, pause flags, supply. New B20 tokens from Coinbase's deployer are discovered automatically." },
+  { n: "01", title: "Find", body: "Coinbase Tokenized Stocks live on Base as B20 tokens. BStocks identifies each one by its contract address, never by ticker, because names and symbols can change onchain.", detail: "Assets are read straight from the chain: name, decimals, multiplier, transfer policy, pause flags, supply. A stock Coinbase lists later appears by itself once it has supply, a pool and a route in both directions; one that loses its market leaves the list and stays in your portfolio." },
   { n: "02", title: "Understand", body: "You see one price and trade at it: the pool's. The issuer's Chainlink feed is what that price is checked against: it is priced from traditional market data and cannot be moved by opening a pool, so when a pool disagrees with it the reference is shown instead and labelled. Executable is what a live quote gives you for your exact amount." },
   { n: "03", title: "Buy or sell", body: "Pick an amount, compare providers, review a firm quote (price, impact, network fee), confirm in your wallet. Quotes are fetched server-side; keys never touch your browser.", detail: "Approvals are scoped to the exact amount and granted only to the spender the provider returns. Every transaction is simulated before it is sent." },
   { n: "04", title: "Hold", body: "Tokens sit in your wallet, not with BStocks. Issuer policies and pauses are read before every action and explained in plain language if they block a transfer.", detail: "Corporate actions (dividends, splits) show up as multiplier changes and reference-price freezes, never as invented cash events." },
@@ -55,7 +53,7 @@ const FAQ: Array<{ q: string; a: string }> = [
   { q: "What is a Coinbase Tokenized Stock?", a: "An ERC-20 token on Base issued by Coinbase under the B20 standard, backed one-to-one by the underlying share held by the issuer. Dividends and splits are reflected through an onchain multiplier, so one token can equal more or less than one share over time." },
   { q: "Why does a stock say “not issued yet”?", a: "The contract exists on Base but Coinbase has not minted any tokens, so there is no supply, no pool and no route that can fill an order. It becomes tradable automatically the moment supply appears; add it to your watchlist meanwhile." },
   { q: "Who can trade here?", a: "Coinbase Tokenized Stocks are offered to eligible persons outside the United States. Visitors from restricted regions see an eligibility notice and must confirm they are eligible before trading; browsing prices, charts and news stays open to everyone." },
-  { q: "Where do prices come from?", a: "Market price and liquidity come from the primary DEX pool (DexScreener, GeckoTerminal), and only from a pool quoted in USDC or ETH: a pool prices a stock against whatever is on the other side, so a pair quoted in some other token reports that token's valuation rather than the stock's. The pool price is then checked against the reference, and refused as the headline figure if it disagrees with it while the feed is live. The reference price is the Chainlink total-return feed for the stock, shown with a freshness flag (live, last close, stale, frozen). The executable price is the live quote from the provider you trade with." },
+  { q: "Where do prices come from?", a: "Market price and liquidity come from the primary DEX pool (DexScreener, GeckoTerminal), and only from a pool quoted in USDC or ETH: a pool prices a stock against whatever is on the other side, so a pair quoted in some other token reports that token's valuation rather than the stock's. The pool price is then checked against the reference, and refused as the headline figure if it disagrees with it while the feed is live. The reference price is the Chainlink total-return feed for the stock, shown with a freshness flag (live, last close, stale, frozen). A newer stock may have no feed yet: it shows the pool price alone, so read its liquidity before trusting the number. The executable price is the live quote from the provider you trade with." },
   { q: "Who executes my trade?", a: "Every quote is requested from several routes at once: KyberSwap, Velora, the Uniswap Trading API, Aerodrome directly, and 0x or OKX when they are enabled. BStocks shows every answer, picks the best net output by default, and lets you choose a provider. The swap itself is a transaction your wallet signs. Turn on best execution and CoW Protocol's batch auction takes the trade whenever it is within half a percent of the best swap: no gas, no front-running, and the panel suggests it for larger orders." },
   { q: "Do I need ETH on Base to use this?", a: "Often not. With a Base Account (passkey wallet), gas is sponsored by a paymaster where its policy allows \u2014 trades, earn deposits, liquidity actions and gift claims can all run with zero ETH; a declined sponsorship just means your wallet asks you to pay instead. Classic wallets pay the Base network fee themselves, usually under a cent. CoW limit orders need no gas to place or cancel, and gift claims can even be paid by someone else entirely." },
   { q: "What fees do I pay?", a: "The Base network fee (usually cents), any DEX fee inside the quoted price, and any provider fee shown in the quote. BStocks charges nothing itself. Base Account users may get sponsored gas when a paymaster is configured." },
@@ -173,7 +171,7 @@ export default function HowItWorksPage() {
           <div className="eyebrow">Safety model</div>
           <ul className="text-[14px] flex flex-col gap-2 list-disc pl-5">
             <li>Self-custodial: BStocks never holds keys or funds and never asks for a signature on page load.</li>
-            <li>Only verified assets from the canonical registry are tradable; new tokens must come from Coinbase&apos;s deployer and carry a Chainlink feed.</li>
+            <li>Only verified assets from the canonical registry are tradable; a new token must be on Coinbase&apos;s own list or come from its deployer, and have supply, a pool and a quote in both directions before it is listed.</li>
             <li>Quotes come from execution providers through the server; API secrets stay server-side.</li>
             <li>Simulation before every send; failures are explained, nothing is sent.</li>
             <li>Partial basket fills are shown honestly, never rolled back to “nothing happened”.</li>

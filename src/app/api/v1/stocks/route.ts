@@ -1,4 +1,7 @@
-import { getAssets } from "@/services/b20-asset-service";
+import { after } from "next/server";
+import { maybeScanInBackground } from "@/services/b20-asset-service";
+import { getTradableAssets } from "@/services/stock-catalog-service";
+
 import { getPriceViews } from "@/services/price-service";
 import { toV1Stock } from "@/lib/api-v1/shape";
 import { v1Json, v1Options } from "@/lib/api-v1/respond";
@@ -13,7 +16,8 @@ export const maxDuration = 60;
  * whether one person reads it or a thousand agents do.
  */
 export async function GET(): Promise<Response> {
-  const assets = await getAssets();
+  after(() => maybeScanInBackground());
+  const assets = await getTradableAssets();
   const views = await getPriceViews(assets).catch(() => new Map());
   const stocks = assets.map((a) => toV1Stock(a, views.get(a.canonicalId)));
   return v1Json({ count: stocks.length, stocks }, { cacheSeconds: 30, staleSeconds: 300 });
