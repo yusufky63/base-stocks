@@ -115,11 +115,19 @@ export async function getDexScreenerMarkets(addresses: Address[]): Promise<Map<s
     // Liquidity and volume describe the token's whole tradable depth, not its deepest single pool.
     // Price, the 24h move and market cap stay with the primary pair: those belong to one market,
     // and averaging them across pools of wildly different size would invent a number nobody quoted.
+    //
+    // The primary pair is chosen again from the full list. The batch endpoint returns one pair per
+    // token, picked by DexScreener rather than by depth: for CAKEc it was a $141 Uniswap pool at
+    // $882 while a $1,941 Aerodrome pool stood at $105.73 against a $109.65 share (2026-10-06).
     try {
       const depths = await getDexScreenerDepths([...out.values()].map((v) => v.address), best);
       for (const [k, v] of out) {
         const d = depths.get(k);
-        if (d) out.set(k, { ...v, liquidityUsd: d.liquidityUsd, volume24hUsd: d.volume24hUsd });
+        if (!d) continue;
+        const deeper = d.primary && d.primary.pairAddress.toLowerCase() !== v.primaryPool?.toLowerCase() ? d.primary : null;
+        const deeperPrice = deeper ? toNum(deeper.priceUsd) : null;
+        const repriced = deeper && deeperPrice !== null && deeperPrice > 0 ? { priceUsd: deeperPrice, change24hPct: toNum(deeper.priceChange?.h24), marketCapUsd: toNum(deeper.marketCap) ?? toNum(deeper.fdv), primaryPool: deeper.pairAddress as Address } : {};
+        out.set(k, { ...v, ...repriced, liquidityUsd: d.liquidityUsd, volume24hUsd: d.volume24hUsd });
       }
     } catch (err) {
       // A failed depth pass leaves the single-pool figures, which understate but never mislead.
@@ -160,6 +168,8 @@ export interface TokenDepth {
   volume24hUsd: number;
   /** How many pools the total is made of, for the "we show N pools" line. */
   pools: number;
+  /** The deepest pool the token can be sold to dollars through, from the full list. */
+  primary?: DexScreenerPair;
 }
 
 /**
@@ -240,8 +250,12 @@ export async function getDexScreenerDepths(addresses: Address[], primaries?: Map
   for (const r of settled) {
     if (r.status !== "fulfilled") continue;
     const [address, pairs] = r.value;
-    const depth = aggregateDepth(pairs, address, primaries?.get(address.toLowerCase()));
-    if (depth) out.set(address.toLowerCase(), depth);
+    const known = primaries?.get(address.toLowerCase());
+    const depth = aggregateDepth(pairs, address, known);
+    if (!depth) continue;
+    // The batch pair joins the list for the same reason it joins the total: the long list can forget it.
+    const primary = pickPrimaryPairs(known ? [...pairs, known] : pairs, [address]).get(address.toLowerCase());
+    out.set(address.toLowerCase(), primary ? { ...depth, primary } : depth);
   }
   return out;
 }

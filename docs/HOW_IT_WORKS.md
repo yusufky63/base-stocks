@@ -97,7 +97,7 @@ Feeds are looked up from the Chainlink Base directory (`https://reference-data-d
 
 | Source | Used for | Auth |
 | --- | --- | --- |
-| DexScreener | Market price, 24h change, volume, liquidity, primary pair. The pair has to have the token as base **and** a quote the router can reach dollars through (USDC, USDbC, WETH, native ETH): a pool prices a token against its other side, so a pair quoted in a long-tail token reports that token's valuation. | none |
+| DexScreener | Market price, 24h change, volume, liquidity, primary pair. The pair has to have the token as base **and** a quote the router can reach dollars through (USDC, USDbC, WETH, native ETH): a pool prices a token against its other side, so a pair quoted in a long-tail token reports that token's valuation. The batch endpoint returns one pair per token, chosen by DexScreener rather than by depth, so the primary pair is picked again from the token's full pair list (CAKEc was priced at $882 from a $141 pool while a $1,941 pool stood at $105.73). | none |
 | GeckoTerminal | OHLCV candles (`/pools/{pool}/ohlcv`), token metadata/logos, top pools per token (`?include=top_pools`), price fallback. Candles are validated against the display price before they are served: a series whose last close is more than 25% away is a series read off the wrong side of the pair, and is dropped so the chart falls back to Chainlink round history (`getChartSeries`, `source: reference`), which Base documents as a first-class historical source. | none, ~30 req/min (rate gate 2.2 s) |
 | Chainlink | Optional independent reference price and freshness | onchain |
 | OKX DEX API | optional candles/trades fallback (only when the project is entitled) | signed |
