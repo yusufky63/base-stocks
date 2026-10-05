@@ -96,6 +96,13 @@ function feedNote(asset: AssetResponse["asset"], referenceUpdatedAt: number | nu
   return "The issuer's price feed has not updated for over a day.";
 }
 
+/** Where the reference of a stock without a feed comes from, said once under the price. */
+function shareReferenceNote(underlying: string, price: AssetResponse["price"]): string | null {
+  if (price?.referenceSource !== "equity-market" || price.referenceUsd === null) return null;
+  const when = price.referenceFreshness === "last-close" ? "last close" : price.referenceFreshness === "stale" ? "last known price, not current" : "delayed";
+  return `No Chainlink feed for ${underlying} yet. Its reference is the US share price from Yahoo Finance (${when}) times the token's multiplier, shown for comparison only.`;
+}
+
 /**
  * Stock detail (spec §44). Desktop: chart + trade panel side by side. Mobile: chart first,
  * position, contextual sections, sticky BUY / SELL bottom action opening the trade sheet.
@@ -190,7 +197,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
   // A daily move is asserted only by a market deep enough for it to be about the stock, not about one trade.
   const meaningfulChange = hasMeaningfulChange(status.status, price);
   const change24h = meaningfulChange ? (price?.marketChange24hPct ?? null) : null;
-  const note = feedNote(asset, price?.referenceUpdatedAt);
+  const note = feedNote(asset, price?.referenceUpdatedAt) ?? shareReferenceNote(asset.underlying, price);
   const reasonText = price?.displayReason === "thin" ? "pool too thin to price" : price?.displayReason === "deviation" ? "pool price off the reference" : null;
 
   return (
@@ -259,7 +266,7 @@ export function StockDetailView({ initialData }: { initialData: AssetResponse })
                   </>
                 ) : price?.displaySource === "reference" ? (
                   <>
-                    reference · <TimeAgo value={price.referenceUpdatedAt} />
+                    {price.referenceSource === "equity-market" ? "share price" : "reference"} · <TimeAgo value={price.referenceUpdatedAt} />
                   </>
                 ) : (
                   ""

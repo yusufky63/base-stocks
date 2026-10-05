@@ -7,13 +7,15 @@ import { recallGood, rememberGood } from "@/lib/last-good";
 import { cached, TTL } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { serverEnv } from "@/config/env";
+import { getEquityReferences, type EquityReference } from "./equity-reference-service";
 
 /** Chainlink ETH / USD on Base mainnet (verified via description()). Used only for fee display. */
 export const ETH_USD_FEED: Address = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
 
 /**
  * Three distinct price concepts (spec §11):
- *   REFERENCE = Chainlink (total-return, per raw token)
+ *   REFERENCE = Chainlink (total-return, per raw token), or for a stock without a feed the US
+ *               share price times the multiplier (equity-reference-service)
  *   MARKET    = market-data provider (DEX, per raw token)
  *   EXECUTABLE= 0x / Kyber quote (computed in trade-router)
  * Never collapsed into one field.
@@ -30,9 +32,14 @@ const MAX_DISPLAY_DEVIATION_PCT = 20;
 /** Below this, a pool is a quote somebody left lying around rather than a market. */
 const MIN_DISPLAY_LIQUIDITY_USD = 20_000;
 
-export function buildPriceView(asset: B20Asset, market: TokenMarketData | null): PriceView {
-  const referenceUsd = asset.oracle?.priceUsd ?? null;
-  const referenceUsable = referenceUsd !== null && asset.oracle !== undefined && !asset.oracle.paused && !asset.oracle.stale;
+export function buildPriceView(asset: B20Asset, market: TokenMarketData | null, equity: EquityReference | null = null): PriceView {
+  // A stock with a feed is referenced by its feed alone; the share price stands in only where
+  // Coinbase publishes none, so the pool of a feed-less stock is held to the same gate.
+  const shareRef = asset.oracle ? null : equity;
+  const referenceUsd = asset.oracle?.priceUsd ?? shareRef?.priceUsd ?? null;
+  const referenceStale = asset.oracle ? asset.oracle.stale : shareRef ? shareRef.freshness === "stale" : true;
+  const referencePaused = asset.oracle?.paused ?? false;
+  const referenceUsable = referenceUsd !== null && !referencePaused && !referenceStale;
   const marketUsd = market?.priceUsd ?? null;
 
   const deviationPct = marketUsd !== null && referenceUsd !== null && referenceUsd > 0 ? ((marketUsd - referenceUsd) / referenceUsd) * 100 : null;
@@ -85,11 +92,12 @@ export function buildPriceView(asset: B20Asset, market: TokenMarketData | null):
     marketUpdatedAt: market?.updatedAt ?? null,
     liquidityUsd: market?.liquidityUsd ?? null,
     volume24hUsd: market?.volume24hUsd ?? null,
-    referenceFreshness: asset.oracle?.freshness ?? "stale",
+    referenceFreshness: asset.oracle?.freshness ?? shareRef?.freshness ?? "stale",
     referenceUsd,
-    referenceStale: asset.oracle?.stale ?? true,
-    referencePaused: asset.oracle?.paused ?? false,
-    referenceUpdatedAt: asset.oracle ? Number(asset.oracle.updatedAt) * 1000 : null,
+    referenceSource: asset.oracle ? "chainlink" : shareRef ? "equity-market" : null,
+    referenceStale,
+    referencePaused,
+    referenceUpdatedAt: asset.oracle ? Number(asset.oracle.updatedAt) * 1000 : (shareRef?.updatedAt ?? null),
     displayUsd,
     displaySource,
     deviationPct,
@@ -156,10 +164,16 @@ export async function peekMarketData(address: Address, maxAgeMs = TTL.market.ttl
 }
 
 export async function getPriceViews(assets: B20Asset[]): Promise<Map<string, PriceView>> {
-  const md = await getMarketDataMap(assets.map((a) => a.address));
+  const [md, equity] = await Promise.all([getMarketDataMap(assets.map((a) => a.address)), getEquityReferences(assets).catch(() => new Map<string, EquityReference>())]);
   const out = new Map<string, PriceView>();
-  for (const a of assets) out.set(a.canonicalId, buildPriceView(a, md.get(a.canonicalId) ?? null));
+  for (const a of assets) out.set(a.canonicalId, buildPriceView(a, md.get(a.canonicalId) ?? null, equity.get(a.canonicalId) ?? null));
   return out;
+}
+
+/** One stock's view from market data already in hand, with the share-price reference it needs if it has no feed. */
+export async function priceViewFor(asset: B20Asset, md: Map<string, TokenMarketData>): Promise<PriceView> {
+  const equity = asset.oracle ? null : ((await getEquityReferences([asset]).catch(() => null))?.get(asset.canonicalId) ?? null);
+  return buildPriceView(asset, md.get(asset.canonicalId) ?? null, equity);
 }
 
 /** ETH/USD for network-fee display. Null when unavailable; never blocks trading. */
@@ -181,7 +195,7 @@ export async function getEthUsd(): Promise<number | null> {
 export async function estimateStockUsd(asset: B20Asset, rawAmount: bigint): Promise<number | null> {
   if (rawAmount <= 0n) return null;
   const md = await getMarketDataMap([asset.address]).catch(() => new Map<string, TokenMarketData>());
-  const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
+  const view = await priceViewFor(asset, md);
   const price = impactBasis(view)?.price ?? view.displayUsd ?? asset.oracle?.priceUsd ?? null;
   if (price === null || !(price > 0)) return null;
   return Number(formatUnits(rawAmount, asset.decimals)) * price;

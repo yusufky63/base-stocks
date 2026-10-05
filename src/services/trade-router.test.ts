@@ -90,6 +90,7 @@ vi.mock("./price-service", () => ({
   getEthUsd: vi.fn(async () => 3000),
   getMarketDataMap: vi.fn(async () => new Map([[asset.canonicalId, {}]])),
   buildPriceView: vi.fn(() => priceView),
+  priceViewFor: vi.fn(async () => priceView),
   impactBasis: vi.fn(() => (basisPrice === null ? null : { basis: "market", price: basisPrice })),
 }));
 

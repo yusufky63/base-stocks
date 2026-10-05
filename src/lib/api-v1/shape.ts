@@ -90,8 +90,11 @@ export function toV1Stock(asset: B20Asset, price: PriceView | undefined): V1Stoc
           isPaused: price?.referencePaused ?? asset.oracle.paused,
         }
       : null,
-    displayUsd: price?.displayUsd ?? null,
-    displaySource: price?.displaySource ?? "none",
+    // A reference that is not the issuer's feed is third-party market data the app shows but does
+    // not republish, so where the app's headline is that number the API falls back to the pool.
+    ...(price?.displaySource === "reference" && price.referenceSource === "equity-market"
+      ? { displayUsd: price.marketUsd, displaySource: price.marketUsd !== null ? ("market" as const) : ("none" as const) }
+      : { displayUsd: price?.displayUsd ?? null, displaySource: price?.displaySource ?? "none" }),
     status: { code: status.status, label: status.label, detail: status.detail },
     totalSupply: asset.totalSupply.toString(),
     transferPaused: asset.transferPaused,

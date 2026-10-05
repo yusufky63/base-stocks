@@ -18,13 +18,14 @@ function useTimeZone(): string {
 }
 
 /**
- * Why the pool's own candles are shown under a headline price that came from Chainlink. The two
- * reasons are different facts: a thin pool has a price nobody can trade at size, a deviating pool
- * has a price that disagrees with the stock. The old copy said "too thin" for both.
+ * Why the pool's own candles are shown under a headline price that came from the reference (the
+ * Chainlink feed, or the share price for a stock without one). The two reasons are different
+ * facts: a thin pool has a price nobody can trade at size, a deviating pool has a price that
+ * disagrees with the stock. The old copy said "too thin" for both.
  */
 const UNTRUSTED_COPY: Record<"thin" | "deviation", string> = {
-  thin: "Chart shows raw DEX pool trades. Liquidity is too thin to trust as a market, so the price shown above is the Chainlink reference — the two can differ a lot until real liquidity arrives.",
-  deviation: "Chart shows raw DEX pool trades. The pool price sits too far from the Chainlink reference to be the headline, so the price shown above is the reference — the chart follows the pool and can disagree with it.",
+  thin: "Chart shows raw DEX pool trades. Liquidity is too thin to trust as a market, so the price shown above is the stock's reference price; the two can differ a lot until real liquidity arrives.",
+  deviation: "Chart shows raw DEX pool trades. The pool price sits too far from the stock's reference price to be the headline, so the price shown above is the reference; the chart follows the pool and can disagree with it.",
 };
 
 export function ChartModule({

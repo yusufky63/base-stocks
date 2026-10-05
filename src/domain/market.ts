@@ -60,8 +60,14 @@ export interface PriceView {
   volume24hUsd: number | null;
   /** Reference-feed freshness classification (live / last-close / stale / frozen). */
   referenceFreshness: ReferenceFreshness;
-  /** Chainlink reference (total-return, multiplier adjusted). */
+  /** Reference per raw token (total-return, multiplier adjusted): Chainlink, or the share price where there is no feed. */
   referenceUsd: number | null;
+  /**
+   * Where `referenceUsd` comes from. `chainlink` is the issuer's onchain feed; `equity-market` is
+   * the US share price times the multiplier, for a stock without a feed: off-chain and delayed,
+   * never read by a contract and not republished by the public API.
+   */
+  referenceSource?: "chainlink" | "equity-market" | null;
   referenceStale: boolean;
   referencePaused: boolean;
   referenceUpdatedAt: number | null;

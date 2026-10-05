@@ -282,7 +282,7 @@ export default function DocsPage() {
             <div className="flex items-center gap-2 text-[14px] font-medium">
               DexScreener <span className="text-ink-muted">→</span> GeckoTerminal
             </div>
-            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down. Only pools quoted in USDC or ETH are priced from, and the figure has to agree with the reference to be the headline. A stock with no feed yet has nothing to be checked against: its pool price is shown as it is, beside the pool&apos;s size.</p>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">What the pools are actually paying right now; the second source takes over when the first is down. Only pools quoted in USDC or ETH are priced from, and the figure has to agree with the reference to be the headline. A stock with no feed yet is checked against its US share price instead (Yahoo Finance, delayed, times the multiplier), labelled as a share price in the app.</p>
           </article>
           <article className="rail p-4 md:p-5 flex flex-col gap-2">
             <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Reference price · Chainlink</div>

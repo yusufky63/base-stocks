@@ -168,7 +168,7 @@ export function TradePanel({ asset, price, initialSide = "buy", onTraded, classN
 
       <div className="p-4 flex flex-col gap-4">
         <div className="flex items-center gap-2 text-[12px] text-ink-secondary">
-          <ColorDot k={asset.address} /> {asset.underlying} · {displayPrice !== null ? formatUsd(displayPrice) : "—"} <span className="text-ink-muted">{price?.displaySource === "reference" ? "reference" : "market"}</span>
+          <ColorDot k={asset.address} /> {asset.underlying} · {displayPrice !== null ? formatUsd(displayPrice) : "—"} <span className="text-ink-muted">{price?.displaySource === "reference" ? (price.referenceSource === "equity-market" ? "share price" : "reference") : "market"}</span>
         </div>
 
         {limitMode ? (

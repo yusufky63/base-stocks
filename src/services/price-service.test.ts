@@ -3,6 +3,7 @@ import type { Address } from "viem";
 import type { B20Asset, OracleState } from "@/domain/asset";
 import type { TokenMarketData } from "@/domain/market";
 import { buildPriceView } from "./price-service";
+import type { EquityReference } from "./equity-reference-service";
 
 const TSLA = "0xb2000000000000000000001e800a7f5189430cD0" as Address;
 
@@ -98,5 +99,49 @@ describe("buildPriceView display gate", () => {
     const view = buildPriceView(asset({ oracle: undefined }), market(12.5, 30_000));
     expect(view.displaySource).toBe("market");
     expect(view.displayUsd).toBe(12.5);
+  });
+});
+
+/**
+ * A stock with no Chainlink feed is held to the same gate against its share price times the
+ * multiplier. CAKEc, 2026-10-04: a $148 pool at $970 beside a $109.65 share.
+ */
+describe("buildPriceView with a share-price reference", () => {
+  const share = (priceUsd: number, over: Partial<EquityReference> = {}): EquityReference => ({ priceUsd, sharePriceUsd: priceUsd, updatedAt: Date.now(), freshness: "live", points: [], source: "yahoo", ...over });
+  const feedless = (over: Partial<B20Asset> = {}) => asset({ oracle: undefined, ...over });
+
+  it("shows the share price, not a thin pool eight times above it", () => {
+    const view = buildPriceView(feedless(), market(970.06, 148), share(109.65));
+    expect(view.displaySource).toBe("reference");
+    expect(view.displayUsd).toBe(109.65);
+    expect(view.referenceSource).toBe("equity-market");
+    expect(view.displayReason).toBe("thin");
+    expect(view.deviationPct).toBeCloseTo(784.7, 0);
+  });
+
+  it("keeps a deep pool that agrees with the share price as the headline", () => {
+    const view = buildPriceView(feedless(), market(189.07, 967_117), share(188.75));
+    expect(view.displaySource).toBe("market");
+    expect(view.displayUsd).toBe(189.07);
+    expect(view.referenceUsd).toBe(188.75);
+  });
+
+  it("does not gate on a share price that has gone stale", () => {
+    const view = buildPriceView(feedless(), market(970.06, 148), share(109.65, { freshness: "stale" }));
+    expect(view.displaySource).toBe("market");
+    expect(view.referenceStale).toBe(true);
+  });
+
+  it("never lets a share price stand in for a Chainlink feed", () => {
+    const view = buildPriceView(asset(), market(365.73, 709_888), share(1));
+    expect(view.referenceUsd).toBe(366.27);
+    expect(view.referenceSource).toBe("chainlink");
+  });
+
+  it("has no reference at all when neither exists", () => {
+    const view = buildPriceView(feedless(), market(10, 50_000));
+    expect(view.referenceUsd).toBeNull();
+    expect(view.referenceSource).toBeNull();
+    expect(view.displaySource).toBe("market");
   });
 });

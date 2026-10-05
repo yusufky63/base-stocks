@@ -48,7 +48,7 @@ export function StockHeader({ data, large = false }: { data: AssetResponse; larg
         <div className="flex items-baseline gap-2 mt-1 flex-wrap">
           <span className={large ? "display num text-[28px] leading-none" : "font-mono num text-[13px] text-ink-secondary"}>{displayPrice === null ? "—" : formatUsd(displayPrice)}</span>
           <PriceChange value={change24h} className={large ? "text-[14px]" : "text-[12px]"} />
-          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-muted">{price?.displaySource === "reference" ? "reference" : price?.displaySource === "market" ? "market" : ""}</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-muted">{price?.displaySource === "reference" ? (price.referenceSource === "equity-market" ? "share price" : "reference") : price?.displaySource === "market" ? "market" : ""}</span>
         </div>
       </div>
       <a

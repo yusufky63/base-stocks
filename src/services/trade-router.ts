@@ -11,7 +11,7 @@ import { getTradeProviders, isKnownTarget } from "@/providers/trading";
 import { COMPARE_TIMEOUT_MS } from "@/providers/trading/budget";
 import { raceWithFallback } from "@/lib/fallback";
 import { b20Guard } from "./b20-guard-service";
-import { getEthUsd, getMarketDataMap, buildPriceView, impactBasis } from "./price-service";
+import { getEthUsd, getMarketDataMap, impactBasis, priceViewFor } from "./price-service";
 import { getServerPublicClient } from "@/lib/viem/server-client";
 
 export interface TradeRequest {
@@ -210,7 +210,7 @@ async function sellSideShort(taker: Address | undefined, sellToken: Address, sel
 async function summarize(req: TradeRequest, asset: B20Asset, q: IndicativeQuote, warnings: string[]): Promise<TradeQuoteSummary> {
   const needsGasPrice = q.totalNetworkFeeWei === null && q.gasPrice === null;
   const [md, ethUsd, short, gasPrice] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd(), sellSideShort(req.taker, q.sellToken, q.sellAmount), needsGasPrice ? currentGasPrice() : Promise.resolve(null)]);
-  const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
+  const view = await priceViewFor(asset, md);
   const exec = executablePrice(req.side, q, asset, ethUsd);
   const basis = impactBasisFor(view);
   const priceImpactPct = basis ? quoteDeviationPct(req.side, exec, basis.price) : null;
@@ -437,7 +437,7 @@ interface Comparison {
 async function compareProviders(intent: TradeIntent, asset: B20Asset, side: TradeSide, orders: boolean, zeroX: boolean, bestExecution = false): Promise<Comparison> {
   const providers = getTradeProviders({ orders, zeroX });
   const [md, ethUsd, gasPrice] = await Promise.all([getMarketDataMap([asset.address]), getEthUsd(), currentGasPrice()]);
-  const view = buildPriceView(asset, md.get(asset.canonicalId) ?? null);
+  const view = await priceViewFor(asset, md);
   const tokenUsd = view.displayUsd ?? asset.oracle?.priceUsd ?? null;
   const basisPrice = impactBasis(view)?.price ?? null;
   const started = Date.now();

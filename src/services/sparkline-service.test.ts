@@ -3,9 +3,10 @@ import type { Address } from "viem";
 import type { B20Asset } from "@/domain/asset";
 import type { Candle } from "@/domain/market";
 
-const h = vi.hoisted(() => ({ rounds: vi.fn(), series: vi.fn() }));
+const h = vi.hoisted(() => ({ rounds: vi.fn(), series: vi.fn(), equity: vi.fn() }));
 vi.mock("@/providers/market-data/chainlink/history", () => ({ readRoundHistory: h.rounds }));
 vi.mock("@/lib/shared-store", () => ({ getSharedStore: () => null }));
+vi.mock("./equity-reference-service", () => ({ getEquityReferences: h.equity }));
 vi.mock("./market-service", () => ({
   chartCandlesKey: (address: string, timeframe: string) => `ohlcv:${address.toLowerCase()}:${timeframe}`,
   getChartSeries: h.series,
@@ -32,6 +33,7 @@ beforeEach(async () => {
   resetLastGoodMemory();
   await invalidate("");
   h.rounds.mockResolvedValue([]);
+  h.equity.mockResolvedValue(new Map());
 });
 
 describe("sparklines", () => {
@@ -52,6 +54,22 @@ describe("sparklines", () => {
     expect(d7[address(2)]!.at(-1)).toBe(267);
     expect(d1[address(2)]!.at(-1)).toBe(267);
     expect(d1[address(2)]!.at(0)).toBeGreaterThan(d7[address(2)]!.at(0)!);
+  });
+
+  it("draws a stock without a feed from its share price before its pool", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    rememberGood(key(2), hourly(168));
+    h.equity.mockResolvedValue(new Map([[address(2), { points: [{ time: now - 3 * 86_400, price: 50 }, { time: now - 3_600, price: 55 }] }]]));
+    const { d1, d7 } = await getSparklines([asset(2)]);
+    expect(d7[address(2)]!.at(0)).toBe(50);
+    expect(d1[address(2)]!.at(-1)).toBe(55);
+  });
+
+  it("falls back to the pool candles when the share price cannot be read", async () => {
+    rememberGood(key(2), hourly(168));
+    h.equity.mockRejectedValue(new Error("yahoo down"));
+    const { d7 } = await getSparklines([asset(2)]);
+    expect(d7[address(2)]!.at(-1)).toBe(267);
   });
 
   it("leaves a stock out rather than draw a series that ended half a day ago", async () => {

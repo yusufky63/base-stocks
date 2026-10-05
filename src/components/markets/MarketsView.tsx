@@ -205,11 +205,18 @@ function MarketRow({ asset, price, spark, watched, onToggleWatch, restricted }: 
         <span className="block">{price?.liquidityUsd ? formatUsdCompact(price.liquidityUsd) : "—"}</span>
         <span className="block text-ink-muted">{price?.volume24hUsd ? `${formatUsdCompact(price.volume24hUsd)} vol` : muted ? "no market" : "no volume"}</span>
       </div>
-      <div className="hidden lg:block text-right font-mono num text-[13px] text-ink-secondary">
+      <div className="hidden lg:block text-right font-mono num text-[13px] text-ink-secondary" title={price?.referenceSource === "equity-market" ? "No Chainlink feed for this stock: the US share price from Yahoo Finance, times the token's multiplier. Delayed, for comparison only." : price?.referenceSource === "chainlink" ? "The issuer's Chainlink reference feed" : undefined}>
         {formatUsd(price?.referenceUsd)}
-        {price?.referenceUsd != null && price.referenceFreshness === "stale" && <span className="block text-[11px] uppercase text-ink-muted">stale</span>}
-        {price?.referenceUsd != null && price.referenceFreshness === "last-close" && <span className="block text-[11px] uppercase text-ink-muted">last close</span>}
-        {price?.referenceUsd != null && price.referenceFreshness === "frozen" && <span className="block text-[11px] uppercase text-warning-fg">frozen</span>}
+        {/* A share-price reference always says so: it is not the issuer's feed, and a table of numbers would otherwise read as one source. */}
+        {price?.referenceUsd != null && price.referenceSource === "equity-market" ? (
+          <span className="block text-[11px] uppercase text-ink-muted">{price.referenceFreshness === "last-close" ? "share · close" : price.referenceFreshness === "stale" ? "share · stale" : "share price"}</span>
+        ) : (
+          <>
+            {price?.referenceUsd != null && price.referenceFreshness === "stale" && <span className="block text-[11px] uppercase text-ink-muted">stale</span>}
+            {price?.referenceUsd != null && price.referenceFreshness === "last-close" && <span className="block text-[11px] uppercase text-ink-muted">last close</span>}
+            {price?.referenceUsd != null && price.referenceFreshness === "frozen" && <span className="block text-[11px] uppercase text-warning-fg">frozen</span>}
+          </>
+        )}
       </div>
       <div className="hidden lg:flex items-center justify-end gap-1.5">
         {watchButton("h-9 w-9")}

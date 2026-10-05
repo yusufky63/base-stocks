@@ -5,11 +5,12 @@ import { cached, invalidate } from "@/lib/cache";
 import { metrics } from "@/lib/http";
 import { recallGood } from "@/lib/last-good";
 import { chartCandlesKey, getChartSeries } from "./market-service";
+import { getEquityReferences, type EquityReference } from "./equity-reference-service";
 
 const D1_S = 24 * 3600;
 const D7_S = 7 * 24 * 3600;
 const POINTS = 32;
-const SPARKLINES_KEY = "sparklines:1d7d:v2";
+const SPARKLINES_KEY = "sparklines:1d7d:v3";
 
 /** A remembered DEX series older than this is not drawn: a week's shape that ends half a day ago misleads. */
 const DEX_SERIES_MAX_AGE_MS = 12 * 3600_000;
@@ -45,10 +46,12 @@ function needsDexSeries(asset: B20Asset): boolean {
  * cached computation serves all visitors; 15-minute TTL.
  *
  * A stock with a feed is drawn from Chainlink round history. A stock without one is drawn from its
- * pool's hourly candles, the series the 1W chart already fetches and remembers. That series is only
- * read here, never fetched: the candle provider allows about thirty calls a minute, and thirty
- * stocks asking at once would spend the whole budget inside one request. `refreshDexSparklines`
- * keeps the remembered series current a few stocks at a time.
+ * share price's hourly closes (times the multiplier), the same reference that stands in for the
+ * feed on the price, so every line in the table shows the stock rather than one pool. Failing
+ * that it falls back to its pool's hourly candles, the series the 1W chart already fetches and
+ * remembers. That series is only read here, never fetched: the candle provider allows about thirty
+ * calls a minute, and thirty stocks asking at once would spend the whole budget inside one
+ * request. `refreshDexSparklines` keeps the remembered series current a few stocks at a time.
  */
 export async function getSparklines(assets: B20Asset[]): Promise<{ d1: Record<string, number[]>; d7: Record<string, number[]> }> {
   return cached(SPARKLINES_KEY, { ttlMs: 15 * 60_000, staleMs: 60 * 60_000, shared: true }, async () => {
@@ -60,12 +63,18 @@ export async function getSparklines(assets: B20Asset[]): Promise<{ d1: Record<st
       d1[asset.canonicalId] = bucketSeries(points, now - D1_S, D1_S);
       d7[asset.canonicalId] = bucketSeries(points, now - D7_S, D7_S);
     };
+    const equity = await getEquityReferences(assets).catch(() => new Map<string, EquityReference>());
     await Promise.all(
       assets.map(async (a) => {
         try {
           if (a.oracle) {
             const rounds = await readRoundHistory(a.oracle.feed, 400);
             if (rounds.length > 0) put(a, rounds);
+            return;
+          }
+          const share = equity.get(a.canonicalId);
+          if (share && share.points.length >= 2) {
+            put(a, share.points);
             return;
           }
           if (!needsDexSeries(a)) return;
