@@ -3,18 +3,19 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { StockDetailView } from "@/components/stock/StockDetailView";
 import { loadAssetResponse } from "@/lib/server-data";
-import { CURATED_B20_ASSETS, findCuratedAsset } from "@/lib/b20/registry";
+import { findCuratedAsset } from "@/lib/b20/registry";
 import { Skeleton } from "@/components/ui/primitives";
 import { ensureDiscoveredRegistry } from "@/services/b20-asset-service";
 import { pageMeta } from "@/lib/page-meta";
 
-/** Rendered at most every 30 s and served from the cache between; the client refreshes prices itself. */
-export const revalidate = 30;
-
-/** The curated stocks are known at build time; each gets a prerendered page that ISR keeps fresh. Discovered ones render on demand. */
-export function generateStaticParams() {
-  return CURATED_B20_ASSETS.map((a) => ({ address: a.address }));
-}
+/**
+ * Rendered per request. As an ISR page, any path not prerendered (a discovered stock, a link in
+ * another casing) rendered on its first visit as a static page, and a provider read that missed
+ * its cache there is an uncached fetch, which Next refuses with "Page changed from static to
+ * dynamic at runtime": /stocks/<PLTRc in lowercase> answered 500 on every visit (2026-10-06). The
+ * data underneath is cached in the shared store either way, so a request costs a few cache reads.
+ */
+export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ address: string }> };
 
